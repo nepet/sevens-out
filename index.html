@@ -1,0 +1,1601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Sevens Out: a dice game for 2 to 6 players. Set aside pairs that make 7; once someone reaches 101, the highest score loses.">
+<meta name="theme-color" content="#ECEEF1" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111318" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Sevens Out">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='4' y='4' width='56' height='56' rx='13' fill='%236A2129'/%3E%3Cg fill='%23D8B06A'%3E%3Ccircle cx='20' cy='19' r='5.5'/%3E%3Ccircle cx='44' cy='19' r='5.5'/%3E%3Ccircle cx='20' cy='32' r='5.5'/%3E%3Ccircle cx='44' cy='32' r='5.5'/%3E%3Ccircle cx='20' cy='45' r='5.5'/%3E%3Ccircle cx='44' cy='45' r='5.5'/%3E%3C/g%3E%3C/svg%3E">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Sevens Out</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Bungee&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one column like a pub table — score strip on top, a stitched leather dice tray as the centrepiece, actions under the thumb, score sheet and rules folded below. */
+:root{
+  --paper:#ECEEF1; --card:#F9FAFB; --ink:#18202C; --ink-soft:#586273; --line:#CBD1DA;
+  --leather:#6A2129; --leather-deep:#3F1218; --on-leather:#F4E7E1; --stitch:#D8B06A;
+  --brass:#B5832A; --brass-ink:#1A1306;
+  --bone:#F7F2E7; --bone-edge:#D3C8B1; --pip:#1D1915; --shade:rgba(10,12,18,.28);
+  --danger:#B3261E; --danger-ink:#FFFFFF;
+  --font-display:"Big Shoulders Display","Arial Narrow","Roboto Condensed",sans-serif;
+  --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --die:clamp(3.5rem,17vw,4.5rem);
+  /* used by the Vegas look; harmless defaults here */
+  --chrome:#CBD1DA; --bulb:#D8B06A; --led:#18202C; --meter:#F9FAFB;
+  --reel:#FFFFFF; --reel-mid:#EBE6DC; --reel-edge:#77706A; --reel-ink:#2A0A10; --die-hi:#FFFFFF;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#111318; --card:#191C23; --ink:#E8EAEE; --ink-soft:#9CA4B1; --line:#2B303A;
+    --leather:#58171F; --leather-deep:#2A0B10; --brass:#D4A24C;
+    --bone:#EFE7D6; --bone-edge:#BDB197; --shade:rgba(0,0,0,.5);
+    --danger:#FF8A80; --danger-ink:#2A0606; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#111318; --card:#191C23; --ink:#E8EAEE; --ink-soft:#9CA4B1; --line:#2B303A;
+  --leather:#58171F; --leather-deep:#2A0B10; --brass:#D4A24C;
+  --bone:#EFE7D6; --bone-edge:#BDB197; --shade:rgba(0,0,0,.5);
+  --danger:#FF8A80; --danger-ink:#2A0606; color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{background:var(--paper)}
+body{color:var(--ink);font:400 15px/1.45 var(--font-body);-webkit-tap-highlight-color:transparent}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--brass);outline-offset:2px}
+.wrap{max-width:34rem;margin-inline:auto;padding-inline:16px;padding-block:14px 48px;display:flex;flex-direction:column;gap:14px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* header */
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand{font:800 1.55rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em}
+.brand span{color:var(--brass)}
+.meta{font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.8rem;color:var(--ink-soft)}
+.chip b{color:var(--ink);font-weight:700}
+.alert{border:1.5px solid var(--danger);border-radius:10px;padding:10px 12px;font-size:.9rem;margin:0}
+.alert strong{color:var(--danger)}
+
+/* scoreboard */
+.board{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.board.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.board.cols-3 .pl{padding:9px 10px}
+.board.cols-3 .num{font-size:1.8rem}
+.board.cols-3 .pl-top{flex-wrap:wrap}
+.pl{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.pl.now{border-color:var(--brass);box-shadow:inset 0 0 0 1px var(--brass)}
+.pl-top{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.nm{font-weight:600;overflow-wrap:anywhere;min-width:0}
+.tag{font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--brass);white-space:nowrap}
+.pl.lost .tag{color:var(--danger)}
+.sc{display:flex;align-items:baseline;gap:5px}
+.num{font:800 2.1rem/1 var(--font-display);font-variant-numeric:tabular-nums}
+.of{font-size:.78rem;color:var(--ink-soft)}
+.bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar span{display:block;height:100%;background:var(--brass);border-radius:3px}
+.pl.over .bar span{background:var(--danger)}
+.pl.over .num{color:var(--danger)}
+.pl-foot{font-size:.78rem;color:var(--ink-soft);font-variant-numeric:tabular-nums;min-height:1.1em}
+.last{font-size:.9rem;color:var(--ink-soft);margin:0}
+.last b{color:var(--ink)}
+
+/* turn */
+.turn{display:flex;flex-direction:column;gap:10px}
+.turnhead{display:flex;justify-content:space-between;align-items:flex-end;gap:8px 16px;flex-wrap:wrap}
+.eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--brass);margin:0}
+.who{font:800 2.5rem/.95 var(--font-display);margin:2px 0 0;overflow-wrap:anywhere;text-wrap:balance}
+.sub{margin:0;color:var(--ink-soft);font-size:.9rem;max-width:46ch}
+.rolls{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.slots{display:flex;gap:6px}
+.slot{width:14px;height:14px;border-radius:4px;border:2px solid var(--ink-soft)}
+.slot.used{background:var(--ink);border-color:var(--ink)}
+.slot.off{border-style:dashed;opacity:.35}
+.rolls small{font-size:.75rem;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+
+/* tray */
+.tray{position:relative;border-radius:20px;padding:16px 18px 20px;background:radial-gradient(120% 90% at 50% 15%,var(--leather),var(--leather-deep));box-shadow:inset 0 3px 14px var(--shade);color:var(--on-leather)}
+.tray::before{content:"";position:absolute;inset:7px;border:1.5px dashed var(--stitch);border-radius:14px;opacity:.5;pointer-events:none}
+.tray-top{position:relative;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.tlabel{font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;opacity:.85}
+.tval{font:800 2rem/1 var(--font-display);font-variant-numeric:tabular-nums;color:var(--stitch)}
+.dice{position:relative;display:grid;grid-template-columns:repeat(3,var(--die));justify-content:center;gap:14px 18px;padding-block:14px 4px}
+
+/* dice */
+.die{width:var(--die);height:var(--die);border-radius:22%;border:0;padding:calc(var(--die) * .15);background:var(--bone);box-shadow:0 4px 0 var(--bone-edge),0 8px 14px var(--shade);display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);place-items:center;transition:transform .15s ease,box-shadow .15s ease}
+.die i{display:block;width:72%;aspect-ratio:1}
+.die i.pip{border-radius:50%;background:var(--pip)}
+button.die:active{transform:translateY(2px)}
+.die.can{box-shadow:0 4px 0 var(--bone-edge),0 0 0 2px var(--stitch),0 8px 14px var(--shade)}
+.die.sel{transform:translateY(-7px);box-shadow:0 4px 0 var(--bone-edge),0 0 0 4px var(--brass),0 14px 18px var(--shade)}
+.die.blank{opacity:.3;box-shadow:none}
+.die.gone{background:transparent;box-shadow:none;border:1.5px dashed var(--stitch);opacity:.4}
+.die.tumble{animation:tumble .5s ease-out}
+.die.nope{animation:nope .3s}
+.die.mini{--die:1.9rem;padding:calc(var(--die) * .12);box-shadow:0 2px 0 var(--bone-edge)}
+.die.mini i{width:86%}
+@keyframes tumble{0%{transform:translateY(-16px) rotate(-28deg)}55%{transform:translateY(3px) rotate(9deg)}100%{transform:none}}
+@keyframes nope{25%{transform:translateX(-5px)}75%{transform:translateX(5px)}}
+@media (prefers-reduced-motion:reduce){.die,.die.tumble,.die.nope{animation:none;transition:none}}
+
+.hint{min-height:1.45em;margin:0;font-size:.92rem}
+
+/* set-aside rack */
+.rackhead{display:flex;justify-content:space-between;align-items:baseline;gap:4px 10px;flex-wrap:wrap}
+.h3{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
+.rackhead small{font-size:.78rem;color:var(--ink-soft)}
+.rack{display:flex;flex-wrap:wrap;gap:8px;min-height:2.9rem;align-items:center}
+.pair{display:inline-flex;align-items:center;gap:5px;padding:5px 9px 5px 6px;border-radius:10px;background:var(--card);border:1px solid var(--line)}
+button.pair{border:1.5px solid var(--brass)}
+.seven{font:800 1.15rem/1 var(--font-display);color:var(--brass);margin-left:3px}
+.empty{margin:0;font-size:.86rem;color:var(--ink-soft)}
+
+/* buttons */
+.actions{display:flex;flex-direction:column;gap:8px;margin-top:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row>.btn{flex:1 1 9rem}
+.btn{min-height:48px;padding:10px 14px;border-radius:12px;border:1.5px solid var(--ink);background:transparent;font-weight:600;font-size:1rem;font-variant-numeric:tabular-nums}
+.btn.primary{background:var(--brass);border-color:var(--brass);color:var(--brass-ink);font-size:1.08rem;font-weight:700}
+.btn.armed{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:var(--danger-ink)}
+.btn.ghost{border-color:var(--line)}
+.btn.small{min-height:40px;font-size:.9rem;padding:6px 12px}
+.btn:disabled{opacity:.5;cursor:default}
+.link{background:none;border:0;padding:6px 0;color:var(--ink-soft);text-decoration:underline;text-underline-offset:3px;font-size:.88rem}
+
+/* panels */
+.panel{display:flex;flex-direction:column;gap:12px}
+.h2{font:800 1.45rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em;margin:0}
+.hero{display:flex;flex-direction:column;gap:14px;padding-block:6px 4px}
+.brand-xl{font:800 clamp(3.4rem,18vw,5.2rem)/.86 var(--font-display);text-transform:uppercase;margin:0;letter-spacing:.01em}
+.brand-xl span{color:var(--brass)}
+.lede{margin:0;max-width:46ch;font-size:1rem}
+.demo{display:flex;flex-wrap:wrap;gap:8px}
+.plist{display:flex;flex-direction:column;gap:8px}
+.prow{display:flex;align-items:center;gap:8px}
+.prow input[type=text]{flex:1;min-width:0;height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem}
+.prow input[type=text]:focus-visible{border-color:var(--brass);outline:2px solid var(--brass);outline-offset:0}
+.startpick{display:inline-flex;align-items:center;gap:6px;font-size:.88rem;color:var(--ink-soft);padding:6px 2px;white-space:nowrap;cursor:pointer}
+.startpick input{accent-color:var(--brass);width:18px;height:18px;margin:0}
+.iconbtn{width:40px;height:40px;border-radius:10px;border:1.5px solid var(--line);background:transparent;font-size:1.25rem;line-height:1;flex:none}
+.verdict{font:800 clamp(3rem,15vw,4.4rem)/.9 var(--font-display);text-transform:uppercase;margin:0;overflow-wrap:anywhere;text-wrap:balance}
+.verdict span{color:var(--danger)}
+
+/* folds */
+.fold{border-top:1px solid var(--line);padding-top:8px}
+.fold summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center;min-height:40px}
+.fold summary::-webkit-details-marker{display:none}
+.fold summary::after{content:"+";font:800 1.4rem/1 var(--font-display);color:var(--ink-soft)}
+.fold[open] summary::after{content:"\2013"}
+.fold ol{padding-left:1.2rem;margin:6px 0 4px;display:flex;flex-direction:column;gap:7px;max-width:62ch}
+.tablewrap{overflow-x:auto;margin-top:6px}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:.9rem}
+th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child{text-align:left}
+thead th{font-size:.74rem;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-soft);font-weight:700}
+td small{color:var(--ink-soft);margin-left:4px;font-size:.72rem}
+tfoot th,tfoot td{font-weight:700;border-bottom:0;font-size:1rem}
+.dot,td.st::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--brass);vertical-align:middle}
+td.st::before{margin-right:6px}
+.note{font-size:.8rem;color:var(--ink-soft);margin:6px 0 0}
+.foot{display:flex;flex-wrap:wrap;gap:12px 22px;align-items:center;justify-content:space-between}
+.soundpick{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.seg.small .segbtn{min-height:38px;font-size:.85rem;padding:6px 12px;flex:0 1 auto}
+.confirm{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.confirm span{flex-basis:100%;font-size:.9rem}
+
+/* scoreboard mode */
+.pick{display:flex;flex-direction:column;gap:6px}
+.seg{display:flex;border:1.5px solid var(--ink);border-radius:12px;overflow:hidden}
+.segbtn{flex:1 1 0;min-width:0;min-height:46px;padding:8px 10px;border:0;background:transparent;font-weight:700;font-size:1.05rem;line-height:1.2}
+.segbtn+.segbtn{border-left:1.5px solid var(--ink)}
+.segbtn.on{background:var(--ink);color:var(--paper)}
+.segbtn:focus-visible{outline-offset:-4px}
+.seg.mode .segbtn{font-size:.92rem}
+.entry{position:relative;text-align:center;font:800 4.6rem/1 var(--font-display);color:var(--stitch);font-variant-numeric:tabular-nums;padding-block:10px 2px}
+.entry .ph{opacity:.4}
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.key{min-height:56px;border-radius:12px;border:1.5px solid var(--line);background:var(--card);font:800 1.7rem/1 var(--font-display);font-variant-numeric:tabular-nums}
+.key:active{background:var(--line)}
+.key.fn{font:600 1rem/1 var(--font-body);color:var(--ink-soft)}
+
+/* celebration */
+.fx{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:50}
+.fx-banner{position:fixed;inset:0;display:grid;place-items:center;pointer-events:none;z-index:51;padding-inline:16px}
+.fx-plaque{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 30px 18px;border-radius:20px;background:radial-gradient(120% 120% at 50% 10%,var(--leather),var(--leather-deep));color:var(--on-leather);box-shadow:0 18px 44px var(--shade);text-align:center;animation:plaque-in .55s cubic-bezier(.2,1.5,.4,1) both}
+.fx-plaque::before{content:"";position:absolute;inset:6px;border:1.5px dashed var(--stitch);border-radius:14px;opacity:.6}
+.fx-title{font:800 clamp(2.8rem,14vw,4rem)/.9 var(--font-display);text-transform:uppercase;letter-spacing:.02em;color:var(--stitch)}
+.fx-sub{font-size:.95rem;font-weight:600;overflow-wrap:anywhere}
+.fx-banner.out .fx-plaque{animation:plaque-out .5s ease-in both}
+@keyframes plaque-in{0%{transform:scale(.35) rotate(-10deg);opacity:0}100%{transform:none;opacity:1}}
+@keyframes plaque-out{to{transform:translateY(-24px) scale(.94);opacity:0}}
+@media (prefers-reduced-motion:reduce){.fx-plaque,.fx-banner.out .fx-plaque{animation-duration:.01s}}
+
+/* pairs flying out of the tray */
+.die.pairing{transform:translateY(-8px) scale(1.07);box-shadow:0 4px 0 var(--bone-edge),0 0 0 4px var(--brass),0 0 22px var(--brass)}
+.die.fly{position:fixed;margin:0;z-index:40;pointer-events:none}
+
+/* dice on the floor (scoreboard mode) */
+.floor{display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;padding:10px 12px;border:1.5px dashed var(--line);border-radius:12px}
+.floor-txt{display:flex;flex-direction:column;gap:2px;flex:1 1 9rem;min-width:0}
+.floor-txt small{font-size:.78rem;color:var(--ink-soft)}
+.fslots{display:flex;gap:6px}
+.fslot{width:2rem;height:2rem;border-radius:8px;border:1.5px dashed var(--ink-soft);display:grid;place-items:center;opacity:.7}
+.fslot.last{border-color:var(--danger)}
+.fslot.on{border-style:solid;opacity:1}
+.fslot .die.mini{--die:1.6rem;transform:rotate(-14deg)}
+.pl-shots{font-size:.75rem;font-weight:700;color:var(--danger)}
+
+/* correcting past scores (scoreboard mode) */
+.pl.editable{cursor:pointer}
+.pl.editable:hover{border-color:var(--ink-soft)}
+.pl-foot{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+.pl-foot>span:first-child{min-width:0}
+.pl-edit{color:var(--brass);font-weight:700;text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
+.elist{display:flex;flex-direction:column}
+.erow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:8px;border-bottom:1px solid var(--line)}
+.erow label{display:flex;flex-direction:column;font-weight:600}
+.erow label small{font-weight:400;font-size:.78rem;color:var(--ink-soft)}
+.estep{display:flex;align-items:center;gap:6px}
+.edit-in{width:4.2rem;height:44px;text-align:center;border-radius:10px;border:1.5px solid var(--line);background:var(--card);font:800 1.4rem/1 var(--font-display);font-variant-numeric:tabular-nums;-moz-appearance:textfield}
+.edit-in::-webkit-inner-spin-button,.edit-in::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.edit-in[aria-invalid="true"]{border-color:var(--danger)}
+.edit-in:focus-visible{outline:2px solid var(--brass);outline-offset:0;border-color:var(--brass)}
+.etotal{margin:4px 0 0;display:flex;align-items:baseline;gap:8px}
+.etotal b{font:800 1.8rem/1 var(--font-display);font-variant-numeric:tabular-nums}
+.etotal span{color:var(--ink-soft);font-size:.85rem}
+
+/* the round-of-shots takeover: its own dark world in both looks */
+.doom{position:fixed;inset:0;z-index:45;display:grid;place-items:center;padding-inline:16px;overflow:hidden;color:#FFFFFF;background:radial-gradient(ellipse at 50% 40%,rgba(74,0,12,.98),rgba(0,0,0,.995) 70%);animation:doom-in .3s ease-out both}
+.doom.out{animation:doom-out .38s ease-in both}
+@keyframes doom-in{from{opacity:0}to{opacity:1}}
+@keyframes doom-out{to{opacity:0;transform:scale(1.04)}}
+.doom-flash{position:absolute;inset:0;pointer-events:none;opacity:0;background:#D00018;animation:doom-flash 1.3s steps(1) both}
+@keyframes doom-flash{0%{opacity:0}4%{opacity:.85;background:#D00018}12%{opacity:0}30%{opacity:.9;background:#FFFFFF}33%{opacity:0}38%{opacity:.6;background:#FFFFFF}41%{opacity:0}}
+.doom-bolt{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;opacity:0;filter:drop-shadow(0 0 8px #FFFFFF) drop-shadow(0 0 22px #9CCBFF);animation:bolt 1.3s steps(1) both}
+@keyframes bolt{0%{opacity:0}30%{opacity:1}34%{opacity:0}38%{opacity:1}42%{opacity:0}}
+.doom-stage{position:relative;display:flex;flex-direction:column;align-items:center;gap:12px;text-align:center;max-width:30rem;animation:quake .6s linear 1.05s}
+.skull{width:min(50vw,210px);height:auto;overflow:visible;animation:skull-drop .7s cubic-bezier(.3,1.45,.5,1) .4s both;filter:drop-shadow(0 0 26px rgba(255,30,50,.5))}
+@keyframes skull-drop{0%{transform:translateY(-150%) scale(.5) rotate(-24deg);opacity:0}55%{opacity:1}100%{transform:none;opacity:1}}
+.skull .jaw{transform-box:fill-box;transform-origin:50% 0;animation:chatter .14s ease-in-out 1.2s 12 alternate}
+@keyframes chatter{to{transform:translateY(10px) rotate(2deg)}}
+.skull .eye{animation:eyes .9s ease-in-out infinite alternate}
+@keyframes eyes{from{opacity:.5}to{opacity:1}}
+.doom-title{margin:4px 0 0;font:800 clamp(3rem,15vw,5rem)/.95 var(--font-display);text-transform:uppercase;color:#FFFFFF;text-shadow:0 0 18px rgba(255,40,60,.9),0 5px 0 #6A0010;text-wrap:balance}
+.doom-title .w{display:inline-block;white-space:nowrap}
+.doom-title .w span{display:inline-block;animation:slam .5s cubic-bezier(.2,1.7,.4,1) calc(1.05s + var(--i) * 55ms) both}
+@keyframes slam{0%{transform:scale(3.2) rotate(-12deg);opacity:0}100%{transform:none;opacity:1}}
+.doom-sub{max-width:34ch;margin:0;font-size:1.05rem;color:#F3DEDE;animation:rise .5s ease-out 1.9s both}
+.doom-sub b{color:#FFD34D}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.doom-ok{min-width:12rem;animation:ok-in .4s ease-out 2.3s both}
+@keyframes ok-in{from{opacity:0;visibility:hidden;transform:scale(.8)}to{opacity:1;visibility:visible;transform:none}}
+#app.quake{animation:quake .9s linear}
+@keyframes quake{0%,100%{transform:none}10%{transform:translate(-9px,5px) rotate(-1deg)}20%{transform:translate(8px,-6px) rotate(1deg)}30%{transform:translate(-7px,-4px)}40%{transform:translate(6px,6px) rotate(.6deg)}50%{transform:translate(-5px,3px)}60%{transform:translate(4px,-3px)}70%{transform:translate(-3px,2px)}80%{transform:translate(2px,-1px)}}
+@media (prefers-reduced-motion:reduce){.doom,.doom *,#app.quake{animation-duration:.01s!important;animation-delay:0s!important}}
+
+/* ===== Vegas look: candy-red cabinet, chrome trim, chasing marquee bulbs, reel-window tray, red casino dice, LED meters.
+   One deliberate dark visual world, so it ignores the light/dark setting. ===== */
+html:root[data-look="vegas"]{
+  --paper:#12060F; --card:#1E0C1B; --ink:#FFF3D6; --ink-soft:#CDAFBD; --line:#43233E;
+  --leather:#B3122B; --leather-deep:#4E0412; --on-leather:#FFF3D6; --stitch:#FFD34D;
+  --brass:#FFC531; --brass-ink:#2A1500;
+  --bone:#D7132E; --bone-edge:#7C0716; --pip:#FFFFFF; --die-hi:#FF6A7B; --shade:rgba(0,0,0,.55);
+  --danger:#FF5468; --danger-ink:#2A0006;
+  --chrome:#C9CED6; --bulb:#FFE27A; --led:#FF2A3D; --meter:#070308;
+  --font-display:"Bungee","Arial Black",Impact,sans-serif;
+  color-scheme:dark;
+}
+html:root[data-look="vegas"] body{background-color:var(--paper);background-image:radial-gradient(circle at 25% 25%,rgba(255,197,49,.08) 0 2px,transparent 2.5px),radial-gradient(circle at 75% 75%,rgba(215,19,46,.14) 0 3px,transparent 3.5px);background-size:30px 30px}
+/* marquee sign with chasing bulbs */
+html:root[data-look="vegas"] .marquee{position:relative;background:linear-gradient(180deg,var(--leather),var(--leather-deep));border-radius:16px;padding:18px 22px;box-shadow:inset 0 0 0 3px var(--chrome),0 0 26px rgba(255,60,90,.3)}
+html:root[data-look="vegas"] .marquee>*{position:relative}
+html:root[data-look="vegas"] .marquee::before{content:"";position:absolute;inset:6px;border:0;opacity:1;border-radius:10px;pointer-events:none;
+  background:radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 0 0/14px 7px repeat-x,
+    radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 0 100%/14px 7px repeat-x,
+    radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 0 0/7px 14px repeat-y,
+    radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 100% 0/7px 14px repeat-y;
+  filter:drop-shadow(0 0 3px var(--bulb));animation:chase .8s steps(1) infinite}
+@keyframes chase{50%{background-position:7px 0,7px 100%,0 7px,100% 7px}}
+html:root[data-look="vegas"] .marquee .meta{color:var(--ink)}
+html:root[data-look="vegas"] .brand,html:root[data-look="vegas"] .brand-xl{color:var(--ink);text-shadow:0 0 12px rgba(255,211,77,.45)}
+html:root[data-look="vegas"] .brand span,html:root[data-look="vegas"] .brand-xl span{color:var(--brass)}
+html:root[data-look="vegas"] .brand{font-size:1.2rem}
+html:root[data-look="vegas"] .brand-xl{font-size:clamp(2.5rem,12.5vw,4rem);line-height:1.02;text-align:center;padding:28px 20px}
+html:root[data-look="vegas"] .fx-plaque{padding:26px 30px 22px}
+html:root[data-look="vegas"] .fx-title{font-size:clamp(2rem,10vw,3rem);line-height:1;color:var(--brass);text-shadow:0 0 14px rgba(255,197,49,.6)}
+html:root[data-look="vegas"] .who{font-size:2rem;line-height:1.05}
+html:root[data-look="vegas"] .verdict{font-size:clamp(2.1rem,10.5vw,3.3rem);line-height:1}
+html:root[data-look="vegas"] .h2{font-size:1.2rem}
+/* LED credit meters */
+html:root[data-look="vegas"] .pl{background:var(--meter);border-color:var(--line)}
+html:root[data-look="vegas"] .pl.now{border-color:var(--brass);box-shadow:inset 0 0 0 1px var(--brass),0 0 16px rgba(255,197,49,.35)}
+html:root[data-look="vegas"] .num{font-size:1.7rem;color:var(--led);text-shadow:0 0 10px rgba(255,42,61,.6)}
+html:root[data-look="vegas"] .board.cols-3 .num{font-size:1.35rem}
+/* reel window */
+html:root[data-look="vegas"] .tray{color:var(--reel-ink);background:linear-gradient(180deg,var(--reel-edge) 0%,var(--reel-mid) 18%,var(--reel) 50%,var(--reel-mid) 82%,var(--reel-edge) 100%);box-shadow:inset 0 0 0 4px var(--chrome),inset 0 0 0 7px var(--brass),inset 0 10px 14px rgba(0,0,0,.3),inset 0 -10px 14px rgba(0,0,0,.3),0 0 30px rgba(255,197,49,.22)}
+html:root[data-look="vegas"] .tray::before{inset:0;border:0;border-radius:20px;opacity:1;background:linear-gradient(90deg,rgba(0,0,0,.2),transparent 9%,transparent 91%,rgba(0,0,0,.2))}
+html:root[data-look="vegas"] .tval,html:root[data-look="vegas"] .entry{color:var(--led);text-shadow:0 0 8px rgba(255,42,61,.35)}
+html:root[data-look="vegas"] .entry{font-size:4rem}
+html:root[data-look="vegas"] .die.gone{border-color:var(--reel-edge)}
+html:root[data-look="vegas"] .die:not(.gone){background:radial-gradient(circle at 30% 25%,var(--die-hi),var(--bone) 58%)}
+/* gold cabinet buttons */
+html:root[data-look="vegas"] .btn{border-radius:999px}
+html:root[data-look="vegas"] .btn.primary{background:linear-gradient(180deg,#FFE58A,var(--brass) 48%,#C98600);border-color:#C98600;box-shadow:0 4px 0 #7A5000,0 0 18px rgba(255,197,49,.35);text-transform:uppercase;letter-spacing:.04em}
+html:root[data-look="vegas"] .btn.primary:active{transform:translateY(3px);box-shadow:0 1px 0 #7A5000}
+html:root[data-look="vegas"] .doom-title{font-size:clamp(2.3rem,10.5vw,3.8rem);line-height:1.05}
+html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;background:linear-gradient(180deg,#2C1729,var(--card))}
+@media (prefers-reduced-motion:reduce){html:root[data-look="vegas"] .marquee::before{animation:none}}
+</style>
+</head>
+<body>
+<main id="app" class="wrap"></main>
+
+<script>
+(() => {
+  const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = 6, KEY = 'sevens-out-v1';
+  const LAYOUT = {1:[4],2:[2,6],3:[2,4,6],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
+  const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const $app = document.getElementById('app');
+
+  // visual look: 'pub' (stitched leather) or 'vegas' (slot-machine cabinet); kept on this phone
+  const LOOK_KEY = 'sevens-out-look', LOOK_OPTS = [['pub', 'Pub table'], ['vegas', 'Vegas']];
+  let look = 'pub';
+  try { if (localStorage.getItem(LOOK_KEY) === 'vegas') look = 'vegas'; } catch (e) {}
+  function applyLook(){
+    if (look === 'vegas') document.documentElement.setAttribute('data-look', 'vegas');
+    else document.documentElement.removeAttribute('data-look');
+  }
+  applyLook();
+
+  let state = blank();
+  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, doom:null, edit:null, editVals:{} };
+
+  function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice' }, game:null }; }
+  const isScore = g => !!g && g.mode === 'score';
+
+  // ---------- helpers ----------
+  function rnd6(){
+    if (window.crypto && crypto.getRandomValues){
+      const b = new Uint8Array(1);
+      for(;;){ crypto.getRandomValues(b); if (b[0] < 252) return b[0] % 6 + 1; }
+    }
+    return Math.floor(Math.random()*6) + 1;
+  }
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
+  const diceWord = n => `${n} ${n === 1 ? 'die' : 'dice'}`;
+  const face = v => { if (!v) return ''; const on = LAYOUT[v]; let h = ''; for (let i = 0; i < 9; i++) h += on.includes(i) ? '<i class="pip"></i>' : '<i></i>'; return h; };
+  const mini = v => `<span class="die mini" aria-hidden="true">${face(v)}</span>`;
+  const orderFrom = (s, n) => Array.from({length:n}, (_, k) => (s + k) % n);
+  const pname = i => state.game.players[i].name;
+  function listNames(ids){
+    const ns = ids.map(pname);
+    return ns.length <= 1 ? ns.join('') : ns.slice(0, -1).join(', ') + ' and ' + ns[ns.length - 1];
+  }
+
+  // ---------- celebration ----------
+  const fx = (() => {
+    let canvas = null, ctx = null, parts = [], raf = 0, dpr = 1;
+    const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    const PIPS = {1:[[0,0]],2:[[-1,-1],[1,1]],3:[[-1,-1],[0,0],[1,1]],4:[[-1,-1],[1,-1],[-1,1],[1,1]],5:[[-1,-1],[1,-1],[0,0],[-1,1],[1,1]],6:[[-1,-1],[1,-1],[-1,0],[1,0],[-1,1],[1,1]]};
+    function fit(){
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(innerWidth * dpr); canvas.height = Math.round(innerHeight * dpr);
+    }
+    function ensure(){
+      if (!canvas){
+        canvas = document.createElement('canvas'); canvas.className = 'fx'; canvas.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(canvas); ctx = canvas.getContext('2d');
+        addEventListener('resize', () => { if (canvas) fit(); });
+      }
+      fit();
+    }
+    function palette(){
+      return {
+        cols: ['--brass', '--stitch', '--leather', '--danger', '--ink'].map(css).filter(Boolean),
+        bone: css('--bone') || '#F7F2E7', pip: css('--pip') || '#1D1915'
+      };
+    }
+    function add(pal, x, y, vx, vy, g){
+      const die = Math.random() < 0.12;
+      parts.push({
+        x, y, vx, vy, g,
+        rot: Math.random() * 6.28, vr: (Math.random() - 0.5) * 0.3, flip: Math.random() * 6.28, vf: 0.08 + Math.random() * 0.12,
+        w: die ? 11 : 5 + Math.random() * 7, h: die ? 11 : 3 + Math.random() * 3,
+        c: die ? pal.bone : pal.cols[Math.floor(Math.random() * pal.cols.length)], die, pip: pal.pip,
+        face: 1 + Math.floor(Math.random() * 6), t: 0
+      });
+    }
+    const go = () => { if (!raf) raf = requestAnimationFrame(tick); };
+    function spray(x, y, count, angle, spread, speed){
+      const pal = palette();
+      for (let i = 0; i < count; i++){
+        const a = angle + (Math.random() - 0.5) * spread, v = speed * (0.55 + Math.random() * 0.6);
+        add(pal, x + (Math.random() - 0.5) * 30, y, Math.cos(a) * v, Math.sin(a) * v, 0.3);
+      }
+      go();
+    }
+    // confetti drifting down from the top edge for `ms` milliseconds
+    function rain(ms){
+      const pal = palette(), end = performance.now() + ms;
+      (function drop(){
+        for (let i = 0; i < 28; i++) add(pal, Math.random() * innerWidth, -10 - Math.random() * 40, (Math.random() - 0.5) * 2, 1 + Math.random() * 2, 0.12);
+        go();
+        if (performance.now() < end) setTimeout(drop, 110);
+      })();
+    }
+    function tick(){
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, innerWidth, innerHeight);
+      parts = parts.filter(p => p.y < innerHeight + 30 && p.t < 480);
+      for (const p of parts){
+        p.t++; p.vy += p.g; p.vx *= 0.986; p.vy *= 0.986; p.flip += p.vf;
+        p.x += p.vx + Math.sin(p.flip) * 0.7; p.y += p.vy; p.rot += p.vr;
+        // rotate, then squash vertically for the paper flutter, in one transform (no save/restore)
+        const c = Math.cos(p.rot), s = Math.sin(p.rot), f = (p.die || p.shot) ? 1 : Math.cos(p.flip);
+        ctx.setTransform(c * dpr, s * dpr, -s * f * dpr, c * f * dpr, p.x * dpr, p.y * dpr);
+        if (p.shot) drawShot(p);
+        else if (p.die){
+          ctx.fillStyle = p.c; ctx.beginPath();
+          if (ctx.roundRect) ctx.roundRect(-p.w / 2, -p.h / 2, p.w, p.h, 2.5); else ctx.rect(-p.w / 2, -p.h / 2, p.w, p.h);
+          ctx.fill(); ctx.fillStyle = p.pip;
+          for (const [dx, dy] of PIPS[p.face]){ ctx.beginPath(); ctx.arc(dx * 3, dy * 3, 1.1, 0, 6.29); ctx.fill(); }
+        } else {
+          ctx.fillStyle = p.c; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+        }
+      }
+      if (parts.length) raf = requestAnimationFrame(tick);
+      else { raf = 0; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, innerWidth, innerHeight); }
+    }
+    function drawShot(p){
+      const w = p.w, h = p.h, bw = w * 0.7, top = -h / 2, bot = h / 2;
+      ctx.beginPath(); ctx.moveTo(-w / 2, top); ctx.lineTo(w / 2, top); ctx.lineTo(bw / 2, bot); ctx.lineTo(-bw / 2, bot); ctx.closePath();
+      ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fill();
+      const ly = top + h * 0.35, lw = w - (w - bw) * 0.35;
+      ctx.beginPath(); ctx.moveTo(-lw / 2, ly); ctx.lineTo(lw / 2, ly); ctx.lineTo(bw / 2, bot - 3); ctx.lineTo(-bw / 2, bot - 3); ctx.closePath();
+      ctx.fillStyle = '#E9A23B'; ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillRect(-bw / 2, bot - 3, bw, 3);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(-w / 2, top); ctx.lineTo(-bw / 2, bot); ctx.moveTo(w / 2, top); ctx.lineTo(bw / 2, bot); ctx.stroke();
+    }
+    // shot glasses and confetti pouring down, plus a blast when the skull lands
+    function shots(ms){
+      ensure();
+      const pal = palette(), end = performance.now() + ms;
+      (function drop(){
+        for (let i = 0; i < 5; i++){
+          const w = 15 + Math.random() * 6;
+          parts.push({ shot:true, x:Math.random() * innerWidth, y:-30 - Math.random() * 50, vx:(Math.random() - 0.5) * 1.6, vy:2 + Math.random() * 2.5, g:0.16,
+            rot:(Math.random() - 0.5) * 0.9, vr:(Math.random() - 0.5) * 0.12, flip:0, vf:0, w, h:w * 1.3, t:0 });
+        }
+        for (let i = 0; i < 12; i++) add(pal, Math.random() * innerWidth, -10 - Math.random() * 30, (Math.random() - 0.5) * 2, 1 + Math.random() * 2, 0.12);
+        go();
+        if (performance.now() < end) setTimeout(drop, 110);
+      })();
+      setTimeout(() => spray(innerWidth / 2, innerHeight * 0.4, 160, -Math.PI / 2, 2.6, 16), 1050);
+    }
+    function burst(el){
+      ensure();
+      let x = innerWidth / 2, y = innerHeight * 0.5;
+      const r = el && el.getBoundingClientRect();
+      if (r && r.width && r.bottom > 0 && r.top < innerHeight){
+        x = r.left + r.width / 2;
+        y = Math.min(Math.max(r.top + r.height * 0.4, 80), innerHeight - 80);
+      }
+      const cannons = n => {
+        spray(-10, innerHeight * 0.85, n, -Math.PI / 3, 0.7, 22);
+        spray(innerWidth + 10, innerHeight * 0.85, n, -2 * Math.PI / 3, 0.7, 22);
+      };
+      spray(x, y, 220, -Math.PI / 2, 2.0, 18);
+      setTimeout(() => cannons(120), 200);
+      setTimeout(() => rain(1800), 350);
+      setTimeout(() => { spray(x, y, 120, -Math.PI / 2, 1.6, 15); cannons(90); }, 750);
+    }
+    function banner(title, sub){
+      document.querySelectorAll('.fx-banner').forEach(n => n.remove());
+      const el = document.createElement('div');
+      el.className = 'fx-banner'; el.setAttribute('role', 'status');
+      el.innerHTML = `<div class="fx-plaque marquee"><span class="fx-title">${esc(title)}</span><span class="fx-sub">${esc(sub)}</span></div>`;
+      document.body.appendChild(el);
+      setTimeout(() => el.classList.add('out'), 2300);
+      setTimeout(() => el.remove(), 2900);
+    }
+    return { burst, banner, shots };
+  })();
+  // ---------- jackpot sound (synthesized, no files) ----------
+  const SOUND_KEY = 'sevens-out-sound';
+  const SOUND_OPTS = [['off', 'Off'], ['jackpot', 'Jackpot'], ['bandit', 'Old bandit']];
+  let soundMode = 'jackpot';
+  try {
+    const v = localStorage.getItem(SOUND_KEY);
+    if (v === '0' || v === 'off') soundMode = 'off'; else if (v === 'bandit') soundMode = 'bandit';
+  } catch (e) {}
+  const sound = (() => {
+    let ctx = null, master = null, noise = null;
+    function get(){
+      if (!ctx){
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (!AC) return null;
+        ctx = new AC();
+        const comp = ctx.createDynamicsCompressor();
+        master = ctx.createGain(); master.gain.value = 0.55;
+        master.connect(comp); comp.connect(ctx.destination);
+      }
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      return ctx;
+    }
+    function tone(t, freq, dur, type, vol, attack){
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = type; o.frequency.setValueAtTime(freq, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(vol, t + (attack || 0.004));
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + dur + 0.03);
+    }
+    function thud(t, pitch){
+      if (!noise){
+        const len = Math.floor(ctx.sampleRate * 0.09);
+        noise = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = noise.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+      }
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = noise; f.type = 'lowpass'; f.frequency.value = 1100; g.gain.value = 0.5;
+      src.connect(f); f.connect(g); g.connect(master); src.start(t);
+      tone(t, pitch, 0.14, 'square', 0.14);
+    }
+    let white = null;
+    function whiteBuf(){
+      if (!white){
+        const len = Math.floor(ctx.sampleRate * 0.5);
+        white = ctx.createBuffer(1, len, ctx.sampleRate);
+        const d = white.getChannelData(0);
+        for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      }
+      return white;
+    }
+    function noiseHit(t, dur, type, freq, q, vol){
+      whiteBuf();
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = white; f.type = type; f.frequency.value = freq; f.Q.value = q;
+      g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f); f.connect(g); g.connect(master);
+      src.start(t, Math.random() * 0.3); src.stop(t + dur + 0.02);
+    }
+    // electromechanical payout bell: a clapper hammering a brass dome about 17 times a second
+    function bellRing(t, dur){
+      const rate = 17, strikes = Math.round(dur * rate), base = 1150;
+      const modes = [[1, 0.16, 0.28], [1.004, 0.10, 0.28], [2.76, 0.11, 0.12], [5.40, 0.05, 0.06], [8.93, 0.025, 0.035]];
+      const times = Array.from({length:strikes}, (_, i) => t + i / rate + (Math.random() - 0.5) * 0.006);
+      for (const [ratio, amp, tau] of modes){
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = base * ratio;
+        g.gain.setValueAtTime(0, t);
+        times.forEach((ts, i) => {
+          g.gain.setTargetAtTime(amp * (i % 2 ? 0.8 : 1), ts, 0.0015);
+          g.gain.setTargetAtTime(0, ts + 0.006, tau);
+        });
+        o.connect(g); g.connect(master);
+        o.start(t); o.stop(t + dur + tau * 8 + 0.1);
+      }
+      times.forEach(ts => noiseHit(ts, 0.012, 'highpass', 3000, 0.7, 0.07));
+    }
+    function coin(t){
+      const f = 3000 + Math.random() * 2400;
+      tone(t, f, 0.16, 'sine', 0.05); tone(t, f * 2.71, 0.1, 'sine', 0.028); tone(t, f * 4.1, 0.06, 'sine', 0.014);
+      noiseHit(t, 0.02, 'bandpass', 5200, 1.5, 0.12);
+    }
+    function bandit(){
+      const c = get(); if (!c) return;
+      const t0 = c.currentTime + 0.04;
+      // three heavy reels thunk to a stop
+      [0, 0.17, 0.34].forEach(d => {
+        noiseHit(t0 + d, 0.09, 'lowpass', 700, 0.7, 0.6);
+        noiseHit(t0 + d, 0.03, 'bandpass', 2200, 2, 0.25);
+        tone(t0 + d, 92, 0.14, 'sine', 0.35);
+      });
+      // the payout bell, with coins dropping into the metal tray
+      bellRing(t0 + 0.48, 2.0);
+      for (let t = t0 + 0.7; t < t0 + 2.3; t += 0.06 + Math.random() * 0.07){
+        coin(t);
+        if (Math.random() < 0.3) coin(t + 0.02 + Math.random() * 0.03);
+      }
+    }
+    // ---- round of shots: thunder, a doom organ, a chattering jaw and clinking glasses ----
+    function rumble(t, dur, vol){
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = whiteBuf(); src.loop = true;
+      f.type = 'lowpass'; f.frequency.setValueAtTime(1200, t); f.frequency.exponentialRampToValueAtTime(90, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f); f.connect(g); g.connect(master); src.start(t); src.stop(t + dur + 0.05);
+      for (let i = 0; i < 10; i++) noiseHit(t + Math.random() * 0.5, 0.06, 'highpass', 1400, 0.7, 0.3);
+    }
+    function organ(t, freqs, dur){
+      const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1000; f.connect(master);
+      freqs.forEach(fr => [1, 1.005].forEach(det => {
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sawtooth'; o.frequency.value = fr * det;
+        g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.45);
+        g.gain.setValueAtTime(0.05, t + dur - 0.7); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g); g.connect(f); o.start(t); o.stop(t + dur + 0.05);
+      }));
+    }
+    function doom(){
+      const c = get(); if (!c) return;
+      const t0 = c.currentTime + 0.03;
+      rumble(t0, 2.6, 0.9);
+      tone(t0, 55, 2.6, 'sine', 0.55, 0.01); tone(t0, 36.7, 3, 'sine', 0.4, 0.01);
+      rumble(t0 + 0.8, 1.8, 0.7);
+      organ(t0 + 0.95, [73.42, 110, 146.83, 174.61, 220], 2.6);
+      tone(t0 + 1.05, 65.4, 1.8, 'sine', 0.5, 0.01);
+      for (let i = 0; i < 12; i++) noiseHit(t0 + 1.2 + i * 0.14, 0.035, 'bandpass', 1700, 3, 0.35);
+      for (let i = 0; i < 7; i++){
+        const t = t0 + 2.5 + i * 0.08 + Math.random() * 0.04, f = 2300 + Math.random() * 1500;
+        tone(t, f, 0.5, 'sine', 0.07); tone(t, f * 2.32, 0.3, 'sine', 0.03);
+      }
+    }
+    function jackpot(){
+      const c = get(); if (!c) return;
+      const t0 = c.currentTime + 0.04;
+      // three reels clunk to a stop
+      [0, 0.14, 0.28].forEach((d, i) => thud(t0 + d, 196 - i * 24));
+      // bells ringing
+      const tb = t0 + 0.45;
+      for (let i = 0; i < 20; i++){
+        const t = tb + i * 0.062;
+        tone(t, i % 2 ? 1568 : 2093, 0.085, 'square', 0.05);
+        tone(t, i % 2 ? 3136 : 4186, 0.06, 'sine', 0.025);
+      }
+      // rising fanfare and a held major chord
+      [523.25, 659.25, 783.99, 1046.5, 1318.5, 1568].forEach((f, i) => tone(tb + 0.08 + i * 0.07, f, 0.24, 'triangle', 0.2));
+      const tc = tb + 0.58;
+      [523.25, 659.25, 783.99, 1046.5].forEach(f => { tone(tc, f, 1.2, 'triangle', 0.13, 0.02); tone(tc, f * 2, 0.9, 'sine', 0.035, 0.02); });
+      // coins pouring out
+      for (let i = 0; i < 30; i++){
+        const t = tb + 0.25 + Math.random() * 1.7, f = 2600 + Math.random() * 2600;
+        tone(t, f, 0.13, 'sine', 0.06); tone(t + 0.014, f * 1.5, 0.09, 'sine', 0.03);
+      }
+    }
+    return {
+      unlock(){ try { get(); } catch (e) {} },
+      jackpot(){ try { jackpot(); } catch (e) {} },
+      bandit(){ try { bandit(); } catch (e) {} },
+      doom(){ try { doom(); } catch (e) {} }
+    };
+  })();
+  // browsers only allow audio after a tap; wake the audio engine on every interaction
+  ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => { if (soundMode !== 'off') sound.unlock(); }, true));
+
+  // ---------- shake to roll (only when the page runs on its own, e.g. GitHub Pages, on a phone) ----------
+  const SHAKE_KEY = 'sevens-out-shake';
+  const canShake = () => {
+    try { return window.self === window.top && 'DeviceMotionEvent' in window && !!(window.matchMedia && matchMedia('(pointer: coarse)').matches); }
+    catch (e) { return false; }
+  };
+  const needsMotionPermission = () => typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function';
+  let shakePref = false, shakeListening = false, jolts = [], lastJolt = -Infinity, lastShake = -Infinity;
+  try { shakePref = localStorage.getItem(SHAKE_KEY) === '1'; } catch (e) {}
+  // iPhone asks for motion access; the request has to happen inside a tap
+  function askMotion(){
+    if (!needsMotionPermission()) return Promise.resolve(true);
+    try { return DeviceMotionEvent.requestPermission().then(r => r === 'granted', () => false); }
+    catch (e) { return Promise.resolve(false); }
+  }
+  function onMotion(e){
+    let mag;
+    const a = e.acceleration;
+    if (a && a.x != null) mag = Math.hypot(a.x || 0, a.y || 0, a.z || 0);
+    else {
+      const g = e.accelerationIncludingGravity;
+      if (!g || g.x == null) return;
+      mag = Math.abs(Math.hypot(g.x || 0, g.y || 0, g.z || 0) - 9.81);
+    }
+    const now = performance.now();
+    // a shake is several separate jolts in quick succession; one bump on the table is not
+    if (mag > 14 && now - lastJolt > 60){ lastJolt = now; jolts = jolts.filter(t => now - t < 900); jolts.push(now); }
+    if (jolts.length >= 3 && now - lastShake > 1500){ jolts = []; lastShake = now; onShake(); }
+  }
+  function listenMotion(on){
+    if (on && !shakeListening){ addEventListener('devicemotion', onMotion); shakeListening = true; }
+    else if (!on && shakeListening){ removeEventListener('devicemotion', onMotion); shakeListening = false; }
+  }
+  function onShake(){
+    const g = state.game;
+    if (document.visibilityState !== 'visible' || document.querySelector('.doom')) return;
+    if (state.phase !== 'play' || !g || isScore(g) || ui.rolling || ui.busy || ui.edit != null || !canRoll(g.turn)) return;
+    try { if (navigator.vibrate) navigator.vibrate(35); } catch (e) {}
+    handle('roll', null);
+  }
+  const shakeActive = () => shakePref && shakeListening;
+  if (shakePref && canShake()){
+    if (!needsMotionPermission()) listenMotion(true);
+    else document.addEventListener('click', e => {
+      if (!shakePref || (e.target.closest && e.target.closest('[data-act="shake"]'))) return;
+      askMotion().then(ok => { if (ok){ listenMotion(true); render(); } });
+    }, { capture:true, once:true });
+  }
+  function playSound(){
+    if (soundMode === 'jackpot') sound.jackpot();
+    else if (soundMode === 'bandit') sound.bandit();
+  }
+
+  // ---------- the round-of-shots takeover ----------
+  const SKULL = `<svg class="skull" viewBox="0 0 200 224" aria-hidden="true">
+      <defs><filter id="doom-glow" x="-1" y="-1" width="3" height="3"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+      <path d="M100 8C152 8 188 44 188 96c0 30-14 46-26 56v20c0 9-8 15-17 15H55c-9 0-17-6-17-15v-20C26 142 12 126 12 96 12 44 48 8 100 8z" fill="#EFE6D2"/>
+      <path d="M120 20c-6 14 3 22-6 34l6 8" stroke="#B9AE97" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <ellipse cx="66" cy="100" rx="25" ry="27" fill="#14030A"/>
+      <ellipse cx="134" cy="100" rx="25" ry="27" fill="#14030A"/>
+      <circle class="eye" cx="68" cy="104" r="8" fill="#FF2A3D" filter="url(#doom-glow)"/>
+      <circle class="eye" cx="132" cy="104" r="8" fill="#FF2A3D" filter="url(#doom-glow)"/>
+      <path d="M100 128l-12 22h24z" fill="#14030A"/>
+      <path d="M62 160h76M74 158v28M88 158v28M100 158v28M112 158v28M126 158v28" stroke="#14030A" stroke-width="3" stroke-linecap="round" fill="none"/>
+      <g class="jaw">
+        <path d="M50 190h100l-6 18c-3 8-10 12-18 12H74c-8 0-15-4-18-12z" fill="#EFE6D2"/>
+        <path d="M74 190v20M88 190v24M100 190v24M112 190v24M126 190v20" stroke="#14030A" stroke-width="3" stroke-linecap="round" fill="none"/>
+      </g>
+    </svg>`;
+  const BOLT = `<svg class="doom-bolt" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="64,0 55,17 62,19 47,41 57,43 40,69 50,70 35,100" fill="none" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
+  function showDoom(name){
+    if (soundMode !== 'off') sound.doom();
+    document.querySelectorAll('.doom').forEach(n => n.remove());
+    let i = 0;
+    const title = 'Round of shots!'.toUpperCase().split(' ')
+      .map(w => `<span class="w">${[...w].map(ch => `<span style="--i:${i++}">${esc(ch)}</span>`).join('')}</span>`).join(' ');
+    const el = document.createElement('div');
+    el.className = 'doom';
+    el.setAttribute('role', 'alertdialog'); el.setAttribute('aria-modal', 'true');
+    el.setAttribute('aria-labelledby', 'doom-t'); el.setAttribute('aria-describedby', 'doom-d');
+    el.innerHTML = `<div class="doom-flash"></div>${BOLT}<div class="doom-stage">${SKULL}
+      <h2 class="doom-title" id="doom-t">${title}</h2>
+      <p class="doom-sub" id="doom-d"><b>${esc(name)}</b> dropped the third die and pays a round of shots for the whole table.</p>
+      <button class="btn primary doom-ok" type="button">Cheers!</button></div>`;
+    document.body.appendChild(el);
+    $app.classList.remove('quake'); void $app.offsetWidth; $app.classList.add('quake');
+    setTimeout(() => $app.classList.remove('quake'), 1000);
+    if (!reduceMotion) fx.shots(2800);
+    const ok = el.querySelector('.doom-ok');
+    const close = () => { el.classList.add('out'); setTimeout(() => el.remove(), 380); };
+    ok.addEventListener('click', close);
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
+    setTimeout(() => { try { ok.focus({ preventScroll:true }); } catch (e) {} }, 2400);
+  }
+
+  function celebrate(name){
+    fx.banner('Sevens out!', `${name} cleared all six dice`);
+    playSound();
+    if (!reduceMotion) fx.burst(document.querySelector('.tray'));
+  }
+
+  // ---------- rules ----------
+  function newTurn(maxRolls){
+    return { dice:Array.from({length:DICE}, (_, id) => ({ id, value:null, held:null })), rolls:0, maxRolls, pairs:[] };
+  }
+  function newGame(names, starter, mode){
+    return {
+      mode, history:[],
+      players:names.map(name => ({ name, score:0 })),
+      round:1, starter, order:orderFrom(starter, names.length), pos:0,
+      mark:null, ending:false, crosser:null, next:null, loser:null, last:null,
+      rounds:[{ no:1, starter, results:{} }],
+      turn:newTurn(MAX_ROLLS)
+    };
+  }
+  const active = t => t.dice.filter(d => d.held === null);
+  const sumActive = t => active(t).reduce((s, d) => s + (d.value || 0), 0);
+  function maxPairs(t){
+    const c = [0,0,0,0,0,0,0];
+    active(t).forEach(d => { if (d.value) c[d.value]++; });
+    return Math.min(c[1], c[6]) + Math.min(c[2], c[5]) + Math.min(c[3], c[4]);
+  }
+  // what is added to the score if the player stops now (all remaining 7-pairs come out first)
+  const finalPenalty = t => sumActive(t) - 7 * maxPairs(t);
+  function pairable(t){
+    const act = active(t).filter(d => d.value);
+    const s = new Set();
+    act.forEach(d => { if (act.some(e => e.value + d.value === 7)) s.add(d.id); });
+    return s;
+  }
+  const canRoll = t => t.rolls < t.maxRolls && active(t).length > 0;
+  function hold(t, a, b){ t.dice[a].held = t.rolls; t.dice[b].held = t.rolls; t.pairs.push({ a, b, roll:t.rolls }); }
+  function matchPairs(t){
+    const act = active(t).filter(d => d.value), used = new Set(), out = [];
+    for (const d of act){
+      if (used.has(d.id)) continue;
+      const m = act.find(e => !used.has(e.id) && e.id !== d.id && e.value + d.value === 7);
+      if (m){ used.add(d.id); used.add(m.id); out.push([d.id, m.id]); }
+    }
+    return out;
+  }
+  function takeAll(t){ const ps = matchPairs(t); ps.forEach(([a, b]) => hold(t, a, b)); return ps.length; }
+  function endTurn(){
+    const g = state.game, t = g.turn, p = g.order[g.pos];
+    takeAll(t);
+    const pts = sumActive(t);
+    if (pts === 0 && !t.cleared){ t.cleared = true; ui.celebrate = pname(p); }
+    recordTurn(pts, t.rolls);
+  }
+  // shared by both modes: book a finished turn and move on
+  function recordTurn(pts, rolls){
+    const g = state.game, p = g.order[g.pos];
+    g.players[p].score += pts;
+    const rd = g.rounds[g.rounds.length - 1];
+    rd.results[p] = { pts, rolls };
+    if (g.pos === 0){ g.mark = rolls; rd.mark = rolls; }
+    g.last = { player:p, pts, rolls, total:g.players[p].score };
+    if (!g.ending && g.players[p].score >= LIMIT){ g.ending = true; g.crosser = p; }
+    g.pos++;
+    resetUi();
+    if (g.pos < g.order.length){ g.turn = newTurn(g.mark); return; }
+    if (g.ending){
+      // highest score loses; on a tie the player later in this round's order loses
+      let L = null;
+      for (const i of g.order){ if (L === null || g.players[i].score >= g.players[L].score) L = i; }
+      g.loser = L; state.phase = 'over'; ui.open.sheet = true;
+    } else {
+      g.next = nextStarter(g); state.phase = 'roundEnd';
+    }
+  }
+  // replay the score sheet in playing order: when did each player arrive at their current score?
+  // a turn that adds 0 doesn't change the score, so it doesn't count as reaching it again
+  function reachedAt(g){
+    const n = g.players.length, at = Array(n).fill(-1);
+    let seq = 0;
+    for (const rd of g.rounds){
+      for (const p of orderFrom(rd.starter, n)){
+        const r = rd.results[p]; if (!r) continue;
+        seq++;
+        if (r.pts > 0) at[p] = seq;
+      }
+    }
+    return at;
+  }
+  // highest score starts; on a tie, whoever reached that score first; if they got there at the
+  // same moment (nobody has scored yet), the next of them after the last starter
+  function tiedForStart(g){
+    const max = Math.max(...g.players.map(p => p.score));
+    const tied = g.players.map((_, i) => i).filter(i => g.players[i].score === max);
+    const at = reachedAt(g), first = Math.min(...tied.map(i => at[i]));
+    return { max, tied, early: tied.filter(i => at[i] === first) };
+  }
+  function nextStarter(g){
+    const n = g.players.length, { early } = tiedForStart(g);
+    if (early.length === 1) return early[0];
+    for (let k = 1; k <= n; k++){ const i = (g.starter + k) % n; if (early.includes(i)) return i; }
+    return early[0];
+  }
+  function startRound(){
+    const g = state.game;
+    g.round++; g.starter = g.next; g.next = null;
+    g.order = orderFrom(g.starter, g.players.length); g.pos = 0; g.mark = null; g.last = null;
+    g.rounds.push({ no:g.round, starter:g.starter, results:{} });
+    g.turn = newTurn(MAX_ROLLS);
+    state.phase = 'play';
+    resetUi();
+  }
+  function resetUi(){ ui.selected = null; ui.hint = null; ui.armed = null; ui.nope = null; ui.entry = ''; ui.rolls = null; ui.edit = null; ui.editVals = {}; }
+
+  // ----- correcting past scores (scoreboard mode) -----
+  function editState(){
+    const g = state.game, p = ui.edit;
+    let total = 0, ok = true, changed = false;
+    for (const rd of g.rounds){
+      const r = rd.results[p]; if (!r) continue;
+      const raw = ui.editVals[rd.no];
+      const v = raw == null ? r.pts : (/^\d{1,2}$/.test(String(raw).trim()) ? +raw : NaN);
+      if (!(v >= 0 && v <= 36)){ ok = false; continue; }
+      if (v !== r.pts) changed = true;
+      total += v;
+    }
+    return { total, ok, changed };
+  }
+  function refreshEdit(){
+    const s = editState();
+    const t = document.getElementById('edit-total'); if (t) t.textContent = s.ok ? s.total : '–';
+    const b = $app.querySelector('[data-act=esave]'); if (b) b.disabled = !s.ok || !s.changed;
+    const err = document.getElementById('edit-err'); if (err) err.textContent = s.ok ? '' : 'Each round needs a whole number from 0 to 36.';
+    $app.querySelectorAll('.edit-in').forEach(inp => {
+      const raw = inp.value.trim();
+      inp.setAttribute('aria-invalid', String(!(/^\d{1,2}$/.test(raw) && +raw <= 36)));
+    });
+  }
+  // rebuild totals from the score sheet and re-apply the round rules to wherever the game stands now
+  function recalc(g){
+    const n = g.players.length;
+    g.players.forEach(pl => { pl.score = 0; });
+    let crosser = null;
+    for (const rd of g.rounds) for (const p of orderFrom(rd.starter, n)){
+      const r = rd.results[p]; if (!r) continue;
+      g.players[p].score += r.pts;
+      if (crosser === null && g.players[p].score >= LIMIT) crosser = p;
+    }
+    g.last = null;
+    const highestLater = () => { let L = null; for (const i of g.order) if (L === null || g.players[i].score >= g.players[L].score) L = i; return L; };
+    if (state.phase === 'play'){ g.ending = crosser !== null; g.crosser = crosser; return; }
+    if (state.phase === 'over' && g.early){ g.loser = highestLater(); return; }
+    if (crosser !== null){
+      g.ending = true; g.crosser = crosser; g.loser = highestLater(); g.next = null;
+      state.phase = 'over'; ui.open.sheet = true;
+    } else {
+      g.ending = false; g.crosser = null; g.loser = null; g.next = nextStarter(g);
+      state.phase = 'roundEnd';
+    }
+  }
+  function applyEdits(){
+    const g = state.game, p = ui.edit, s = editState();
+    if (!s.ok) return;
+    if (s.changed){
+      snapshot(`The score corrections for ${pname(p)} were undone.`);
+      g.rounds.forEach(rd => { const r = rd.results[p], raw = ui.editVals[rd.no]; if (r && raw != null) r.pts = +raw; });
+      recalc(g);
+      ui.hint = `${pname(p)}'s scores were corrected.`;
+    }
+    ui.edit = null; ui.editVals = {};
+  }
+
+  // scoreboard mode: entries are typed in, every entry can be undone
+  function snapshot(msg){
+    const g = state.game, copy = JSON.parse(JSON.stringify(g));
+    delete copy.history;
+    g.history = (g.history || []).concat([JSON.stringify({ phase:state.phase, game:copy, msg })]).slice(-40);
+  }
+  function undo(){
+    const g = state.game;
+    if (!g || !g.history || !g.history.length) return;
+    const rest = g.history.slice(), snap = JSON.parse(rest.pop());
+    state.phase = snap.phase; state.game = snap.game; state.game.history = rest;
+    resetUi();
+    ui.hint = snap.msg || `${pname(state.game.order[state.game.pos])}'s entry was removed. Enter it again.`;
+  }
+  function scoreCommit(){
+    const g = state.game, p = g.order[g.pos], isStarter = g.pos === 0;
+    if (ui.entry === '' || (isStarter && !ui.rolls)) return;
+    const pts = +ui.entry;
+    snapshot(`${pname(p)}'s entry was removed. Enter it again.`);
+    if (pts === 0) ui.celebrate = pname(p);
+    recordTurn(pts, isStarter ? ui.rolls : null);
+  }
+
+  // ---------- views ----------
+  function header(g){
+    const lim = g.mark != null
+      ? `<span class="chip">Roll limit <b>${g.mark}</b> · set by ${esc(pname(g.starter))}</span>`
+      : `<span class="chip">${esc(pname(g.starter))} sets the roll limit (max <b>${MAX_ROLLS}</b>)</span>`;
+    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Round ${g.round}${isScore(g) ? ' · Real dice' : ''}</div></header>
+      ${state.phase === 'play' ? `<div class="chips">${lim}</div>` : ''}
+      ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> This round is played to the end, then the highest score loses.</p>` : ''}`;
+  }
+
+  function board(g, current, tagIdx, tagText){
+    const rd = g.rounds[g.rounds.length - 1];
+    const cols = g.players.length === 4 || g.players.length === 2 ? 2 : 3;
+    return `<section class="board cols-${cols}" aria-label="Scores">${g.players.map((pl, i) => {
+      const r = rd.results[i], pct = Math.min(pl.score / LIMIT, 1) * 100;
+      const shotsN = (g.shots || []).filter(s => s.player === i).length;
+      const editable = isScore(g);
+      const editAttrs = editable ? ` role="button" tabindex="0" data-act="edit" data-id="${i}" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
+      const foot = r ? `+${r.pts} this round${r.rolls != null ? ` · ${plural(r.rolls, 'roll')}` : ''}` : (i === current ? 'Playing now' : 'Still to play');
+      return `<div class="pl${i === current ? ' now' : ''}${pl.score >= LIMIT ? ' over' : ''}${state.phase === 'over' && i === g.loser ? ' lost' : ''}${editable ? ' editable' : ''}"${editAttrs}>
+        <div class="pl-top"><span class="nm">${esc(pl.name)}</span>${i === tagIdx ? `<span class="tag">${tagText}</span>` : ''}</div>
+        <div class="sc"><span class="num">${pl.score}</span><span class="of">/ ${LIMIT}</span></div>
+        <div class="bar" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
+        <div class="pl-foot"><span>${foot}</span>${editable ? '<span class="pl-edit" aria-hidden="true">Edit</span>' : ''}</div>
+        ${shotsN ? `<div class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</div>` : ''}
+      </div>`;
+    }).join('')}</section>`;
+  }
+
+  function dieView(d, can){
+    if (d.held !== null) return `<span class="die gone" aria-hidden="true"></span>`;
+    if (ui.rolling) return `<span class="die tumble" data-tumble aria-hidden="true">${face(rnd6())}</span>`;
+    if (d.value === null) return `<span class="die blank" aria-hidden="true"></span>`;
+    const sel = ui.selected === d.id;
+    return `<button class="die${sel ? ' sel' : ''}${can.has(d.id) ? ' can' : ''}${ui.nope === d.id ? ' nope' : ''}" data-act="die" data-id="${d.id}" aria-pressed="${sel}" aria-label="Die showing ${d.value}">${face(d.value)}</button>`;
+  }
+
+  function lastLine(g){
+    const L = g.last; if (!L) return '';
+    return `<p class="last"><b>${esc(pname(L.player))}</b> ${L.pts === 0 ? 'cleared all six dice' : `left <b>${L.pts}</b> on the table`}${L.rolls != null ? ` after ${plural(L.rolls, 'roll')}` : ''} and is now at <b>${L.total}</b>.</p>`;
+  }
+  const undoLink = g => isScore(g) && g.history && g.history.length ? '<button class="link" data-act="undo">Undo last entry</button>' : '';
+
+  function viewEdit(){
+    const g = state.game, p = ui.edit, s = editState();
+    const tag = state.phase === 'play' ? [g.starter, 'Starts'] : state.phase === 'roundEnd' ? [g.next, 'Starts next'] : [g.loser, 'Loses'];
+    const rows = g.rounds.filter(rd => rd.results[p]);
+    const list = rows.length ? rows.map(rd => {
+      const r = rd.results[p], raw = ui.editVals[rd.no], v = raw != null ? raw : String(r.pts);
+      return `<div class="erow">
+          <label for="edit-${rd.no}">Round ${rd.no}${rd.starter === p ? `<small>Started${r.rolls ? ` · ${plural(r.rolls, 'roll')}` : ''}</small>` : ''}</label>
+          <div class="estep">
+            <button class="iconbtn" data-act="estep" data-id="${rd.no}" data-d="-1" aria-label="One less in round ${rd.no}">−</button>
+            <input type="number" inputmode="numeric" min="0" max="36" step="1" id="edit-${rd.no}" class="edit-in" data-round="${rd.no}" value="${esc(v)}">
+            <button class="iconbtn" data-act="estep" data-id="${rd.no}" data-d="1" aria-label="One more in round ${rd.no}">+</button>
+          </div>
+        </div>`;
+    }).join('') : `<p class="empty">${esc(pname(p))} hasn't played a turn yet.</p>`;
+    return header(g) + board(g, p, tag[0], tag[1]) + `
+      <section class="panel" aria-labelledby="edit-h">
+        <div><p class="eyebrow">Correct scores</p><h2 class="who" id="edit-h">${esc(pname(p))}</h2></div>
+        <p class="sub">Change the points for any round, then save. Totals, the next starter and the ${LIMIT} rule are worked out again from the corrected sheet.</p>
+        <div class="elist">${list}</div>
+        <p class="etotal">Total <b id="edit-total">${s.ok ? s.total : '–'}</b><span>was ${g.players[p].score}</span></p>
+        <p class="hint" id="edit-err" aria-live="polite">${s.ok ? '' : 'Each round needs a whole number from 0 to 36.'}</p>
+        <div class="actions">
+          <button class="btn primary" data-act="esave"${s.ok && s.changed ? '' : ' disabled'}>Save changes</button>
+          <button class="btn" data-act="ecancel">Cancel</button>
+        </div>
+      </section>` + sheet(g) + rules() + devBlock() + footer();
+  }
+
+  function floorRow(g){
+    const drops = g.drops || 0, faces = [5, 2, 6];
+    return `<div class="floor">
+        <div class="floor-txt"><span class="h3">Dice on the floor</span><small>The third one pays a round of shots</small></div>
+        <div class="fslots" role="img" aria-label="${drops} of 3 dice on the floor">${[0, 1, 2].map(i => `<span class="fslot${i < drops ? ' on' : ''}${i === 2 ? ' last' : ''}">${i < drops ? mini(faces[i]) : ''}</span>`).join('')}</div>
+        <button class="btn small" data-act="drop">Die dropped</button>
+      </div>`;
+  }
+  function shotsSummary(g){
+    if (!g.shots || !g.shots.length) return '';
+    const counts = {};
+    g.shots.forEach(s => { counts[s.player] = (counts[s.player] || 0) + 1; });
+    return `<p class="sub">Rounds of shots paid: ${Object.keys(counts).map(i => `${esc(pname(+i))} ${counts[i]}`).join(', ')}.</p>`;
+  }
+
+  function viewScore(){
+    const g = state.game, p = g.order[g.pos], n = g.players.length, isStarter = g.pos === 0;
+    const sub = isStarter
+      ? `Roll your dice up to ${MAX_ROLLS} times, then enter the pips left on the table and how many rolls you used. Your rolls become the limit for everyone else.`
+      : `Up to ${plural(g.mark, 'roll')}, the limit ${esc(pname(g.starter))} set. Enter the pips left on the table.`;
+    const val = ui.entry === '' ? null : +ui.entry;
+    const keys = [1,2,3,4,5,6,7,8,9].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
+      + `<button class="key fn" data-act="clear">Clear</button><button class="key" data-act="key" data-id="0">0</button><button class="key fn" data-act="back" aria-label="Delete last digit">⌫</button>`;
+    const rollPick = isStarter
+      ? `<div class="pick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg" role="group" aria-labelledby="rolls-h">${[1,2,3].map(k => `<button class="segbtn${ui.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${ui.rolls === k}">${k}</button>`).join('')}</div></div>`
+      : '';
+    let label, ready = false;
+    if (val === null) label = 'Enter the pips left';
+    else if (isStarter && !ui.rolls) label = 'Choose the rolls used';
+    else { label = `Save · ${pname(p)} +${val}`; ready = true; }
+    const hint = ui.hint != null ? ui.hint : (val === 0 ? 'Zero means all three pairs came out.' : '');
+    return header(g) + board(g, p, g.starter, 'Starts') + lastLine(g) + `
+      <section class="turn" aria-label="${esc(pname(p))}'s turn">
+        <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${esc(pname(p))}</h2></div>
+        <p class="sub">${sub}</p>
+        ${floorRow(g)}
+        <div class="tray">
+          <div class="tray-top"><span class="tlabel">Pips left on the table</span><span class="tlabel">0–36</span></div>
+          <div class="entry" aria-live="polite">${val === null ? '<span class="ph">–</span>' : val}</div>
+        </div>
+        <div class="pad">${keys}</div>
+        ${rollPick}
+        <p class="hint" aria-live="polite">${esc(hint)}</p>
+        <div class="actions"><button class="btn primary" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>${undoLink(g)}</div>
+      </section>` + sheet(g) + rules() + devBlock() + footer();
+  }
+
+  function viewPlay(){
+    const g = state.game, t = g.turn, p = g.order[g.pos], n = g.players.length;
+    const isStarter = g.pos === 0, rolled = t.rolls > 0, done = rolled && !canRoll(t);
+    const can = rolled && !ui.rolling ? pairable(t) : new Set();
+    const pen = finalPenalty(t), left = t.maxRolls - t.rolls, nAct = active(t).length;
+    const undoable = rolled && !ui.rolling && !ui.busy && t.rolls < t.maxRolls;
+
+    const last = lastLine(g);
+    const sub = isStarter
+      ? `You start this round with up to ${MAX_ROLLS} rolls. The number of rolls you use becomes the limit for everyone else.`
+      : `Up to ${plural(t.maxRolls, 'roll')}, the limit ${esc(pname(g.starter))} set. You can stop earlier.`;
+    const slots = Array.from({length:MAX_ROLLS}, (_, k) => `<span class="slot${k < t.rolls ? ' used' : ''}${k >= t.maxRolls ? ' off' : ''}"></span>`).join('');
+    const rollsLabel = rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : `${plural(t.maxRolls, 'roll')} available`;
+
+    let hint = ui.busy ? (can.size ? 'Setting aside the 7s…' : '') : ui.hint;
+    if (hint == null){
+      if (!rolled) hint = ui.rolling ? '' : shakeActive() ? `${pname(p)}, tap Roll or shake the phone.` : `${pname(p)}, roll when you're ready.`;
+      else if (nAct === 0) hint = 'All six dice are out. Nothing counts against you.';
+      else if (can.size) hint = 'Tap two dice that add up to 7 to set them aside.';
+      else if (done) hint = 'No rolls left. End your turn.';
+      else hint = '';
+    }
+
+    const rack = t.pairs.length ? t.pairs.map((pr, i) => {
+      const a = t.dice[pr.a].value, b = t.dice[pr.b].value;
+      return (pr.roll === t.rolls && undoable)
+        ? `<button class="pair" data-act="unpair" data-id="${i}" aria-label="Put ${a} and ${b} back on the table">${mini(a)}${mini(b)}<span class="seven">7</span></button>`
+        : `<span class="pair" title="Set aside in roll ${pr.roll}">${mini(a)}${mini(b)}<span class="seven">7</span></span>`;
+    }).join('') : `<p class="empty">Pairs that make 7 land here.</p>`;
+    const liveNote = undoable && t.pairs.some(pr => pr.roll === t.rolls) ? '<small>Tap a pair from this roll to put it back</small>' : '';
+
+    let actions;
+    if (ui.rolling) actions = `<button class="btn primary" disabled>Rolling…</button>`;
+    else if (ui.busy) actions = `<button class="btn primary" disabled>Setting aside 7s…</button>`;
+    else if (!rolled) actions = `<button class="btn primary" data-act="roll">Roll ${diceWord(nAct)}</button>`;
+    else if (done) actions = `<button class="btn primary" data-act="end">End turn · +${pen}</button>`;
+    else {
+      const sec = [];
+      if (can.size) sec.push(`<button class="btn" data-act="takeall">Set aside all 7s</button>`);
+      sec.push(ui.armed === 'stop'
+        ? `<button class="btn armed" data-act="stop">Confirm stop · +${pen}</button>`
+        : `<button class="btn" data-act="stop">Stop · +${pen}</button>`);
+      actions = `<button class="btn primary" data-act="roll">Roll ${diceWord(nAct)} · ${plural(left, 'roll')} left</button><div class="row">${sec.join('')}</div>`;
+    }
+
+    return header(g) + board(g, p, g.starter, 'Starts') + last + `
+      <section class="turn" aria-label="${esc(pname(p))}'s turn">
+        <div class="turnhead">
+          <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${esc(pname(p))}</h2></div>
+          <div class="rolls"><div class="slots" aria-hidden="true">${slots}</div><small>${rollsLabel}</small></div>
+        </div>
+        <p class="sub">${sub}</p>
+        <div class="tray">
+          <div class="tray-top"><span class="tlabel">Counts if you stop</span><span class="tval">${rolled ? pen : '–'}</span></div>
+          <div class="dice">${t.dice.map(d => dieView(d, can)).join('')}</div>
+        </div>
+        <p class="hint" aria-live="polite">${esc(hint)}</p>
+        <div class="rackhead"><span class="h3">Set aside</span>${liveNote}</div>
+        <div class="rack">${rack}</div>
+        <div class="actions">${actions}</div>
+      </section>` + sheet(g) + rules() + devBlock() + footer();
+  }
+
+  function viewRoundEnd(){
+    const g = state.game;
+    const { max, tied, early } = tiedForStart(g);
+    const why = tied.length === 1
+      ? `${pname(g.next)} has the highest score (${max}), so ${pname(g.next)} starts the next round.`
+      : early.length === 1
+        ? `${listNames(tied)} share the highest score (${max}). ${pname(g.next)} got there first, so ${pname(g.next)} starts.`
+        : `${listNames(tied)} share the highest score (${max}) and got there at the same time, so the start passes to the next of them after ${pname(g.starter)}.`;
+    return header(g) + `
+      <section class="panel">
+        <p class="eyebrow">Round ${g.round} done</p>
+        <h2 class="who">${esc(pname(g.next))} starts round ${g.round + 1}</h2>
+        <p class="sub">${esc(why)}</p>
+        <button class="btn primary" data-act="nextround">Start round ${g.round + 1}</button>
+        ${undoLink(g)}
+      </section>` + board(g, -1, g.next, 'Starts next') + sheet(g) + rules() + devBlock() + footer();
+  }
+
+  function viewOver(){
+    const g = state.game, L = g.loser, ls = g.players[L].score;
+    const tiedWith = g.players.map((_, i) => i).filter(i => i !== L && g.players[i].score === ls);
+    let why;
+    if (tiedWith.length) why = `Tied at ${ls} with ${listNames(tiedWith)}. ${pname(L)} played later in the last round, so ${pname(L)} loses.`;
+    else if (g.early) why = `The game was ended early. ${pname(L)} has the highest score, ${ls}.`;
+    else if (g.crosser !== L) why =`${pname(g.crosser)} reached ${LIMIT} first, but ${pname(L)} finished the round higher with ${ls}.`;
+    else why = `${pname(L)} reached ${LIMIT} and finished with the highest score, ${ls}.`;
+    const winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(1 - L))}</b> wins with ${g.players[1 - L].score}.</p>` : '';
+    return header(g) + `
+      <section class="panel">
+        <p class="eyebrow">${g.early ? 'Ended early in' : 'Game over after'} ${plural(g.round, 'round')}</p>
+        <h1 class="verdict"><span>${esc(pname(L))}</span> loses</h1>
+        <p class="sub">${esc(why)}</p>
+        ${winner}
+        ${shotsSummary(g)}
+        <button class="btn primary" data-act="again">Play again</button>
+        ${undoLink(g)}
+      </section>` + board(g, -1, L, 'Loses') + sheet(g) + rules() + devBlock() + footer();
+  }
+
+  function viewSetup(){
+    const s = state.setup;
+    const rows = s.names.map((nm, i) => `<div class="prow">
+        <label class="sr" for="name-${i}">Name of player ${i + 1}</label>
+        <input type="text" id="name-${i}" class="name-in" data-idx="${i}" value="${esc(nm)}" placeholder="Player ${i + 1}" maxlength="16" autocomplete="off" enterkeyhint="done">
+        <label class="startpick"><input type="radio" id="starter-${i}" name="starter" value="${i}"${s.starter === i ? ' checked' : ''}> Starts</label>
+        ${s.names.length > 2 ? `<button class="iconbtn" data-act="remove" data-id="${i}" aria-label="Remove player ${i + 1}">×</button>` : ''}
+      </div>`).join('');
+    const demo = [[1,6],[2,5],[3,4]].map(([a, b]) => `<span class="pair">${mini(a)}${mini(b)}<span class="seven">7</span></span>`).join('');
+    const mode = s.mode === 'score' ? 'score' : 'dice';
+    const modeBlock = `<section class="pick" aria-labelledby="mode-h">
+        <span class="h3" id="mode-h">How you play</span>
+        <div class="seg mode" role="group" aria-labelledby="mode-h">
+          <button class="segbtn${mode === 'dice' ? ' on' : ''}" data-act="mode" data-id="0" aria-pressed="${mode === 'dice'}">Dice on this phone</button>
+          <button class="segbtn${mode === 'score' ? ' on' : ''}" data-act="mode" data-id="1" aria-pressed="${mode === 'score'}">Real dice, scores here</button>
+        </div>
+        <p class="sub">${mode === 'dice' ? 'The app rolls the dice. Pass the phone around.' : 'Roll your own dice. After each turn, enter the pips left on the table.'}</p>
+      </section>`;
+    return `<header class="hero">
+        <h1 class="brand-xl marquee">Sevens<br><span>Out</span></h1>
+        <p class="lede">Roll six dice and set aside every pair that makes 7. Whatever stays on the table counts against you. Once someone reaches ${LIMIT}, the round is finished and the highest score loses.</p>
+        <div class="demo" role="img" aria-label="The three pairs that make 7: 1 and 6, 2 and 5, 3 and 4">${demo}</div>
+      </header>
+      ${modeBlock}
+      <section class="panel" aria-labelledby="players-h">
+        <h2 class="h2" id="players-h">Players</h2>
+        <p class="sub">Choose who starts the first round. After that, the player with the highest score starts.</p>
+        <div class="plist">${rows}</div>
+        <div class="row">${s.names.length < MAX_PLAYERS ? '<button class="btn ghost" data-act="add">Add player</button>' : ''}<button class="btn ghost" data-act="randstart">Random starter</button></div>
+        <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
+        <button class="btn primary" data-act="start">Start game</button>
+      </section>` + rules() + devBlock() + footer();
+  }
+
+  function sheet(g){
+    const head = g.players.map(pl => `<th scope="col">${esc(pl.name)}</th>`).join('');
+    const body = g.rounds.map(rd => `<tr><th scope="row">${rd.no}</th>${g.players.map((_, i) => {
+      const r = rd.results[i];
+      return `<td${i === rd.starter ? ' class="st"' : ''}>${r ? `+${r.pts}${r.rolls != null ? `<small>${r.rolls}×</small>` : ''}` : '–'}</td>`;
+    }).join('')}</tr>`).join('');
+    const foot = g.players.map(pl => `<td>${pl.score}</td>`).join('');
+    return `<details class="fold" data-fold="sheet"${ui.open.sheet ? ' open' : ''}><summary>Score sheet</summary>
+      <div class="tablewrap"><table><thead><tr><th scope="col">Round</th>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr><th scope="row">Total</th>${foot}</tr></tfoot></table></div>
+      <p class="note"><span class="dot"></span> marks the round's starter. The small number is how many rolls were used.</p></details>`;
+  }
+
+  function rules(){
+    return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>Rules</summary><ol>
+      <li>On your turn you roll six dice. After each roll you may set aside any pairs that add up to 7 (1+6, 2+5, 3+4). Only such pairs can be set aside; every other die goes back into the next roll.</li>
+      <li>The round's starter may roll up to three times and can stop after any roll. The number of rolls the starter used is the limit for everyone else in that round. Everyone else may stop earlier.</li>
+      <li>When you stop, all remaining 7-pairs come out and the pips on the dice still on the table are added to your score. Clearing all six dice adds nothing.</li>
+      <li>The players choose who starts the first round. After that, the player with the highest score starts each round. If several share the highest score, the one who reached that score first starts.</li>
+      <li>When anyone reaches ${LIMIT} or more, the round is played to the end. Then the highest score loses. If the highest score is tied, the player who played later in that round loses.</li>
+    </ol>${(state.game ? state.game.mode : state.setup.mode) === 'score' ? '' : '<p class="note">The app sets pairs aside for you after each roll. Tap a pair from the current roll to put it back before rolling again.</p>'}</details>`;
+  }
+
+  function devBlock(){
+    const live = state.phase === 'play' || state.phase === 'roundEnd';
+    const confirm = live && ui.confirmEnd
+      ? `<div class="confirm"><span>End the game now? The highest score loses${state.phase === 'play' ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
+      : '';
+    return `<details class="fold" data-fold="dev"${ui.open.dev ? ' open' : ''}><summary>Developer</summary>
+      <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
+      ${confirm}
+      <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
+  }
+  function endEarly(){
+    const g = state.game;
+    let L = null;
+    for (const i of g.order){ if (L === null || g.players[i].score >= g.players[L].score) L = i; }
+    g.loser = L; g.early = true; state.phase = 'over';
+    resetUi(); ui.open.sheet = true;
+  }
+
+  function footer(){
+    if (ui.confirmNew) return `<div class="foot"><div class="confirm"><span>End this game and go back to the player setup?</span><button class="btn small danger" data-act="newyes">End game</button><button class="btn small" data-act="newno">Keep playing</button></div></div>`;
+    const inGame = state.phase === 'play' || state.phase === 'roundEnd';
+    const soundPick = `<div class="soundpick"><span class="h3" id="snd-h">Sound</span><div class="seg small" role="group" aria-labelledby="snd-h">${SOUND_OPTS.map(([v, label], i) =>
+      `<button class="segbtn${soundMode === v ? ' on' : ''}" data-act="sound" data-id="${i}" aria-pressed="${soundMode === v}">${label}</button>`).join('')}</div></div>`;
+    const lookPick = `<div class="soundpick"><span class="h3" id="look-h">Look</span><div class="seg small" role="group" aria-labelledby="look-h">${LOOK_OPTS.map(([v, label], i) =>
+      `<button class="segbtn${look === v ? ' on' : ''}" data-act="look" data-id="${i}" aria-pressed="${look === v}">${label}</button>`).join('')}</div></div>`;
+    const shakeOn = shakePref && (shakeListening || needsMotionPermission());
+    const shakePick = canShake() ? `<div class="soundpick"><span class="h3" id="shake-h">Shake to roll</span><div class="seg small" role="group" aria-labelledby="shake-h">${['Off', 'On'].map((label, i) =>
+      `<button class="segbtn${(i === 1) === shakeOn ? ' on' : ''}" data-act="shake" data-id="${i}" aria-pressed="${(i === 1) === shakeOn}">${label}</button>`).join('')}</div></div>` : '';
+    return `<div class="foot">${soundPick}${lookPick}${shakePick}${inGame ? '<button class="link" data-act="new">New game</button>' : ''}</div>`;
+  }
+
+  // ---------- actions ----------
+  function doRoll(){
+    const t = state.game.turn, targets = active(t), finals = targets.map(() => rnd6());
+    resetUi(); ui.rolling = true; render();
+    let timer = null;
+    const finish = () => {
+      if (timer) clearInterval(timer);
+      targets.forEach((d, k) => { d.value = finals[k]; });
+      t.rolls++;
+      ui.rolling = false;
+      const settle = () => {
+        if (!state.game || state.game.turn !== t) return;
+        const n = t.pairs.filter(pr => pr.roll === t.rolls).length, left = active(t).length;
+        if (left === 0) ui.hint = 'All six dice are out. Nothing counts against you.';
+        else {
+          ui.hint = n ? `${plural(n, 'pair')} of 7 set aside.` : 'No 7s in this roll.';
+          if (t.rolls >= t.maxRolls) ui.hint += ' No rolls left.';
+        }
+        render();
+      };
+      // let the dice lie on the table for a moment, then draw the 7-pairs out one by one
+      if (reduceMotion){ takeAll(t); settle(); }
+      else drawPairs(t, true).then(settle);
+    };
+    if (reduceMotion){ finish(); return; }
+    timer = setInterval(() => { $app.querySelectorAll('[data-tumble]').forEach(el => { el.innerHTML = face(rnd6()); }); }, 70);
+    setTimeout(finish, 520);
+  }
+
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  async function drawPairs(t, pause){
+    ui.busy = true; render();
+    if (pause) await wait(700);
+    for (const [a, b] of matchPairs(t)){
+      if (!state.game || state.game.turn !== t) break;
+      await flyPair(t, a, b);
+    }
+    ui.busy = false;
+  }
+  // light up a pair, then fly both dice in an arc from the tray into the set-aside rack
+  async function flyPair(t, a, b){
+    await 0; // let any pending render finish so we measure the live dice
+    const els = [a, b].map(id => $app.querySelector(`.die[data-id="${id}"]`));
+    els.forEach(el => { if (el) el.classList.add('pairing'); });
+    await wait(240);
+    const from = els.map(el => el ? el.getBoundingClientRect() : null);
+    hold(t, a, b); render();
+    if (!from[0] || !from[1]) return;
+    const packs = $app.querySelectorAll('.rack .pair'), last = packs[packs.length - 1];
+    const minis = last ? last.querySelectorAll('.die.mini') : [];
+    if (minis.length < 2) return;
+    minis.forEach(m => { m.style.visibility = 'hidden'; });
+    const vals = [t.dice[a].value, t.dice[b].value];
+    await Promise.all(from.map((r, k) => {
+      const to = minis[k].getBoundingClientRect();
+      const s = to.width / r.width;
+      const dx = (to.left + to.width / 2) - (r.left + r.width / 2), dy = (to.top + to.height / 2) - (r.top + r.height / 2);
+      const el = document.createElement('span');
+      el.className = 'die fly'; el.setAttribute('aria-hidden', 'true');
+      el.style.cssText = `--die:${r.width}px;left:${r.left}px;top:${r.top}px`;
+      el.innerHTML = face(vals[k]);
+      document.body.appendChild(el);
+      const spin = k ? -360 : 360;
+      const anim = el.animate([
+        { transform:'translate(0,0) scale(1) rotate(0deg)' },
+        { transform:`translate(${dx * 0.45}px,${dy * 0.45 - 70}px) scale(${(1 + s) / 2 + 0.15}) rotate(${spin / 2}deg)`, offset:0.5 },
+        { transform:`translate(${dx}px,${dy}px) scale(${s}) rotate(${spin}deg)` }
+      ], { duration:520, delay:k * 70, easing:'cubic-bezier(.45,0,.25,1)', fill:'forwards' });
+      return anim.finished.catch(() => {}).then(() => el.remove());
+    }));
+    minis.forEach(m => { m.style.visibility = ''; });
+  }
+
+  function tapDie(id){
+    const t = state.game.turn, d = t.dice[id];
+    if (!d || d.held !== null || d.value === null || ui.rolling) return;
+    if (ui.selected === null){
+      if (!pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; return; }
+      ui.selected = id; ui.hint = `Now tap a ${7 - d.value}.`; return;
+    }
+    if (ui.selected === id){ ui.selected = null; ui.hint = null; return; }
+    const s = t.dice[ui.selected];
+    if (s.value + d.value === 7){
+      ui.selected = null;
+      const sv = s.value, dv = d.value;
+      if (reduceMotion){ hold(t, s.id, d.id); ui.hint = `${sv} + ${dv} set aside.`; return; }
+      ui.busy = true; ui.hint = null;
+      flyPair(t, s.id, d.id).then(() => { ui.busy = false; ui.hint = `${sv} + ${dv} set aside.`; render(); });
+      return;
+    }
+    ui.hint = `${s.value} + ${d.value} makes ${s.value + d.value}, not 7.`; ui.nope = id;
+  }
+
+  function toSetup(){ state.phase = 'setup'; state.game = null; resetUi(); ui.open = {}; }
+
+  function handle(a, id, el){
+    const g = state.game;
+    // while pairs are flying out, only settings and the developer buttons respond
+    if (ui.busy && !['sound', 'look', 'shake', 'devconfetti', 'devdoom'].includes(a)) return;
+    ui.nope = null;
+    if (a !== 'stop') ui.armed = null;
+    if (a !== 'new') ui.confirmNew = false;
+    if (a !== 'endearly') ui.confirmEnd = false;
+    if (state.phase === 'setup') ui.hint = null;
+    switch (a){
+      case 'add':
+        if (state.setup.names.length < MAX_PLAYERS){
+          state.setup.names.push(''); render();
+          const el = document.getElementById(`name-${state.setup.names.length - 1}`); if (el) el.focus();
+        }
+        return;
+      case 'remove': {
+        const s = state.setup; if (s.names.length <= 2) return;
+        s.names.splice(id, 1);
+        if (s.starter === id) s.starter = 0; else if (s.starter > id) s.starter--;
+        break;
+      }
+      case 'randstart': {
+        const s = state.setup; s.starter = Math.floor(Math.random() * s.names.length);
+        ui.hint = `${s.names[s.starter].trim() || `Player ${s.starter + 1}`} starts the first round.`;
+        break;
+      }
+      case 'start': {
+        const s = state.setup;
+        const names = s.names.map((nm, i) => nm.trim() || `Player ${i + 1}`);
+        state.game = newGame(names, Math.min(s.starter, names.length - 1), s.mode === 'score' ? 'score' : 'dice');
+        state.phase = 'play'; resetUi(); ui.open = {};
+        break;
+      }
+      case 'roll':
+        if (state.phase === 'play' && !ui.rolling && canRoll(g.turn)) doRoll();
+        return;
+      case 'die': tapDie(id); break;
+      case 'unpair': {
+        const t = g.turn, pr = t.pairs[id];
+        if (pr && pr.roll === t.rolls && t.rolls < t.maxRolls && !ui.rolling){
+          const va = t.dice[pr.a].value, vb = t.dice[pr.b].value;
+          t.dice[pr.a].held = null; t.dice[pr.b].held = null; t.pairs.splice(id, 1);
+          ui.selected = null; ui.hint = `${va} and ${vb} are back on the table and will be rolled again.`;
+        }
+        break;
+      }
+      case 'takeall': {
+        const t = g.turn; ui.selected = null;
+        if (reduceMotion){ const n = takeAll(t); ui.hint = n ? `${plural(n, 'pair')} of 7 set aside.` : null; break; }
+        const before = t.pairs.length;
+        drawPairs(t, false).then(() => { const n = t.pairs.length - before; ui.hint = n ? `${plural(n, 'pair')} of 7 set aside.` : null; render(); });
+        return;
+      }
+      case 'drop': {
+        if (state.phase !== 'play' || !isScore(g)) return;
+        const p = g.order[g.pos];
+        snapshot('The last dropped die was taken back.');
+        g.drops = (g.drops || 0) + 1;
+        if (g.drops >= 3){
+          g.drops = 0;
+          g.shots = (g.shots || []).concat([{ player:p, round:g.round }]);
+          ui.doom = pname(p);
+          ui.hint = `${pname(p)} pays a round of shots.`;
+        } else ui.hint = `${pname(p)} dropped a die. ${g.drops} of 3 on the floor.`;
+        break;
+      }
+      case 'edit':
+        if (!isScore(g) || state.phase === 'setup' || !g.players[id]) return;
+        ui.edit = id; ui.editVals = {};
+        break;
+      case 'ecancel': ui.edit = null; ui.editVals = {}; break;
+      case 'estep': {
+        const inp = document.getElementById(`edit-${id}`); if (!inp || !el) return;
+        let v = parseInt(inp.value, 10); if (isNaN(v)) v = 0;
+        v = Math.max(0, Math.min(36, v + (+el.dataset.d || 0)));
+        inp.value = String(v); ui.editVals[id] = String(v);
+        refreshEdit();
+        return;
+      }
+      case 'esave': if (ui.edit != null) applyEdits(); break;
+      case 'devdoom': showDoom(state.phase === 'play' ? pname(g.order[g.pos]) : 'Test player'); break;
+      case 'stop': {
+        const t = g.turn; if (!t.rolls || ui.rolling) return;
+        if (canRoll(t) && ui.armed !== 'stop'){
+          ui.armed = 'stop';
+          const left = t.maxRolls - t.rolls;
+          ui.hint = g.pos === 0
+            ? `Stopping now sets the limit to ${plural(t.rolls, 'roll')} for everyone this round. Tap again to confirm.`
+            : `You still have ${plural(left, 'roll')}. Tap again to stop.`;
+          break;
+        }
+        endTurn(); break;
+      }
+      case 'end': if (g.turn.rolls && !ui.rolling) endTurn(); break;
+      case 'nextround': startRound(); break;
+      case 'new': ui.confirmNew = true; break;
+      case 'newyes': toSetup(); break;
+      case 'newno': break;
+      case 'again': toSetup(); break;
+      case 'endearly': if (state.phase === 'play' || state.phase === 'roundEnd') ui.confirmEnd = true; break;
+      case 'endyes': if ((state.phase === 'play' && !ui.rolling) || state.phase === 'roundEnd') endEarly(); break;
+      case 'endno': break;
+      case 'shake': {
+        if (!canShake()) return;
+        const store = v => { try { localStorage.setItem(SHAKE_KEY, v ? '1' : '0'); } catch (e) {} };
+        if (id !== 1){ shakePref = false; store(false); listenMotion(false); break; }
+        // ask right inside the tap, before anything async, or iPhone refuses
+        askMotion().then(ok => {
+          shakePref = ok; store(ok); listenMotion(ok);
+          ui.hint = ok ? 'Shake the phone to roll the dice.' : "Your phone didn't allow motion access, so shake to roll stays off.";
+          render();
+        });
+        return;
+      }
+      case 'look': {
+        const opt = LOOK_OPTS[id]; if (!opt) return;
+        look = opt[0];
+        try { localStorage.setItem(LOOK_KEY, look); } catch (e) {}
+        applyLook();
+        break;
+      }
+      case 'sound': {
+        const opt = SOUND_OPTS[id]; if (!opt) return;
+        soundMode = opt[0];
+        try { localStorage.setItem(SOUND_KEY, soundMode); } catch (e) {}
+        if (soundMode !== 'off'){ sound.unlock(); playSound(); }
+        break;
+      }
+      case 'mode': state.setup.mode = id === 1 ? 'score' : 'dice'; break;
+      case 'key': {
+        if (state.phase !== 'play' || !isScore(g)) return;
+        ui.hint = null;
+        const s = ui.entry === '0' ? String(id) : ui.entry + id;
+        if (s.length > 2 || +s > 36){ ui.hint = 'The most you can have left is 36 (six 6s).'; break; }
+        ui.entry = String(+s);
+        break;
+      }
+      case 'back': ui.hint = null; ui.entry = (ui.entry || '').slice(0, -1); break;
+      case 'clear': ui.hint = null; ui.entry = ''; break;
+      case 'rolls': ui.hint = null; ui.rolls = id; break;
+      case 'commit': if (state.phase === 'play' && isScore(g)) scoreCommit(); break;
+      case 'undo': undo(); break;
+      case 'devconfetti': celebrate(state.phase === 'play' ? pname(g.order[g.pos]) : 'Test player'); break;
+      default: return;
+    }
+    render();
+  }
+
+  // ---------- render / persistence ----------
+  function render(){
+    const f = document.activeElement;
+    const key = f && $app.contains(f) && f.dataset && f.dataset.act ? [f.dataset.act, f.dataset.id] : null;
+    let html;
+    try {
+      if (state.phase === 'play' && !ui.rolling && !ui.busy && !isScore(state.game)){
+        const g = state.game, t = g.turn;
+        if (t.rolls > 0 && active(t).length === 0 && !t.cleared){ t.cleared = true; ui.celebrate = pname(g.order[g.pos]); }
+      }
+      html = state.phase === 'setup' ? viewSetup()
+        : (ui.edit != null && isScore(state.game)) ? viewEdit()
+        : state.phase === 'play' ? (isScore(state.game) ? viewScore() : viewPlay())
+        : state.phase === 'roundEnd' ? viewRoundEnd()
+        : viewOver();
+    } catch (err){
+      console.error(err);
+      state = blank(); resetUi(); html = viewSetup();
+    }
+    $app.innerHTML = html;
+    if (key){
+      const el = $app.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
+      if (el) el.focus({ preventScroll:true });
+    }
+    save();
+    if (ui.celebrate){ const nm = ui.celebrate; ui.celebrate = null; celebrate(nm); }
+    if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }
+  }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function load(){
+    try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.phase && s.setup) return s; } catch (e) {}
+    return null;
+  }
+
+  document.addEventListener('click', e => {
+    const el = e.target.closest('[data-act]');
+    if (!el || !$app.contains(el) || el.disabled) return;
+    handle(el.dataset.act, el.dataset.id != null ? +el.dataset.id : null, el);
+  });
+  // score cards act as buttons in scoreboard mode
+  document.addEventListener('keydown', e => {
+    const el = e.target;
+    if ((e.key === 'Enter' || e.key === ' ') && el && el.matches && el.matches('[role="button"][data-act]') && $app.contains(el)){
+      e.preventDefault();
+      handle(el.dataset.act, el.dataset.id != null ? +el.dataset.id : null, el);
+    }
+  });
+  $app.addEventListener('input', e => {
+    const el = e.target;
+    if (el.classList.contains('name-in')){ state.setup.names[+el.dataset.idx] = el.value; save(); }
+    if (el.classList.contains('edit-in')){ ui.editVals[+el.dataset.round] = el.value; refreshEdit(); }
+  });
+  $app.addEventListener('change', e => {
+    const el = e.target;
+    if (el.name === 'starter'){ state.setup.starter = +el.value; save(); }
+  });
+  document.addEventListener('keydown', e => {
+    if (state.phase !== 'play' || !isScore(state.game) || ui.edit != null) return;
+    const tag = e.target && e.target.tagName;
+    if (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button') return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (/^[0-9]$/.test(e.key)){ e.preventDefault(); handle('key', +e.key); }
+    else if (e.key === 'Backspace'){ e.preventDefault(); handle('back', null); }
+    else if (e.key === 'Enter' && tag !== 'BUTTON'){ e.preventDefault(); handle('commit', null); }
+  });
+  document.addEventListener('toggle', e => {
+    const d = e.target;
+    if (d && d.dataset && d.dataset.fold) ui.open[d.dataset.fold] = d.open;
+  }, true);
+
+  function start(data){
+    const s = (data && data.state) || load();
+    if (s) state = s;
+    render();
+  }
+  try { window.claude?.hot?.snapshot?.(() => ({ state })); } catch (e) {}
+  if (window.claude?.hot?.ready) window.claude.hot.ready(start);
+  else start(window.claude?.hot?.data ?? {});
+})();
+</script>
+</body>
+</html>
