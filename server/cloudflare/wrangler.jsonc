@@ -12,7 +12,7 @@
   "vars": {
     // comma-separated list of page origins allowed to connect, e.g. "https://<owner>.github.io".
     // Empty or "*" allows any origin (fine for local development).
-    "ALLOWED_ORIGINS": ""
+    "ALLOWED_ORIGINS": "https://nepet.github.io"
   },
   "observability": { "enabled": true }
 }
