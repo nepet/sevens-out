@@ -1532,7 +1532,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     dispatch({ type:'roll' }); // roll first, then show the tumbling dice until the result is revealed
     if (ui.rolling){ render(); startTumble(); }
   }
-  function toSetup(){ state.phase = 'setup'; state.game = null; resetUi(); ui.open = {}; }
+  function toSetup(){ state.phase = 'setup'; state.game = null; delete state.stats; resetUi(); ui.open = {}; }
   function readOnlineFields(){
     const n = document.getElementById('oname'), c = document.getElementById('ocode');
     if (n) ui.online.name = n.value;
@@ -1574,6 +1574,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         const s = state.setup;
         const names = s.names.map((nm, i) => nm.trim() || `Player ${i + 1}`);
         ui.open = {};
+        state.stats = { id:randomId(), startedAt:Date.now() }; // for the owner's statistics (see queueReport)
         dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), mode:s.mode === 'score' ? 'score' : 'dice' });
         return;
       }
@@ -1737,10 +1738,68 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }
   }
   // the phone's own game is saved here; online games live on the server
-  function save(){ if (online()) return; try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function save(){
+    if (online()) return;
+    if (state.phase === 'over') queueReport();
+    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    if (state.phase === 'over') flushReports();
+  }
   function load(){
     try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.phase && s.setup) return s; } catch (e) {}
     return null;
+  }
+
+  // ---------- statistics: finished one-phone games are sent to the room server ----------
+  // Playing never waits on this. A report that can't be sent waits in localStorage for a later visit;
+  // the server checks it against the rules (server/core/stats.js checkReport) and keeps one record per game id.
+  const REPORTS_KEY = 'sevens-out-reports', MAX_REPORTS = 20, MAX_SENT = 50;
+  let reportSending = false;
+  function randomId(){ const b = new Uint8Array(8); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); }
+  function hashText(s){ let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(16); }
+  function reportUrl(){ const b = serverBase(); return b ? b.replace(/^ws(s?):/, 'http$1:') + '/report' : ''; }
+  function readReports(){
+    try { const r = JSON.parse(localStorage.getItem(REPORTS_KEY) || 'null'); if (r && Array.isArray(r.queue) && r.sent && typeof r.sent === 'object') return r; } catch (e) {}
+    return { queue:[], sent:{} };
+  }
+  function writeReports(r){ try { localStorage.setItem(REPORTS_KEY, JSON.stringify(r)); } catch (e) {} }
+  // the same sheet as sheetOf() in server/core/stats.js
+  function sheetOf(g){
+    return {
+      players:g.players.map(p => p.name),
+      rounds:g.rounds.map(rd => ({ no:rd.no, starter:rd.starter, mark:rd.mark == null ? null : rd.mark, results:rd.results })),
+      shots:(g.shots || []).map(s => ({ player:s.player, round:s.round })),
+      early:!!g.early
+    };
+  }
+  function queueReport(){
+    const g = state.game;
+    if (!g || !reportUrl()) return;
+    if (!state.stats) state.stats = { id:randomId(), startedAt:null }; // a game saved before reports existed
+    const sheet = sheetOf(g), sig = hashText(JSON.stringify(sheet)), id = state.stats.id, r = readReports();
+    if (r.sent[id] === sig || r.queue.some(q => q.id === id && q.sig === sig)) return;
+    const body = { id, mode:g.mode, startedAt:state.stats.startedAt, finishedAt:Date.now(), sheet };
+    r.queue = r.queue.filter(q => q.id !== id).concat([{ id, sig, body }]).slice(-MAX_REPORTS);
+    writeReports(r);
+  }
+  function flushReports(){
+    const url = reportUrl();
+    if (reportSending || !url || typeof fetch !== 'function') return;
+    const item = readReports().queue[0];
+    if (!item) return;
+    reportSending = true;
+    fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify(item.body) })
+      .then(res => res.ok || (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429), () => false)
+      .then(done => {
+        reportSending = false;
+        if (!done) return; // offline or the server is busy: try again on the next visit
+        const r = readReports();
+        r.queue = r.queue.filter(q => !(q.id === item.id && q.sig === item.sig));
+        r.sent[item.id] = item.sig;
+        const ids = Object.keys(r.sent);
+        ids.slice(0, Math.max(0, ids.length - MAX_SENT)).forEach(k => { delete r.sent[k]; });
+        writeReports(r);
+        flushReports();
+      });
   }
 
   document.addEventListener('click', e => {
@@ -1787,6 +1846,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function start(data){
     const s = (data && data.state) || load();
     if (s && s.setup) state = s;
+    flushReports();
     // ?join=CODE opens the join screen with the code filled in
     let join = '';
     try { join = (new URLSearchParams(location.search).get('join') || '').toUpperCase(); } catch (e) {}

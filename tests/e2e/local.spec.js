@@ -1,5 +1,7 @@
 // Pass-and-play on one phone: both modes, the animations, corrections, the shots alarm and shake to roll.
 import { test, expect } from '@playwright/test';
+import '../../engine.js';
+import { checkReport } from '../../server/core/stats.js';
 import { saved, idle, fixDice, startLocal, enterScore, checkSheet, noSideScroll } from './helpers.js';
 
 test.describe('dice mode', () => {
@@ -164,4 +166,65 @@ test('no sideways scrolling at phone width, in both looks', async ({ page }) => 
   await page.click('[data-act=look][data-id="1"]');
   await startLocal(page, { names: ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Finn'] });
   expect(await noSideScroll(page)).toBe(true);
+});
+
+test.describe('statistics', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const reports = page => page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-reports') || '{"queue":[],"sent":{}}'));
+  async function playShortGame(page) {
+    await startLocal(page, { names: ['Anna', 'Ben'], mode: 'score' });
+    for (let round = 1; round <= 3; round++) {
+      await enterScore(page, 36, 1); // Anna starts every round and reaches 108 in round 3
+      await enterScore(page, 5);
+      if (round < 3) await page.click('[data-act=nextround]');
+    }
+    await expect(page.locator('.verdict')).toContainText('loses');
+  }
+
+  test('a finished one-phone game is sent once, also when the phone was offline at the end', async ({ page }) => {
+    await page.route('**/report', route => route.abort('internetdisconnected'));
+    await playShortGame(page);
+    await expect.poll(async () => (await reports(page)).queue.length).toBe(1);
+
+    const sent = [];
+    await page.unroute('**/report');
+    await page.route('**/report', async route => { sent.push(route.request().postDataJSON()); await route.fulfill({ status: 204 }); });
+    await page.reload();
+    await expect.poll(() => sent.length).toBe(1);
+    expect(sent[0].sheet.players).toEqual(['Anna', 'Ben']);
+    expect(typeof sent[0].startedAt).toBe('number');
+    const check = checkReport(sent[0], globalThis.SevensEngine);
+    expect(check.error).toBeUndefined(); // the server would accept it
+    expect(check.state.game.loser).toBe(0);
+    await expect.poll(async () => (await reports(page)).queue.length).toBe(0);
+
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    expect(sent.length).toBe(1);
+  });
+
+  test('a report the server refuses is not sent again', async ({ page }) => {
+    let calls = 0;
+    await page.route('**/report', async route => { calls++; await route.fulfill({ status: 400, contentType: 'application/json', body: '{"error":"id"}' }); });
+    await playShortGame(page);
+    await expect.poll(() => calls).toBe(1);
+    await expect.poll(async () => (await reports(page)).queue.length).toBe(0); // the answer has been handled
+    await page.reload();
+    await page.waitForLoadState('networkidle');
+    expect(calls).toBe(1);
+    expect((await reports(page)).queue).toEqual([]);
+  });
+
+  test('a correction after game over sends the game again with the same id', async ({ page }) => {
+    const sent = [];
+    await page.route('**/report', async route => { sent.push(route.request().postDataJSON()); await route.fulfill({ status: 204 }); });
+    await playShortGame(page);
+    await expect.poll(() => sent.length).toBe(1);
+    await page.click('[data-act=undo]');
+    await enterScore(page, 6);
+    await expect(page.locator('.verdict')).toContainText('loses');
+    await expect.poll(() => sent.length).toBe(2);
+    expect(sent[1].id).toBe(sent[0].id);
+    expect(sent[1].sheet.rounds[2].results[1].pts).toBe(6);
+  });
 });
