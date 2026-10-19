@@ -12,7 +12,8 @@ records, a leaderboard by player name, and the recent games with their score she
   only once nothing is waiting.
 - **One-phone games:** when a game on one phone ends, the page sends a summary to `POST /report` on the
   game Worker. It waits in `localStorage['sevens-out-reports']` until the server accepts or refuses it
-  (offline or a busy server: it is sent on a later visit).
+  (offline or a busy server: it is sent on a later visit). A refused report is dropped and never sent
+  again; that includes one the server refuses as too large (413), not only one that breaks the rules.
   The server checks it against the rules (`server/core/stats.js`, `checkReport`, which also refuses
   player names that aren't strings) and stores it once per game.
 - **The page:** a separate Worker, `sevens-out-admin`, reads the same database. Cloudflare Access signs the
@@ -48,8 +49,9 @@ Cloudflare, give `sevens-out` a bypass.
 - **Fake or test games:** filter by source (online / one phone), open the game and use **Delete game**.
 - **Local development:** `npm run worker:dev` and `npm run admin:dev` (port 8789, no sign-in on localhost).
   - Keep `admin:dev` on localhost. Never add `--ip 0.0.0.0`: the no-sign-in mode trusts the `127.0.0.1` / `localhost` host name.
-  - Load the schema into the local database first: `node tests/e2e/d1-setup.mjs` uses `.wrangler/e2e`;
-    for your own experiments use `npx wrangler d1 execute sevens-out-stats --local -c server/cloudflare/wrangler.jsonc --file server/d1/schema.sql`.
+  - Both share the local database in `.wrangler/dev`. Load the schema into it first:
+    `npx wrangler d1 execute sevens-out-stats --local --persist-to .wrangler/dev -c server/cloudflare/wrangler.jsonc --file server/d1/schema.sql`.
+    (`node tests/e2e/d1-setup.mjs` only prepares `.wrangler/e2e` for the browser tests; `worker:dev` and `admin:dev` don't use it.)
 - **Tests:** `npm run test:admin` runs the admin page's browser tests against `wrangler dev`.
   Don't run `test:worker` and `test:admin` at the same time: both reset `.wrangler/e2e`.
 - **What is stored:** player names and game details. No IP addresses or device ids. Records stay until deleted.

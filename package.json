@@ -14,9 +14,9 @@
     "test:e2e": "playwright test",
     "test:admin": "node tests/e2e/d1-setup.mjs && playwright test -c playwright.admin.config.js",
     "test:worker": "node tests/e2e/d1-setup.mjs && TARGET=worker playwright test tests/e2e/online.spec.js",
-    "worker:dev": "wrangler dev -c server/cloudflare/wrangler.jsonc",
+    "worker:dev": "wrangler dev -c server/cloudflare/wrangler.jsonc --persist-to .wrangler/dev",
     "worker:deploy": "wrangler deploy -c server/cloudflare/wrangler.jsonc",
-    "admin:dev": "wrangler dev -c server/admin/wrangler.jsonc --port 8789 --var ADMIN_DEV_NO_ACCESS:1",
+    "admin:dev": "wrangler dev -c server/admin/wrangler.jsonc --port 8789 --persist-to .wrangler/dev --var ADMIN_DEV_NO_ACCESS:1",
     "admin:deploy": "wrangler deploy -c server/admin/wrangler.jsonc"
   },
   "devDependencies": {
