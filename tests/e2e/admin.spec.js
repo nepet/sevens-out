@@ -104,11 +104,17 @@ test('filters, leaderboard, a score sheet and deleting a game', async ({ page, r
   await expect(page.locator('#leaderboard .switch')).toContainText('2 with fewer than 3 games hidden');
   await page.check('#show-all');
   await expect(rows).toHaveCount(4);
+  const names = () => rows.locator('td:first-child').allInnerTexts();
+  // losses: Anna 4, Cleo 1, Ben 0, Dan 0 (ties fall back to the name), which differs from the default order
   await page.click('[data-sort=losses]');
-  await expect(rows.first().locator('td').first()).toHaveText('Anna');
+  await expect(page.locator('#leaderboard th[aria-sort=descending]')).toContainText('Losses');
+  expect(await names()).toEqual(['Anna', 'Cleo', 'Ben', 'Dan']);
   await page.click('[data-sort=name]');
-  await expect(rows.first().locator('td').first()).toHaveText('Anna');
-  await expect(rows.last().locator('td').first()).toHaveText('Dan');
+  await expect(page.locator('#leaderboard th[aria-sort=ascending]')).toContainText('Player');
+  expect(await names()).toEqual(['Anna', 'Ben', 'Cleo', 'Dan']);
+  await page.click('[data-sort=name]');
+  await expect(page.locator('#leaderboard th[aria-sort=descending]')).toContainText('Player');
+  expect(await names()).toEqual(['Dan', 'Cleo', 'Ben', 'Anna']);
 
   // filters, kept in the address
   await page.selectOption('#f-source', 'phone');
