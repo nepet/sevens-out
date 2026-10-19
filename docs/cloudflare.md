@@ -148,3 +148,5 @@ npx wrangler delete -c server/cloudflare/wrangler.jsonc
 ```
 
 This deletes the Worker and its rooms. You can also do it in the dashboard: **Workers & Pages → sevens-out → Settings → Delete**. Then empty the meta tag so the page hides online play again.
+
+For the owner's statistics page (a second Worker, D1 and Cloudflare Access), see [admin.md](admin.md).

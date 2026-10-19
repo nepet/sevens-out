@@ -13,12 +13,16 @@ Each mode works either with dice in the app or with real dice, where players ent
 index.html                 the page: markup, CSS, UI script (pass-and-play + online client)
 engine.js                  the rules engine, shared by the page and both servers
 server/core/room.js        one game room: seats, host, turn authority, persistence, protocol (no runtime code)
+server/core/stats.js       game summaries for the statistics, and the rule check for one-phone reports
+server/d1/                 schema.sql (stats database), db.js (D1 adapter), write.js (store/replace/delete a game)
+server/admin/              the owner's admin page: worker.js, access.js (Access token check), queries.js, page.html, wrangler.jsonc
 server/cloudflare/         option 4: worker.js (Worker + Durable Object adapter), wrangler.jsonc
 server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files), ws.js (built-in WebSocket server)
 tests/                     node:test unit tests (engine, room, node server, worker adapter)
 tests/e2e/                 Playwright browser tests (local modes and two-phone online play)
 deploy/                    option 5: docker-compose.yml + Caddyfile, systemd unit
 docs/self-hosting.md       how to run option 5
+docs/admin.md              admin page: how it works, setup with Cloudflare Access
 Dockerfile                 option 5 container
 .github/workflows/test.yml CI: unit + browser tests on every push
 ```
@@ -40,6 +44,10 @@ npm test                          # both
 npm run worker:dev                # Worker locally on :8787 (wrangler dev)
 npm run test:worker               # online browser tests against wrangler dev
 npm run worker:deploy             # deploy option 4
+npm run test:admin                # admin page browser tests (wrangler dev for both Workers, local D1)
+npm run admin:dev                 # admin Worker locally on :8789 (no sign-in on localhost)
+npm run admin:deploy              # deploy the admin Worker
+npm run db:schema                 # load server/d1/schema.sql into the remote D1 database
 ```
 
 ## Deploy
@@ -50,6 +58,7 @@ npm run worker:deploy             # deploy option 4
   - The page finds the server through `<meta name="sevens-out-server" content="wss://sevens-out.<subdomain>.workers.dev">` in `index.html`.
   - An empty `content` hides online play; `same-origin` means "this host", which is what the Node server sets when it serves the page.
   - `?server=wss://…` in the page URL overrides the meta tag, which is useful for testing.
+- **The admin page** is the separate Worker `sevens-out-admin` behind Cloudflare Access; see `docs/admin.md`. Never put the game Worker `sevens-out` behind Access.
 - **Option 4 by hand:** see `docs/cloudflare.md` (account, subdomain, login, dashboard, limits, troubleshooting).
 - **Option 5:** see `docs/self-hosting.md`.
 
@@ -120,7 +129,8 @@ state = {
     turn: { dice: [{ id, value, held }], rolls, maxRolls, pairs: [{ a, b, roll }], cleared },
     ending, crosser, next, loser, early, last,
     history: [..], drops, shots: [{ player, round }]
-  }
+  },
+  stats: { id, startedAt }                                        // one-phone games only, for the statistics
 }
 ```
 
@@ -132,6 +142,7 @@ Other storage keys, all per device:
 - `sevens-out-shake`: `1` | `0`
 - `sevens-out-name`: the name last used online
 - `sevens-out-online`: `{code, token, name, server}`, used to rejoin a room after a reload or a locked screen
+- `sevens-out-reports`: `{queue, sent}`, finished one-phone games waiting to be sent to `POST /report` until the server accepts or refuses them
 
 ### The page (`index.html`)
 
@@ -174,6 +185,12 @@ One `Room` per room code holds the authoritative game.
 | server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings, seats:[{id,name,connected}]}, state, events}` |
 | server → client | `{t:'error', code, message}` |
 | server → client | `{t:'pong'}` |
+
+**Statistics** (`server/core/stats.js`, D1 via `server/d1/`):
+- Rooms record their game through the optional `stats` adapter: `playing` on start, `over` whenever an action leaves the game over, `playing` again when undo leaves game over, `abandoned` on reopen mid-game or when the room expires. Each game has a 16-hex `id`; a new record replaces the old one.
+- The Cloudflare adapter writes to D1 and keeps failed writes in `pendingStats`, retried from the alarm (1 min doubling to 1 h, dropped after 24 h). Writes in one room run one after another. When an empty room is removed, `pendingStats` stays and is retried; storage is cleared only once nothing is waiting.
+- `POST /report` takes a finished one-phone game; `checkReport` rebuilds it with the engine (dice games: full rules; scoreboard games skip the starter and 101-round checks because corrections can change past rounds). 10 per minute per IP, 16 KB max.
+- The admin page reads the same database. `/api/games?before=` takes the opaque cursor `<finishedAt>_<id>`.
 
 **What `hello` does:**
 - With a matching token, the player gets their seat back.
@@ -237,12 +254,15 @@ One `Room` per room code holds the authoritative game.
   - `room.test.js` covers the protocol with in-memory connections.
   - `node-server.test.js` starts the real server and talks to it over WebSockets.
   - `worker.test.js` runs the Durable Object adapter against a stand-in runtime, including hibernation.
+  - `d1.test.js`, `stats.test.js`, `queries.test.js`, `access.test.js` and `admin.test.js` cover the statistics: the D1 adapter and writes, summaries and `checkReport`, the admin queries, the Access token check and the admin Worker.
+  - `tests/fake-d1.js` is a D1 stand-in on `node:sqlite`, and `tests/games.js` builds deterministic finished games.
 - **Browser tests (`@playwright/test`):**
   - Separate browser contexts act as separate phones.
   - The tests read state through `window.SevensDebug` or `localStorage`.
   - Use `contextOptions: { reducedMotion: 'reduce' }` for instant rolls.
   - To fix the dice, stub `crypto.getRandomValues` for 1-byte arrays (`fixDice` in `tests/e2e/helpers.js`).
   - `TARGET=worker` points online play at `wrangler dev` through the `?server=` override.
+  - `tests/e2e/admin.spec.js` tests the admin page (`npm run test:admin`). Don't run it together with `test:worker`: both reset `.wrangler/e2e`.
 
 Invariants to keep after rule changes:
 - Rolls stay within the round's `mark`.
