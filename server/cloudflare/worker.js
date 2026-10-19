@@ -3,6 +3,7 @@
  *
  *   GET /health            -> "ok"
  *   GET /room/<CODE> (WS)  -> the room's Durable Object
+ *   POST /report           -> stores a finished one-phone game (see server/core/stats.js checkReport)
  *
  * The Durable Object uses the WebSocket Hibernation API, so an idle room costs nothing and survives
  * hibernation: each socket remembers its seat in its attachment, and the room data lives in storage.
@@ -15,6 +16,7 @@ import '../../engine.js';
 import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
 import { fromD1 } from '../d1/db.js';
 import { writeRecord } from '../d1/write.js';
+import { checkReport, summarize, MAX_REPORT_BYTES } from '../core/stats.js';
 
 const E = globalThis.SevensEngine;
 
@@ -26,10 +28,48 @@ function originAllowed(request, env) {
   return allowed.includes(request.headers.get('Origin') || '');
 }
 
+// CORS for the page, which runs on another origin (GitHub Pages)
+function corsHeaders(request, env) {
+  const origin = request.headers.get('Origin');
+  if (!origin || !originAllowed(request, env)) return {};
+  return {
+    'access-control-allow-origin': origin, 'access-control-allow-methods': 'POST',
+    'access-control-allow-headers': 'content-type', 'access-control-max-age': '86400', vary: 'Origin'
+  };
+}
+
+// POST /report: a finished one-phone game, checked against the rules, then stored like an online game
+async function report(request, env) {
+  const cors = corsHeaders(request, env);
+  const reply = (status, error) => error
+    ? new Response(JSON.stringify({ error }), { status, headers: { ...cors, 'content-type': 'application/json' } })
+    : new Response(null, { status, headers: cors });
+  if (!originAllowed(request, env)) return reply(403, 'origin'); // also refuses a missing Origin when an allowlist is set
+  if (request.method === 'OPTIONS') return reply(204);
+  if (request.method !== 'POST') return reply(405, 'method');
+  if (!env.STATS) return reply(404, 'stats_off');
+  if (env.REPORT_LIMIT) {
+    const { success } = await env.REPORT_LIMIT.limit({ key: request.headers.get('CF-Connecting-IP') || 'unknown' });
+    if (!success) return reply(429, 'rate_limited');
+  }
+  if (+(request.headers.get('content-length') || 0) > MAX_REPORT_BYTES) return reply(413, 'too_large');
+  const text = await request.text();
+  if (text.length > MAX_REPORT_BYTES) return reply(413, 'too_large');
+  let body;
+  try { body = JSON.parse(text); } catch { return reply(400, 'not_json'); }
+  const r = checkReport(body, E);
+  if (r.error) return reply(400, r.error);
+  const rec = summarize(r.state, { id: body.id, source: 'phone', startedAt: body.startedAt, finishedAt: body.finishedAt, status: 'over' });
+  try { await writeRecord(fromD1(env.STATS), rec); }
+  catch (err) { console.error('report write failed', err); return reply(503, 'storage'); }
+  return reply(204);
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/health') return new Response('ok', { headers: { 'content-type': 'text/plain' } });
+    if (url.pathname === '/report') return report(request, env);
     const m = url.pathname.match(/^\/room\/([A-Z0-9]{5})$/);
     if (!m || !CODE_RE.test(m[1])) return new Response('Not found', { status: 404 });
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });

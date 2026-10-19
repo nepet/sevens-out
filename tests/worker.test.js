@@ -4,6 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import { fakeD1 } from './fake-d1.js';
+import { diceGame, scoreGame } from './games.js';
+import { sheetOf } from '../server/core/stats.js';
 
 // resolve `cloudflare:workers` to a minimal DurableObject base class
 register('data:text/javascript,' + encodeURIComponent(`
@@ -22,7 +24,11 @@ class FakeWS {
 }
 globalThis.WebSocketPair = class { constructor() { this[0] = new FakeWS(); this[1] = new FakeWS(); } };
 const NodeResponse = globalThis.Response;
-globalThis.Response = class { constructor(body, init = {}) { this.status = init.status || 200; this.webSocket = init.webSocket; this.body = body; } text() { return Promise.resolve(this.body); } };
+globalThis.Response = class {
+  constructor(body, init = {}) { this.status = init.status || 200; this.webSocket = init.webSocket; this.body = body; this.headers = new Headers(init.headers); }
+  text() { return Promise.resolve(this.body); }
+  json() { return Promise.resolve(JSON.parse(this.body)); }
+};
 
 const { default: worker, GameRoom } = await import('../server/cloudflare/worker.js');
 
@@ -181,6 +187,54 @@ test('statistics: a waiting write survives the room being removed when everyone 
   await new GameRoom(ctx, env).alarm();
   assert.deepEqual(gameRow(d1).map(r => r.status), ['over']);
   assert.equal(ctx.kv.size, 0);
+});
+
+const ORIGIN = 'https://me.github.io';
+function reportEnv(d1 = fakeD1()) {
+  const hits = new Map();
+  return {
+    ALLOWED_ORIGINS: ORIGIN, STATS: d1,
+    REPORT_LIMIT: { limit: async ({ key }) => { hits.set(key, (hits.get(key) || 0) + 1); return { success: hits.get(key) <= 10 }; } }
+  };
+}
+const reportBody = (s, id = '0123456789abcdef') => JSON.stringify({ id, mode: s.game.mode, startedAt: Date.now() - 600_000, finishedAt: Date.now() - 1000, sheet: sheetOf(s.game) });
+const post = (body, headers = {}) => new Request('https://x/report', { method: 'POST', body, headers: { Origin: ORIGIN, 'content-type': 'application/json', 'CF-Connecting-IP': '203.0.113.9', ...headers } });
+
+test('report: a one-phone game is checked and stored; the same game again replaces it', async () => {
+  const env = reportEnv();
+  let res = await worker.fetch(post(reportBody(diceGame(3))), env);
+  assert.equal(res.status, 204);
+  assert.equal(res.headers.get('access-control-allow-origin'), ORIGIN);
+  res = await worker.fetch(post(reportBody(scoreGame(4))), env);
+  assert.equal(res.status, 204);
+  const rows = env.STATS.raw.prepare('SELECT source, mode, status FROM games').all().map(r => ({ ...r }));
+  assert.deepEqual(rows, [{ source: 'phone', mode: 'score', status: 'over' }]);
+});
+
+test('report: preflight, wrong origin, wrong method, size, bad input', async () => {
+  const env = reportEnv();
+  const pre = await worker.fetch(new Request('https://x/report', { method: 'OPTIONS', headers: { Origin: ORIGIN } }), env);
+  assert.equal(pre.status, 204);
+  assert.match(pre.headers.get('access-control-allow-methods'), /POST/);
+  assert.equal((await worker.fetch(post(reportBody(diceGame(3)), { Origin: 'https://evil.example' }), env)).status, 403);
+  assert.equal((await worker.fetch(new Request('https://x/report', { headers: { Origin: ORIGIN } }), env)).status, 405);
+  assert.equal((await worker.fetch(post('x'.repeat(17 * 1024)), env)).status, 413);
+  assert.equal((await worker.fetch(post('not json'), env)).status, 400);
+  const refused = await worker.fetch(post(JSON.stringify({ id: 'nope' })), env);
+  assert.equal(refused.status, 400);
+  assert.equal((await refused.json()).error, 'id');
+  assert.equal(env.STATS.raw.prepare('SELECT COUNT(*) AS n FROM games').get().n, 0);
+});
+
+test('report: rate limit, D1 down, and no database configured', async () => {
+  const env = reportEnv();
+  const body = reportBody(diceGame(5));
+  for (let i = 0; i < 10; i++) assert.equal((await worker.fetch(post(body), env)).status, 204);
+  assert.equal((await worker.fetch(post(body), env)).status, 429);
+  assert.equal((await worker.fetch(post(body, { 'CF-Connecting-IP': '198.51.100.1' }), env)).status, 204, 'the limit is per IP');
+  env.STATS.down = true;
+  assert.equal((await worker.fetch(post(body, { 'CF-Connecting-IP': '198.51.100.2' }), env)).status, 503);
+  assert.equal((await worker.fetch(post(body), { ALLOWED_ORIGINS: ORIGIN })).status, 404);
 });
 
 test.after(() => { globalThis.Response = NodeResponse; });
