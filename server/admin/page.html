@@ -1,2 +1,353 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>Sevens Out admin</title></head><body><main id="app"></main></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Sevens Out stats</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Instrument+Sans:wght@400;500;600;700&display=swap">
+<style>
+/* the game's "Pub table" tokens (index.html), plus two series colours */
+:root{
+  --paper:#ECEEF1; --card:#F9FAFB; --ink:#18202C; --ink-soft:#586273; --line:#CBD1DA;
+  --leather:#6A2129; --brass:#B5832A; --danger:#B3261E; --danger-ink:#FFFFFF;
+  --online:#6A2129; --phone:#B5832A;
+  --font-display:"Big Shoulders Display","Arial Narrow","Roboto Condensed",sans-serif;
+  --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#111318; --card:#191C23; --ink:#E8EAEE; --ink-soft:#9CA4B1; --line:#2B303A;
+    --leather:#58171F; --brass:#D4A24C; --danger:#FF8A80; --danger-ink:#2A0606;
+    --online:#E07A86; --phone:#D4A24C; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#111318; --card:#191C23; --ink:#E8EAEE; --ink-soft:#9CA4B1; --line:#2B303A;
+  --leather:#58171F; --brass:#D4A24C; --danger:#FF8A80; --danger-ink:#2A0606;
+  --online:#E07A86; --phone:#D4A24C; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 var(--font-body)}
+main{max-width:960px;margin:0 auto;padding:16px 16px 48px}
+h1{font:800 1.9rem/1 var(--font-display);margin:4px 0 14px;letter-spacing:.01em}
+h1 span{color:var(--brass)}
+h2{font:700 1.35rem/1.1 var(--font-display);margin:0 0 12px}
+h3{font-size:.85rem;margin:0 0 8px;color:var(--ink-soft)}
+.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 16px}
+.filters label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--ink-soft);font-weight:600;min-width:0}
+select,button,input{font:inherit;color:inherit}
+select{width:100%;padding:8px 6px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+section{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin:0 0 14px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:0 0 14px}
+.tile{border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.tile .v{font:800 1.7rem/1.05 var(--font-display);font-variant-numeric:tabular-nums}
+.tile .k{font-size:.8rem;color:var(--ink-soft)}
+.chart svg{display:block;width:100%;height:auto}
+.c-online{fill:var(--online)} .c-phone{fill:var(--phone)} .c-brass{fill:var(--brass)} .c-soft{fill:var(--ink-soft)} .c-axis{stroke:var(--line)}
+.axis{display:flex;justify-content:space-between;gap:8px;font-size:.8rem;color:var(--ink-soft);margin:4px 0 0}
+.legend{display:flex;gap:14px;font-size:.8rem;color:var(--ink-soft);margin:6px 0 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+.empty{color:var(--ink-soft);margin:0}
+.err{color:var(--danger);margin:0 0 10px}
+.btn{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:8px 14px;font-weight:600;cursor:pointer}
+.btn.danger{background:var(--danger);color:var(--danger-ink);border-color:var(--danger)}
+.row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:14px}
+.row.start{justify-content:flex-start}
+.records{list-style:none;margin:0 0 14px;padding:0;display:grid;gap:6px}
+.link{border:0;background:none;padding:0;cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}
+.two{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:700px){.two{grid-template-columns:1fr 1fr}}
+.hb{display:grid;grid-template-columns:4.5rem 1fr 2.8rem;gap:8px;align-items:center;font-size:.9rem;margin:0 0 6px}
+.hb .track{height:10px;background:var(--paper);border-radius:6px;overflow:hidden}
+.hb .track span{display:block;height:100%;background:var(--brass)}
+.hb .pct{text-align:right;font-variant-numeric:tabular-nums}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
+th,td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th button{border:0;background:none;font-weight:700;cursor:pointer;padding:0}
+th[aria-sort="descending"] button::after{content:" ↓"}
+th[aria-sort="ascending"] button::after{content:" ↑"}
+.switch{display:flex;align-items:center;gap:8px;margin:12px 0 0;font-size:.9rem}
+.games{list-style:none;margin:0;padding:0}
+.games li{border-bottom:1px solid var(--line)}
+.games li button{width:100%;border:0;background:none;text-align:left;padding:10px 0;cursor:pointer;display:grid;gap:2px}
+.meta{font-size:.8rem;color:var(--ink-soft)}
+.who{overflow-wrap:anywhere}
+.lost{color:var(--danger);font-weight:700}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:16px;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.sheet th,.sheet td{padding:6px 5px}
+.confirm{margin-top:14px;padding:10px 12px;border:1px solid var(--danger);border-radius:12px}
+.confirm p{margin:0}
+</style>
+</head>
+<body>
+<main>
+  <h1>Sevens Out <span>stats</span></h1>
+  <form class="filters" id="filters" onsubmit="return false">
+    <label>Period<select id="f-period"><option value="7d">7 days</option><option value="30d">30 days</option><option value="12m">12 months</option><option value="all">All time</option></select></label>
+    <label>Where<select id="f-source"><option value="">Everywhere</option><option value="online">Online</option><option value="phone">One phone</option></select></label>
+    <label>Mode<select id="f-mode"><option value="">Both modes</option><option value="dice">Dice in the app</option><option value="score">Real dice</option></select></label>
+  </form>
+  <section id="activity" aria-labelledby="h-activity"><h2 id="h-activity">Activity</h2><div class="body"></div></section>
+  <section id="facts" aria-labelledby="h-facts"><h2 id="h-facts">Game facts</h2><div class="body"></div></section>
+  <section id="leaderboard" aria-labelledby="h-board"><h2 id="h-board">Leaderboard</h2><div class="body"></div></section>
+  <section id="games" aria-labelledby="h-games"><h2 id="h-games">Recent games</h2><div class="body"></div></section>
+</main>
+<dialog id="sheet" aria-labelledby="sheet-title"></dialog>
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const body = id => $(id).querySelector('.body');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const num = (v, d = 0) => v == null ? '–' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: d });
+  const when = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const SOURCE = { online: 'Online', phone: 'One phone' }, MODE = { dice: 'Dice in the app', score: 'Real dice' };
+  const NO_GAMES = '<p class="empty">No games yet in this period.</p>';
+  const view = { stats: null, games: [], next: null, sort: { key: 'games', dir: -1 }, all: false, open: null, confirm: false, sheetError: null };
+  const retries = {};
+  let statsSeq = 0, gamesSeq = 0;
+
+  // ---------- filters (kept in the address, so a view can be bookmarked) ----------
+  function filters() {
+    const q = new URLSearchParams(location.search);
+    return {
+      period: ['7d', '30d', '12m', 'all'].includes(q.get('period')) ? q.get('period') : '30d',
+      source: ['online', 'phone'].includes(q.get('source')) ? q.get('source') : '',
+      mode: ['dice', 'score'].includes(q.get('mode')) ? q.get('mode') : ''
+    };
+  }
+  function query(extra) {
+    const f = filters(), q = new URLSearchParams({ period: f.period, tz: String(new Date().getTimezoneOffset()) });
+    if (f.source) q.set('source', f.source);
+    if (f.mode) q.set('mode', f.mode);
+    for (const [k, v] of Object.entries(extra || {})) q.set(k, v);
+    return q.toString();
+  }
+
+  // ---------- loading ----------
+  async function getJson(url, init) {
+    const res = await fetch(url, init);
+    if (res.status === 403) throw new Error('You are signed out. Reload the page to sign in again.');
+    if (!res.ok) throw new Error(`Could not load this (error ${res.status}). Try again.`);
+    return res.status === 204 ? null : res.json();
+  }
+  function failed(id, message, retry) {
+    retries[id] = retry;
+    body(id).innerHTML = `<p class="err">${esc(message)}</p><div class="row start"><button class="btn" data-retry="${id}">Try again</button></div>`;
+  }
+  async function loadStats() {
+    const seq = ++statsSeq;
+    for (const id of ['activity', 'facts', 'leaderboard']) body(id).innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const s = await getJson('/api/stats?' + query());
+      if (seq !== statsSeq) return;
+      view.stats = s;
+      renderActivity(); renderFacts(); renderBoard();
+    } catch (e) {
+      if (seq === statsSeq) for (const id of ['activity', 'facts', 'leaderboard']) failed(id, e.message, loadStats);
+    }
+  }
+  async function loadGames(more) {
+    const seq = ++gamesSeq;
+    try {
+      const r = await getJson('/api/games?' + query(more && view.next ? { before: String(view.next) } : {}));
+      if (seq !== gamesSeq) return;
+      view.games = more ? view.games.concat(r.games) : r.games;
+      view.next = r.next;
+      renderGames();
+    } catch (e) {
+      if (seq === gamesSeq) failed('games', e.message, () => loadGames(more));
+    }
+  }
+
+  // ---------- charts (inline SVG) ----------
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const dayLabel = (k, bucket) => (bucket === 'week' ? 'Week of ' : '') + new Date(k + 'T12:00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  // every day (or week) of the period, with zeros where nothing was played
+  function fill(series, bucket, period) {
+    const have = new Map(series.map(s => [s.bucket, s]));
+    const end = new Date(); end.setHours(12, 0, 0, 0);
+    const start = new Date(end);
+    if (period === '7d') start.setDate(start.getDate() - 7);
+    else if (period === '30d') start.setDate(start.getDate() - 30);
+    else if (period === '12m') start.setDate(start.getDate() - 365);
+    else if (series.length) start.setTime(new Date(series[0].bucket + 'T12:00:00').getTime());
+    if (bucket === 'week') start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    const out = [];
+    for (const d = new Date(start); d <= end; d.setDate(d.getDate() + (bucket === 'week' ? 7 : 1))) {
+      const k = ymd(d);
+      out.push(have.get(k) || { bucket: k, online: 0, phone: 0 });
+    }
+    return out;
+  }
+  function barChart(series, bucket) {
+    const W = 600, H = 150, left = 0, bottom = 2, max = Math.max(1, ...series.map(s => s.online + s.phone));
+    const bw = (W - left) / series.length, gap = Math.min(4, bw * 0.2), y = v => (H - bottom) * (1 - v / max);
+    const bars = series.map((s, i) => {
+      const x = left + i * bw + gap / 2, w = Math.max(1, bw - gap), yo = y(s.online), yp = y(s.online + s.phone);
+      return `<g><title>${esc(`${dayLabel(s.bucket, bucket)}: ${s.online} online, ${s.phone} one phone`)}</title>` +
+        `<rect class="c-online" x="${x}" y="${yo}" width="${w}" height="${H - bottom - yo}"/>` +
+        `<rect class="c-phone" x="${x}" y="${yp}" width="${w}" height="${yo - yp}"/></g>`;
+    }).join('');
+    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Games per ${bucket}">
+      <line class="c-axis" x1="${left}" x2="${W}" y1="${H - bottom}" y2="${H - bottom}"/>
+      ${bars}
+    </svg><p class="axis"><span>${esc(dayLabel(series[0].bucket, bucket))}</span><span>Most in one ${bucket}: ${max}</span><span>${esc(dayLabel(series[series.length - 1].bucket, bucket))}</span></p>
+    <p class="legend"><span><i style="background:var(--online)"></i>Online</span><span><i style="background:var(--phone)"></i>One phone</span></p></div>`;
+  }
+  function hbars(rows) {
+    const max = Math.max(1, ...rows.map(r => r.n)), total = rows.reduce((a, r) => a + r.n, 0);
+    return rows.map(r => `<div class="hb"><span>${esc(r.label)}</span><span class="track"><span style="width:${(r.n / max * 100).toFixed(1)}%"></span></span><span class="pct">${total ? Math.round(r.n / total * 100) : 0}%</span></div>`).join('');
+  }
+  function spreadChart(spread) {
+    const counts = Array(37).fill(0);
+    for (const s of spread) if (s.pts >= 0 && s.pts <= 36) counts[s.pts] = s.n;
+    const W = 370, H = 100, base = H, max = Math.max(1, ...counts), bw = W / 37;
+    const bars = counts.map((n, p) => {
+      const h = base * n / max;
+      return `<rect class="${p === 0 ? 'c-online' : 'c-brass'}" x="${p * bw + 1}" y="${base - h}" width="${bw - 2}" height="${h}"><title>${p} points: ${plural(n, 'turn', 'turns')}</title></rect>`;
+    }).join('');
+    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Points per turn, 0 to 36">${bars}
+</svg><p class="axis"><span>0</span><span>18</span><span>36</span></p></div>`;
+  }
+
+  // ---------- sections ----------
+  const tile = (k, v, label) => `<div class="tile" data-k="${k}"><div class="v">${v}</div><div class="k">${label}</div></div>`;
+  function renderActivity() {
+    const s = view.stats, a = s.activity;
+    if (!a.games && !a.abandoned) { body('activity').innerHTML = NO_GAMES; return; }
+    body('activity').innerHTML = `<div class="tiles">
+        ${tile('games', num(a.games), 'games finished')}
+        ${tile('abandoned', num(a.abandoned), 'online games abandoned')}
+        ${tile('players', num(a.players), 'different players')}
+        ${tile('avgPlayers', num(a.avgPlayers, 1), 'players per game')}
+        ${tile('avgRounds', num(a.avgRounds, 1), 'rounds per game')}
+        ${tile('avgMinutes', a.avgMinutes == null ? '–' : `${num(a.avgMinutes)} min`, 'per game')}
+      </div>${barChart(fill(a.series, s.bucket, s.filters.period), s.bucket)}`;
+  }
+  function renderFacts() {
+    const s = view.stats, f = s.facts, r = f.records;
+    if (!s.activity.games) { body('facts').innerHTML = NO_GAMES; return; }
+    const records = [
+      r.biggestTurn && `Biggest turn: <button class="link" data-game="${r.biggestTurn.gameId}">${r.biggestTurn.pts} points by ${esc(r.biggestTurn.name)}</button>`,
+      r.longestGame && `Longest game: <button class="link" data-game="${r.longestGame.gameId}">${plural(r.longestGame.rounds, 'round', 'rounds')}</button>`,
+      r.closestFinish && `Closest finish: <button class="link" data-game="${r.closestFinish.gameId}">${esc(r.closestFinish.loser)} lost ${r.closestFinish.margin ? `by ${plural(r.closestFinish.margin, 'point', 'points')}` : 'on a tie'}</button>`
+    ].filter(Boolean);
+    body('facts').innerHTML = `<div class="tiles">
+        ${tile('sevensOuts', num(f.sevensOuts), 'Sevens Outs')}
+        ${tile('avgPoints', num(f.avgPoints, 1), 'points per turn')}
+        ${tile('shots', num(f.shots), 'rounds of shots')}
+        ${tile('early', num(f.early), 'games ended early')}
+      </div>
+      <ul class="records">${records.map(x => `<li>${x}</li>`).join('')}</ul>
+      <div class="two">
+        <div><h3>Roll limits starters choose</h3>${hbars([1, 2, 3].map(k => ({ label: plural(k, 'roll', 'rolls'), n: f.limits[k] })))}</div>
+        <div><h3>Points per turn</h3>${spreadChart(f.spread)}</div>
+      </div>`;
+  }
+  const COLUMNS = [['name', 'Player'], ['games', 'Games'], ['losses', 'Losses'], ['lossRate', 'Loss rate'], ['sevensOuts', 'Sevens Outs'], ['shots', 'Shots paid']];
+  function renderBoard() {
+    const everyone = view.stats.leaderboard;
+    if (!everyone.length) { body('leaderboard').innerHTML = NO_GAMES; return; }
+    const { key, dir } = view.sort;
+    const rows = everyone.filter(p => view.all || p.games >= 3)
+      .sort((x, y) => (key === 'name' ? x.name.localeCompare(y.name) : x[key] - y[key]) * dir || x.name.localeCompare(y.name));
+    const hidden = everyone.length - rows.length;
+    const table = rows.length ? `<div class="tablewrap"><table>
+        <thead><tr>${COLUMNS.map(([k, l]) => `<th scope="col"${k === key ? ` aria-sort="${dir > 0 ? 'ascending' : 'descending'}"` : ''}><button data-sort="${k}">${l}</button></th>`).join('')}</tr></thead>
+        <tbody>${rows.map(p => `<tr><td>${esc(p.name)}</td><td>${num(p.games)}</td><td>${num(p.losses)}</td><td>${num(p.lossRate * 100)}%</td><td>${num(p.sevensOuts)}</td><td>${num(p.shots)}</td></tr>`).join('')}</tbody>
+      </table></div>` : '<p class="empty">Nobody has played 3 games in this period yet.</p>';
+    body('leaderboard').innerHTML = table +
+      `<label class="switch"><input type="checkbox" id="show-all"${view.all ? ' checked' : ''}> Show everyone${hidden ? ` (${hidden} with fewer than 3 games hidden)` : ''}</label>`;
+  }
+  function renderGames() {
+    if (!view.games.length) { body('games').innerHTML = '<p class="empty">No finished games yet.</p>'; return; }
+    body('games').innerHTML = `<ul class="games">${view.games.map(g => `<li data-id="${g.id}"><button data-game="${g.id}">
+        <span class="meta">${esc(when(g.finishedAt))} · ${SOURCE[g.source]} · ${MODE[g.mode]}${g.early ? ' · ended early' : ''}</span>
+        <span class="who">${g.players.map(p => `<span${p.lost ? ' class="lost"' : ''}>${esc(p.name)} ${p.score}</span>`).join(', ')}</span>
+      </button></li>`).join('')}</ul>${view.next ? '<div class="row start"><button class="btn" data-more>Load more</button></div>' : ''}`;
+  }
+
+  // ---------- one game: score sheet and delete ----------
+  async function openGame(id) {
+    const dlg = $('sheet');
+    view.confirm = false; view.sheetError = null;
+    dlg.innerHTML = '<p class="empty">Loading…</p>';
+    if (!dlg.open) dlg.showModal();
+    try { view.open = await getJson('/api/games/' + id); renderSheet(); }
+    catch (e) { dlg.innerHTML = `<p class="err">${esc(e.message)}</p><div class="row"><button class="btn" data-close>Close</button></div>`; }
+  }
+  function renderSheet() {
+    const g = view.open, sh = g.sheet;
+    const head = `<tr><th scope="col">Round</th>${sh.players.map((nm, i) => `<th scope="col"${g.players[i] && g.players[i].lost ? ' class="lost"' : ''}>${esc(nm)}</th>`).join('')}</tr>`;
+    const rows = sh.rounds.filter(rd => Object.keys(rd.results).length).map(rd =>
+      `<tr><th scope="row">${rd.no}${rd.mark ? ` <span class="meta">· limit ${rd.mark}</span>` : ''}</th>${sh.players.map((_, i) => {
+        const t = rd.results[i];
+        return `<td>${t ? `${i === rd.starter ? '▸ ' : ''}${t.pts}` : ''}</td>`;
+      }).join('')}</tr>`).join('');
+    const totals = `<tr><th scope="row">Total</th>${g.players.map(p => `<td><strong${p.lost ? ' class="lost"' : ''}>${p.score}</strong></td>`).join('')}</tr>`;
+    const actions = view.confirm
+      ? `<div class="confirm"><p>Delete this game from the statistics? This can't be undone.</p><div class="row"><button class="btn" data-act="delete-no">Keep it</button><button class="btn danger" data-act="delete-yes">Delete</button></div></div>`
+      : `<div class="row"><button class="btn" data-close>Close</button><button class="btn danger" data-act="delete">Delete game</button></div>`;
+    $('sheet').innerHTML = `<h2 id="sheet-title">${esc(when(g.finishedAt))}</h2>
+      <p class="meta">${SOURCE[g.source]} · ${MODE[g.mode]}${g.roomCode ? ` · room ${esc(g.roomCode)}` : ''}${g.early ? ' · ended early' : ''} · ${esc(g.loser)} lost</p>
+      <div class="tablewrap"><table class="sheet"><thead>${head}</thead><tbody>${rows}${totals}</tbody></table></div>
+      <p class="meta">▸ started the round</p>
+      ${view.sheetError ? `<p class="err">${esc(view.sheetError)}</p>` : ''}${actions}`;
+  }
+  async function deleteOpen() {
+    const id = view.open.id;
+    try {
+      await getJson('/api/games/' + id, { method: 'DELETE' });
+      $('sheet').close();
+      view.games = view.games.filter(g => g.id !== id);
+      renderGames();
+      loadStats();
+    } catch (e) {
+      view.confirm = false; view.sheetError = e.message; renderSheet();
+    }
+  }
+
+  // ---------- events ----------
+  document.addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.retry) return retries[b.dataset.retry]();
+    if (b.dataset.sort) {
+      const k = b.dataset.sort;
+      view.sort = view.sort.key === k ? { key: k, dir: -view.sort.dir } : { key: k, dir: k === 'name' ? 1 : -1 };
+      return renderBoard();
+    }
+    if (b.dataset.game) return openGame(b.dataset.game);
+    if (b.hasAttribute('data-more')) return loadGames(true);
+    if (b.hasAttribute('data-close')) return $('sheet').close();
+    if (b.dataset.act === 'delete') { view.confirm = true; renderSheet(); }
+    else if (b.dataset.act === 'delete-no') { view.confirm = false; renderSheet(); }
+    else if (b.dataset.act === 'delete-yes') deleteOpen();
+  });
+  document.addEventListener('change', e => {
+    if (e.target.id === 'show-all') { view.all = e.target.checked; renderBoard(); return; }
+    if (!e.target.closest('#filters')) return;
+    const q = new URLSearchParams();
+    if ($('f-period').value !== '30d') q.set('period', $('f-period').value);
+    if ($('f-source').value) q.set('source', $('f-source').value);
+    if ($('f-mode').value) q.set('mode', $('f-mode').value);
+    history.replaceState(null, '', q.toString() ? `?${q}` : location.pathname);
+    loadStats(); loadGames(false);
+  });
+
+  const f = filters();
+  $('f-period').value = f.period; $('f-source').value = f.source; $('f-mode').value = f.mode;
+  loadStats(); loadGames(false);
+})();
+</script>
+</body>
+</html>

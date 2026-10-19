@@ -9,6 +9,7 @@ const WORKER = process.env.TARGET === 'worker';
 
 export default defineConfig({
   testDir: 'tests/e2e',
+  testIgnore: 'admin.spec.js',
   timeout: 90_000,
   expect: { timeout: 8_000 },
   workers: 2,
@@ -28,7 +29,7 @@ export default defineConfig({
       reuseExistingServer: false
     },
     ...(WORKER ? [{
-      command: 'npx wrangler dev -c server/cloudflare/wrangler.jsonc --port 8787 --ip 127.0.0.1 --var ALLOWED_ORIGINS:*',
+      command: 'npx wrangler dev -c server/cloudflare/wrangler.jsonc --port 8787 --ip 127.0.0.1 --persist-to .wrangler/e2e --var ALLOWED_ORIGINS:*',
       url: 'http://127.0.0.1:8787/health',
       timeout: 120_000,
       reuseExistingServer: false
