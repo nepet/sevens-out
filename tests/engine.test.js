@@ -16,8 +16,8 @@ function must(state, action, opts) {
   assert.ok(!r.error, `${action.type} failed: ${r.error}`);
   return r;
 }
-const start = (n, starter = 0, mode = 'dice') =>
-  must(E.blank(), { type: 'start', names: Array.from({ length: n }, (_, i) => `P${i + 1}`), starter, mode }).state;
+const start = (n, starter = 0, mode = 'dice', pairing) =>
+  must(E.blank(), { type: 'start', names: Array.from({ length: n }, (_, i) => `P${i + 1}`), starter, mode, pairing }).state;
 
 // replay a finished game's score sheet and check every rule against it
 function checkSheet(g) {
@@ -45,16 +45,23 @@ function checkSheet(g) {
   return { scores, order };
 }
 
-test('random dice games follow every rule', () => {
+test('random dice games follow every rule, with the 7s found by hand or by the app', () => {
   for (let seed = 1; seed <= 60; seed++) {
-    const rng = seeded(seed), n = 2 + (seed % 5);
-    let s = start(n, seed % n);
+    const rng = seeded(seed), n = 2 + (seed % 5), pairing = seed % 2 ? 'manual' : 'auto';
+    let s = start(n, seed % n, 'dice', pairing);
     let guard = 0;
     while (s.phase !== 'over' && guard++ < 5000) {
       if (s.phase === 'roundEnd') { s = must(s, { type: 'nextround' }).state; continue; }
       const t = s.game.turn;
-      if (t.rolls === 0 || (E.canRoll(t) && rng() > 2)) s = must(s, { type: 'roll' }, { rng }).state;
-      else s = must(s, { type: 'stop' }).state;
+      // by hand, the player spots most pairs but now and then misses one
+      const seen = pairing === 'manual' && t.rolls > 0 ? E.matchPairs(t).filter(() => rng() > 1) : [];
+      if (seen.length) s = must(s, { type: 'pair', a: seen[0][0], b: seen[0][1] }).state;
+      else if (t.rolls === 0 || (E.canRoll(t) && rng() > 2)) s = must(s, { type: 'roll' }, { rng }).state;
+      else {
+        const left = E.sumActive(t), r = must(s, { type: 'stop' });
+        assert.equal(r.events.find(e => e.type === 'turn').pts, pairing === 'manual' ? left : E.finalPenalty(t), 'what stays on the table counts');
+        s = r.state;
+      }
     }
     assert.equal(s.phase, 'over');
     const { scores, order } = checkSheet(s.game);
@@ -64,8 +71,8 @@ test('random dice games follow every rule', () => {
   }
 });
 
-test('rolling sets 7-pairs aside automatically and clearing all six is a Sevens Out', () => {
-  let s = start(2);
+test('the app can set 7-pairs aside automatically, and clearing all six is a Sevens Out', () => {
+  let s = start(2, 0, 'dice', 'auto');
   const r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 5, 3, 4]) });
   assert.equal(r.events[0].type, 'rolled');
   assert.equal(r.events[0].auto.length, 3);
@@ -77,7 +84,7 @@ test('rolling sets 7-pairs aside automatically and clearing all six is a Sevens 
 });
 
 test('a pair from the current roll can be put back and paired by hand', () => {
-  let s = start(2);
+  let s = start(2, 0, 'dice', 'auto');
   s = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 2, 3, 3]) }).state;
   assert.equal(s.game.turn.pairs.length, 1);
   s = must(s, { type: 'unpair', index: 0 }).state;
@@ -87,6 +94,37 @@ test('a pair from the current roll can be put back and paired by hand', () => {
   assert.equal(E.finalPenalty(s.game.turn), 10);
   s = must(s, { type: 'stop' }).state;
   assert.equal(s.game.players[0].score, 10);
+});
+
+test('by default the 7s are found by hand, and a missed pair counts when the player stops', () => {
+  let s = start(2);
+  assert.equal(s.game.pairing, 'manual');
+  const r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 5, 3, 3]) });
+  assert.deepEqual(r.events[0].auto, [], 'nothing is set aside for the player');
+  assert.equal(r.state.game.turn.pairs.length, 0);
+  assert.equal(E.apply(r.state, { type: 'takeall' }).error, 'by_hand');
+  s = must(r.state, { type: 'pair', a: 0, b: 1 }).state;
+  s = must(s, { type: 'stop' }).state;
+  assert.equal(s.game.players[0].score, 2 + 5 + 3 + 3, 'the 2 and 5 were missed');
+});
+
+test('by hand, setting aside all three pairs is a Sevens Out', () => {
+  let s = start(2);
+  s = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 5, 3, 4]) }).state;
+  s = must(s, { type: 'pair', a: 0, b: 1 }).state;
+  s = must(s, { type: 'pair', a: 3, b: 2 }).state;
+  const r = must(s, { type: 'pair', a: 4, b: 5 });
+  assert.ok(r.events.some(e => e.type === 'sevensOut' && e.player === 0));
+  s = must(r.state, { type: 'stop' }).state;
+  assert.equal(s.game.rounds[0].results[0].pts, 0);
+});
+
+test('a game saved before the 7s could be found by hand keeps setting them aside automatically', () => {
+  const s = start(2);
+  delete s.game.pairing;
+  const r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 5, 3, 3]) });
+  assert.equal(r.state.game.turn.pairs.length, 2);
+  assert.equal(must(r.state, { type: 'stop' }).state.game.players[0].score, 6);
 });
 
 test('the input state is never mutated and bad actions are refused', () => {

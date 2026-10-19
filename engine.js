@@ -17,6 +17,8 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const orderFrom = (s, n) => Array.from({ length: n }, (_, k) => (s + k) % n);
   const isScore = g => !!g && g.mode === 'score';
+  // dice games where the player finds and sets aside the 7-pairs by hand (games saved before this existed paired automatically)
+  const byHand = g => !!g && !isScore(g) && g.pairing === 'manual';
 
   // fair die from crypto (rejection sampling keeps 1..6 uniform)
   function rnd6() {
@@ -92,13 +94,13 @@
   }
 
   // ---------- constructors ----------
-  function blank() { return { phase: 'setup', setup: { names: ['', ''], starter: 0, mode: 'dice' }, game: null }; }
+  function blank() { return { phase: 'setup', setup: { names: ['', ''], starter: 0, mode: 'dice', pairing: 'manual' }, game: null }; }
   function newTurn(maxRolls) {
     return { dice: Array.from({ length: DICE }, (_, id) => ({ id, value: null, held: null })), rolls: 0, maxRolls, pairs: [] };
   }
-  function newGame(names, starter, mode) {
+  function newGame(names, starter, mode, pairing) {
     return {
-      mode: mode === 'score' ? 'score' : 'dice', history: [],
+      mode: mode === 'score' ? 'score' : 'dice', pairing: pairing === 'auto' ? 'auto' : 'manual', history: [],
       players: names.map(name => ({ name, score: 0 })),
       round: 1, starter, order: orderFrom(starter, names.length), pos: 0,
       mark: null, ending: false, crosser: null, next: null, loser: null, last: null,
@@ -189,7 +191,7 @@
         const names = Array.isArray(action.names) ? action.names : [];
         if (names.length < 2 || names.length > MAX_PLAYERS) return fail('players');
         const starter = intIn(action.starter, 0, names.length - 1) ? action.starter : 0;
-        s.game = newGame(names.map(cleanName), starter, action.mode);
+        s.game = newGame(names.map(cleanName), starter, action.mode, action.pairing);
         if (Array.isArray(action.seats)) s.game.seats = action.seats.slice(0, names.length);
         s.phase = 'play';
         ev.push({ type: 'started', starter });
@@ -202,7 +204,7 @@
         if (!canRoll(t)) return fail('no_rolls');
         active(t).forEach(d => { d.value = rng(); });
         t.rolls++;
-        const auto = action.auto === false ? [] : matchPairs(t);
+        const auto = action.auto === false || byHand(g) ? [] : matchPairs(t);
         auto.forEach(([a, b]) => hold(t, a, b));
         ev.push({ type: 'rolled', player: current(g), roll: t.rolls, values: t.dice.map(d => d.value), auto });
         checkCleared(s, ev);
@@ -219,6 +221,7 @@
       }
       case 'takeall': {
         if (!inPlay || isScore(g) || !t.rolls) return fail('phase');
+        if (byHand(g)) return fail('by_hand');
         const ps = matchPairs(t);
         if (!ps.length) return fail('nothing');
         ps.forEach(([a, b]) => hold(t, a, b));
@@ -236,7 +239,8 @@
       }
       case 'stop': case 'end': {
         if (!inPlay || isScore(g) || !t.rolls) return fail('phase');
-        matchPairs(t).forEach(([a, b]) => hold(t, a, b));
+        // a pair the player missed counts against them when they find the 7s by hand
+        if (!byHand(g)) matchPairs(t).forEach(([a, b]) => hold(t, a, b));
         checkCleared(s, ev);
         recordTurn(s, sumActive(t), t.rolls, ev);
         break;
@@ -317,7 +321,7 @@
 
   root.SevensEngine = Object.freeze({
     MAX_ROLLS, LIMIT, DICE, MAX_PLAYERS, MAX_PIPS,
-    apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore,
+    apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
     active, sumActive, maxPairs, finalPenalty, pairable, canRoll, matchPairs, current,
     reachedAt, tiedForStart, nextStarter, highestLater
   });

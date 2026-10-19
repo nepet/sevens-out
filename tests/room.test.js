@@ -119,6 +119,30 @@ test('rejoining with the token gets the same seat back, and a stranger mid-game 
   assert.equal(last(s, 'error').code, 'not_seated');
 });
 
+test('the 7s are found by hand unless the host lets the app find them', async () => {
+  const { room, a, b } = await lobbyOf2();
+  assert.equal(last(a, 'room').room.settings.pairing, 'manual');
+  await send(room, b, { t: 'lobby', op: 'settings', pairing: 'auto' });
+  assert.equal(last(b, 'error').code, 'host_only');
+  await send(room, a, { t: 'lobby', op: 'settings', pairing: 'sometimes' });
+  assert.equal(last(a, 'room').room.settings.pairing, 'manual', 'unknown values are ignored');
+  await send(room, a, { t: 'lobby', op: 'settings', pairing: 'auto' });
+  assert.equal(last(b, 'room').room.settings.pairing, 'auto');
+  await send(room, a, { t: 'lobby', op: 'start' });
+  assert.equal(last(b, 'room').state.game.pairing, 'auto');
+});
+
+test('a room saved before the pairing setting existed starts a game where the 7s are found by hand', async () => {
+  const { room, a, b } = await lobbyOf2();
+  delete room.data.settings.pairing;
+  await send(room, a, { t: 'lobby', op: 'start' });
+  assert.equal(last(b, 'room').state.game.pairing, 'manual');
+  await send(room, a, { t: 'act', action: { type: 'roll' } });
+  assert.deepEqual(last(b, 'room').state.game.turn.pairs, []);
+  await send(room, a, { t: 'act', action: { type: 'takeall' } });
+  assert.equal(last(a, 'error').code, 'by_hand');
+});
+
 test('the host can play for a player who is offline, but not for one who is online', async () => {
   const { room, a, b, drop } = await lobbyOf2();
   await send(room, a, { t: 'lobby', op: 'settings', starter: 1 });

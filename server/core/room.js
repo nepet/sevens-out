@@ -108,7 +108,7 @@ export class Room {
       if (!CODE_RE.test(code || '')) return this.error(conn, 'bad_message', 'Bad room code.');
       d = this.data = {
         v: 1, code, created: this.now(), updated: this.now(), rev: 1,
-        phase: 'lobby', host: null, settings: { mode: 'dice', starter: 0 }, seats: [], state: null
+        phase: 'lobby', host: null, settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: [], state: null
       };
       const seat = this.addSeat(m.name);
       d.host = seat.id;
@@ -179,6 +179,7 @@ export class Room {
         if (!isHost) return this.error(conn, 'host_only', 'Only the host can change the settings.');
         if (d.phase !== 'lobby') return this.error(conn, 'phase', 'The game has started.');
         if (m.mode === 'dice' || m.mode === 'score') d.settings.mode = m.mode;
+        if (m.pairing === 'manual' || m.pairing === 'auto') d.settings.pairing = m.pairing;
         if (m.starter === 'random' || (Number.isInteger(m.starter) && m.starter >= 0 && m.starter < MAX_SEATS)) d.settings.starter = m.starter;
         break;
       }
@@ -190,7 +191,7 @@ export class Room {
         let starter = d.settings.starter;
         if (starter === 'random') { const b = new Uint8Array(1); crypto.getRandomValues(b); starter = b[0] % n; }
         if (!(starter >= 0 && starter < n)) starter = 0;
-        const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, mode: d.settings.mode });
+        const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, mode: d.settings.mode, pairing: d.settings.pairing });
         if (r.error) return this.error(conn, r.error, 'Could not start.');
         d.state = r.state; d.phase = 'game'; d.rev++;
         d.stats = { id: hex(8), startedAt: this.now() };

@@ -19,9 +19,10 @@ export async function fixDice(context, faces) {
     crypto.getRandomValues = a => { if (a.length === 1 && i < seq.length) { a[0] = seq[i++]; return a; } return orig(a); }; })();`);
 }
 
-export async function startLocal(page, { names = ['Anna', 'Ben'], mode = 'dice', starter = 0 } = {}) {
+export async function startLocal(page, { names = ['Anna', 'Ben'], mode = 'dice', pairing = 'manual', starter = 0 } = {}) {
   await page.goto('/');
   if (mode === 'score') await page.click('[data-act=mode][data-id="1"]');
+  else if (pairing === 'auto') await page.click('[data-act=pairing][data-id="1"]');
   for (let i = 2; i < names.length; i++) await page.click('[data-act=add]');
   for (let i = 0; i < names.length; i++) await page.fill(`#name-${i}`, names[i]);
   if (starter) await page.check(`#starter-${starter}`);

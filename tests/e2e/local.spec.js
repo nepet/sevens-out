@@ -32,7 +32,7 @@ test.describe('dice mode', () => {
 
   test('a pair from this roll can be put back, and two dice can be paired by hand', async ({ page, context }) => {
     await fixDice(context, [1, 6, 2, 2, 3, 3]);
-    await startLocal(page);
+    await startLocal(page, { pairing: 'auto' });
     await page.click('[data-act=roll]');
     await expect(page.locator('.rack .pair')).toHaveCount(1);
     await page.click('[data-act=unpair][data-id="0"]');
@@ -45,11 +45,34 @@ test.describe('dice mode', () => {
     await expect(page.locator('.rack .pair')).toHaveCount(1);
     await expect(page.locator('.tval')).toHaveText('10');
   });
+
+  test('by default the player finds the 7s: no help on screen, and a missed pair counts', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 5, 3, 3]);
+    await startLocal(page);
+    await page.click('[data-act=roll]');
+    await expect(page.locator('.dice button.die')).toHaveCount(6);
+    await expect(page.locator('.rack .pair')).toHaveCount(0);
+    await expect(page.locator('.die.can')).toHaveCount(0);           // pairs aren't highlighted
+    await expect(page.locator('[data-act=takeall]')).toHaveCount(0);
+    await expect(page.locator('.tval')).toHaveText('20');             // everything on the table counts
+    await expect(page.locator('.hint')).toContainText('Find the 7s');
+    await page.click('.dice [data-act=die][data-id="4"]');             // a 3 can be picked even with no 4 around
+    await expect(page.locator('.hint')).toContainText('Now tap a 4');
+    await page.click('.dice [data-act=die][data-id="5"]');
+    await expect(page.locator('.hint')).toContainText('3 + 3 makes 6, not 7');
+    await page.click('.dice [data-act=die][data-id="4"]');             // put the 3 down again
+    await page.click('.dice [data-act=die][data-id="1"]');
+    await page.click('.dice [data-act=die][data-id="0"]');
+    await expect(page.locator('.rack .pair')).toHaveCount(1);
+    await expect(page.locator('.tval')).toHaveText('13');
+    await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+    expect((await saved(page)).game.players[0].score).toBe(13);       // the 2 and 5 were missed
+  });
 });
 
 test('after a roll the dice lie still, then the 7-pairs fly out one by one and Sevens Out celebrates', async ({ page, context }) => {
   await fixDice(context, [1, 6, 2, 5, 3, 4]);
-  await startLocal(page);
+  await startLocal(page, { pairing: 'auto' });
   await page.click('[data-act=roll]');
   await page.waitForTimeout(900); // landed, still lying there
   await expect(page.locator('.rack .pair')).toHaveCount(0);

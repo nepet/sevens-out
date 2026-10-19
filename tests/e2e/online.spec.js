@@ -35,6 +35,8 @@ test.describe('dice in the app', () => {
     await expect(A.page.locator('.seat')).toHaveCount(2);
     await expect(B.page.locator('.waiting')).toContainText('Anna to start');
     await expect(B.page.locator('[data-act=omode]').first()).toBeDisabled();
+    await expect(B.page.locator('[data-act=opairing][data-id="0"]')).toHaveAttribute('aria-pressed', 'true'); // find the 7s yourself
+    await expect(B.page.locator('[data-act=opairing]').first()).toBeDisabled();
     expect(await noSideScroll(A.page)).toBe(true);
 
     await A.page.click('[data-act=ostart]');
@@ -87,6 +89,8 @@ test.describe('dice in the app', () => {
 test('everyone sees the roll animation and the Sevens Out celebration', async ({ browser }) => {
   const A = await host(browser, 'Anna');
   const B = await join(browser, A.code, 'Ben');
+  await A.page.click('[data-act=opairing][data-id="1"]');
+  await expect(B.page.locator('[data-act=opairing][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
   await A.page.click('[data-act=ostart]');
   await A.page.click('[data-act=roll]');
   // Ben's phone tumbles and reveals the same dice, then the pairs fly into the rack

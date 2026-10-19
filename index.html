@@ -395,7 +395,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   let state = blank();
   const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, doom:null, edit:null, editVals:{} };
 
-  function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice' }, game:null }; }
+  function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice', pairing:'manual' }, game:null }; }
   const isScore = g => !!g && g.mode === 'score';
 
   // ---------- helpers ----------
@@ -1004,6 +1004,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         case 'started': resetUi(); break;
         case 'turn': resetInputs(); break;
         case 'rolled': {
+          if (E.byHand(g)){ ui.hint = null; break; }
           const t = g.turn, n = e.auto.length, left = active(t).length;
           if (!left) ui.hint = 'All six dice are out. Nothing counts against you.';
           else ui.hint = (n ? `${plural(n, 'pair')} of 7 set aside.` : 'No 7s in this roll.') + (t.rolls >= t.maxRolls ? ' No rolls left.' : '');
@@ -1207,8 +1208,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function viewPlay(){
     const g = state.game, t = displayTurn(g.turn), p = current(g), n = g.players.length, act = canAct();
     const isStarter = g.pos === 0, rolled = t.rolls > 0, done = rolled && !canRoll(t);
-    const can = rolled && !ui.rolling && act ? pairable(t) : new Set();
-    const pen = finalPenalty(t), left = t.maxRolls - t.rolls, nAct = active(t).length;
+    const hand = E.byHand(g); // the player finds the 7s, so nothing on screen gives them away
+    const can = rolled && !ui.rolling && act && !hand ? pairable(t) : new Set();
+    const pen = hand ? E.sumActive(t) : finalPenalty(t), left = t.maxRolls - t.rolls, nAct = active(t).length;
     const undoable = act && rolled && !ui.rolling && !ui.busy && t.rolls < t.maxRolls;
     const you = online() && !coveringFor();
 
@@ -1224,6 +1226,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       else if (!rolled) hint = ui.rolling ? '' : coveringFor() ? `${pname(p)} is offline. As the host you can play for them.`
         : shakeActive() ? `${online() ? 'Your turn. ' : `${pname(p)}, `}tap Roll or shake the phone.` : online() ? 'Your turn. Roll when you\'re ready.' : `${pname(p)}, roll when you're ready.`;
       else if (nAct === 0) hint = 'All six dice are out. Nothing counts against you.';
+      else if (hand) hint = done ? 'No rolls left. Set aside any 7s you see, then end your turn.' : 'Find the 7s: tap two dice that add up to 7.';
       else if (can.size) hint = 'Tap two dice that add up to 7 to set them aside.';
       else if (done) hint = 'No rolls left. End your turn.';
       else hint = '';
@@ -1312,6 +1315,15 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       </section>` + board(g, -1, L, 'Loses') + sheet(g) + rules() + devBlock() + footer();
   }
 
+  // who sets the 7-pairs aside in dice mode: the player (the default) or the app
+  function pairingBlock(pairing, act, enabled){
+    const hand = pairing !== 'auto';
+    return `<span class="h3" id="${act}-h">Pairs of 7</span>
+        <div class="seg mode" role="group" aria-labelledby="${act}-h">${[['manual', 'Find them yourself'], ['auto', 'The app finds them']].map(([v, l], i) =>
+          `<button class="segbtn${hand === (v === 'manual') ? ' on' : ''}" data-act="${act}" data-id="${i}" aria-pressed="${hand === (v === 'manual')}"${enabled ? '' : ' disabled'}>${l}</button>`).join('')}</div>
+        <p class="sub">${hand ? 'After each roll, tap the pairs that make 7. A pair you miss counts against you when you stop.' : 'The app sets every pair of 7 aside after each roll.'}</p>`;
+  }
+
   function viewSetup(){
     const s = state.setup;
     const rows = s.names.map((nm, i) => `<div class="prow">
@@ -1329,6 +1341,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
           <button class="segbtn${mode === 'score' ? ' on' : ''}" data-act="mode" data-id="1" aria-pressed="${mode === 'score'}">Real dice, scores here</button>
         </div>
         <p class="sub">${mode === 'dice' ? 'The app rolls the dice. Pass the phone around.' : 'Roll your own dice. After each turn, enter the pips left on the table.'}</p>
+        ${mode === 'dice' ? pairingBlock(s.pairing, 'pairing', true) : ''}
       </section>`;
     const onlineBlock = onlineAvailable() ? `<section class="online-cta">
         <div><span class="h3">Not at the same table?</span><p class="sub">Play online. Everyone uses their own phone and joins with a room code.</p></div>
@@ -1411,6 +1424,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <span class="h3" id="omode-h">How you play</span>
         ${modeSeg}
         <p class="sub">${mode === 'dice' ? 'The app rolls the dice. Everyone sees every roll.' : 'Everyone rolls real dice at home and enters the pips left on the table.'}</p>
+        ${mode === 'dice' ? pairingBlock(r.settings.pairing, 'opairing', host) : ''}
         <span class="h3" id="ostart-h">Who starts the first round</span>
         ${starterSeg}
         <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
@@ -1432,14 +1446,16 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   }
 
   function rules(){
-    const mode = state.game ? state.game.mode : online() && net.room ? net.room.settings.mode : state.setup.mode;
+    const set = online() && net.room ? net.room.settings : state.setup;
+    const mode = state.game ? state.game.mode : set.mode;
+    const hand = state.game ? E.byHand(state.game) : mode !== 'score' && set.pairing !== 'auto';
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>Rules</summary><ol>
       <li>On your turn you roll six dice. After each roll you may set aside any pairs that add up to 7 (1+6, 2+5, 3+4). Only such pairs can be set aside; every other die goes back into the next roll.</li>
       <li>The round's starter may roll up to three times and can stop after any roll. The number of rolls the starter used is the limit for everyone else in that round. Everyone else may stop earlier.</li>
-      <li>When you stop, all remaining 7-pairs come out and the pips on the dice still on the table are added to your score. Clearing all six dice adds nothing.</li>
+      <li>${hand ? 'When you stop, the pips on the dice still on the table are added to your score, including any 7-pairs you missed.' : 'When you stop, all remaining 7-pairs come out and the pips on the dice still on the table are added to your score.'} Clearing all six dice adds nothing.</li>
       <li>The players choose who starts the first round. After that, the player with the highest score starts each round. If several share the highest score, the one who reached that score first starts.</li>
       <li>When anyone reaches ${LIMIT} or more, the round is played to the end. Then the highest score loses. If the highest score is tied, the player who played later in that round loses.</li>
-    </ol>${mode === 'score' ? '' : '<p class="note">The app sets pairs aside for you after each roll. Tap a pair from the current roll to put it back before rolling again.</p>'}</details>`;
+    </ol>${mode === 'score' ? '' : `<p class="note">${hand ? 'Find the 7s yourself: tap two dice that add up to 7 to set them aside.' : 'The app sets pairs aside for you after each roll.'} Tap a pair from the current roll to put it back before rolling again.</p>`}</details>`;
   }
 
   function devBlock(){
@@ -1516,8 +1532,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const t = state.game.turn, d = t.dice[id];
     if (!d || d.held !== null || d.value === null || ui.rolling || !canAct()) return;
     if (ui.selected === null){
-      if (!pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; return; }
-      ui.selected = id; ui.hint = `Now tap a ${7 - d.value}.`; return;
+      const hand = E.byHand(state.game);
+      if (!hand && !pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; return; }
+      ui.selected = id; ui.hint = hand ? `Now tap a ${7 - d.value}, or tap the ${d.value} again to put it down.` : `Now tap a ${7 - d.value}.`; return;
     }
     if (ui.selected === id){ ui.selected = null; ui.hint = null; return; }
     const s = t.dice[ui.selected];
@@ -1575,7 +1592,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         const names = s.names.map((nm, i) => nm.trim() || `Player ${i + 1}`);
         ui.open = {};
         state.stats = { id:randomId(), startedAt:Date.now() }; // for the owner's statistics (see queueReport)
-        dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), mode:s.mode === 'score' ? 'score' : 'dice' });
+        dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' });
         return;
       }
       case 'roll': startRoll(); return;
@@ -1646,6 +1663,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         break;
       }
       case 'mode': state.setup.mode = id === 1 ? 'score' : 'dice'; break;
+      case 'pairing': state.setup.pairing = id === 1 ? 'auto' : 'manual'; break;
       case 'key': {
         if (state.phase !== 'play' || !E.isScore(g) || !canAct()) return;
         ui.hint = null;
@@ -1680,6 +1698,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         return;
       }
       case 'omode': if (amHost()) netSend({ t:'lobby', op:'settings', mode:id === 1 ? 'score' : 'dice' }); break;
+      case 'opairing': if (amHost()) netSend({ t:'lobby', op:'settings', pairing:id === 1 ? 'auto' : 'manual' }); break;
       case 'ostarter': if (amHost()) netSend({ t:'lobby', op:'settings', starter:id < 0 ? 'random' : id }); break;
       case 'ostart': if (amHost()) netSend({ t:'lobby', op:'start' }); break;
       case 'oreopen': if (amHost()) netSend({ t:'lobby', op:'reopen' }); break;

@@ -68,7 +68,9 @@ These rules were agreed with the owner. Don't change them unless asked.
 
 1. **Dice and pairs.** A turn uses 6 dice. After each roll, any pairs that add up to 7 (1+6, 2+5, 3+4) may be set aside. Only such pairs can be set aside. All other dice are rolled again.
 2. **Roll limit.** The round's starter may roll up to 3 times (`MAX_ROLLS`) and can stop after any roll. The number of rolls the starter used becomes the limit (`game.mark`) for everyone else that round. Everyone else may also stop earlier.
-3. **Scoring.** When a player stops, all remaining 7-pairs come out automatically. The pips on the dice still on the table are added to the player's score (higher is worse). Clearing all six dice scores 0 and triggers the "Sevens Out!" celebration.
+3. **Scoring.** When a player stops, the pips on the dice still on the table are added to the player's score (higher is worse). Clearing all six dice scores 0 and triggers the "Sevens Out!" celebration.
+   - **Find the 7s yourself** (dice mode, the default, `game.pairing: 'manual'`): pairs the player didn't set aside stay on the table and count.
+   - **The app finds them** (`game.pairing: 'auto'`): all remaining 7-pairs come out automatically first.
 4. **Turn order.** Players take turns in seating order, starting from the round's starter.
 5. **Who starts a round.**
    - First round: chosen on the setup screen or in the lobby, or picked at random.
@@ -87,8 +89,10 @@ These rules were agreed with the owner. Don't change them unless asked.
 
 ### Dice mode extras
 
-- Rolling sets all 7-pairs aside automatically.
-- The page then shows the dice lying still for about 0.7 s and flies each pair into the rack.
+- **Pairs of 7** is chosen on the setup screen or in the lobby.
+  - **Find them yourself** (default): nothing is set aside after a roll. The player taps two dice that add up to 7. The page doesn't highlight pairs or offer "Set aside all 7s" (`takeall` is refused with `by_hand`), and "Counts if you stop" shows every pip on the table.
+  - **The app finds them:** rolling sets all 7-pairs aside. The page then shows the dice lying still for about 0.7 s and flies each pair into the rack.
+  - Games saved before the choice existed have no `pairing` field and keep the automatic behaviour (`byHand(g)` is false).
 - A pair from the current roll can be put back before the next roll.
 
 ## Architecture
@@ -99,13 +103,13 @@ These rules were agreed with the owner. Don't change them unless asked.
 
 - **It is pure:** it never mutates its input, and it has no DOM, storage or network code.
 - **Dice:** they come from `crypto.getRandomValues` with rejection sampling. On a server, the server rolls.
-- **Read-only helpers are exported too:** `active`, `finalPenalty`, `pairable`, `canRoll`, `matchPairs`, `tiedForStart` and others.
+- **Read-only helpers are exported too:** `active`, `byHand`, `finalPenalty`, `pairable`, `canRoll`, `matchPairs`, `tiedForStart` and others.
 
 **Actions:**
 
 | Group | Actions |
 |---|---|
-| Setup | `start {names, starter, mode, seats?}` |
+| Setup | `start {names, starter, mode, pairing?, seats?}` (`pairing` defaults to `manual`) |
 | Dice turn | `roll`, `pair {a, b}`, `unpair {index}`, `takeall`, `stop` (alias `end`) |
 | Scoreboard turn | `score {pts, rolls?}` |
 | Table | `drop`, `undo`, `edit {player, values: {roundNo: pts}}` |
@@ -120,9 +124,9 @@ The page saves the phone's own game to `localStorage['sevens-out-v1']`. Online g
 ```js
 state = {
   phase: 'setup' | 'play' | 'roundEnd' | 'over',
-  setup: { names: [..], starter, mode: 'dice' | 'score' },       // pass-and-play setup screen
+  setup: { names: [..], starter, mode: 'dice' | 'score', pairing: 'manual' | 'auto' },   // pass-and-play setup screen
   game: {
-    mode, players: [{ name, score }], seats?: [seatId..],         // seats only in online games
+    mode, pairing?, players: [{ name, score }], seats?: [seatId..],   // pairing missing = auto (old saves); seats only online
     round, starter, order: [playerIdx..], pos,                    // whose turn: order[pos]
     mark,                                                         // roll limit set by this round's starter
     rounds: [{ no, starter, mark, results: { [playerIdx]: { pts, rolls } } }],   // the score sheet
@@ -158,14 +162,14 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
   - Other players see a "Waiting for …" note instead of the controls.
 
 **Data actions:**
-- **Setup:** `add`, `remove`, `randstart`, `mode`, `start`
+- **Setup:** `add`, `remove`, `randstart`, `mode`, `pairing`, `start`
 - **Dice:** `roll`, `die`, `unpair`, `takeall`, `stop`, `end`
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
 - **Flow:** `nextround`, `again`, `new`/`newyes`/`newno`
 - **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`
 - **Settings:** `sound`, `look`, `shake`
-- **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
+- **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
 
 **Debugging:** `window.SevensDebug` gives read-only `state`, `net` and `busy` views. The tests use it.
 
@@ -182,7 +186,7 @@ One `Room` per room code holds the authoritative game.
 | client → server | `{t:'lobby', op:'settings'\|'start'\|'reopen'\|'rename'\|'kick'\|'leave', …}` |
 | client → server | `{t:'ping'}` |
 | server → client | `{t:'welcome', seat, token}` |
-| server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings, seats:[{id,name,connected}]}, state, events}` |
+| server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings:{mode, pairing, starter}, seats:[{id,name,connected}]}, state, events}` |
 | server → client | `{t:'error', code, message}` |
 | server → client | `{t:'pong'}` |
 
