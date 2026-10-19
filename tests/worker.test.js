@@ -189,6 +189,25 @@ test('statistics: a waiting write survives the room being removed when everyone 
   assert.equal(ctx.kv.size, 0);
 });
 
+test('statistics: a waiting write without the STATS binding is dropped, not retried in a loop', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  d1.down = true;
+  const { ctx } = await startedGame(env);   // "playing" fails and waits
+  duePending(ctx);
+  const unbound = new GameRoom(ctx, {});     // the binding was removed in a later deploy
+  await unbound.alarm();
+  assert.equal(ctx.kv.get('pendingStats'), undefined, 'the waiting write is dropped');
+  assert.ok(ctx.alarm > Date.now() + 13 * DAY, 'only the expiry alarm is set');
+
+  // with no room left either, the storage is cleared
+  ctx.kv.set('pendingStats', { x: { rec: {}, since: 0, tries: 0, at: 0 } });
+  ctx.kv.delete('room');
+  ctx.alarm = null;
+  await new GameRoom(ctx, {}).alarm();
+  assert.equal(ctx.kv.size, 0);
+  assert.equal(ctx.alarm, null, 'no alarm is set');
+});
+
 const ORIGIN = 'https://me.github.io';
 function reportEnv(d1 = fakeD1()) {
   const hits = new Map();

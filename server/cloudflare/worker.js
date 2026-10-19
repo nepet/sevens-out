@@ -91,7 +91,7 @@ export class GameRoom extends DurableObject {
       // statistics still waiting for a retry outlive the room; the alarm cleans up afterwards
       remove: async () => {
         await ctx.storage.delete('room');
-        if (await ctx.storage.get('pendingStats')) await this.scheduleAlarm();
+        if (env && env.STATS && await ctx.storage.get('pendingStats')) await this.scheduleAlarm();
         else await ctx.storage.deleteAll();
       }
     };
@@ -134,6 +134,11 @@ export class GameRoom extends DurableObject {
   // the alarm retries waiting statistics and deletes rooms nobody has used for two weeks
   async alarm() {
     if (this.env && this.env.STATS) await this.retryStats();
+    else if (await this.ctx.storage.get('pendingStats')) {
+      // the binding is gone, so the writes can never be retried; drop them instead of waking up again at once
+      console.error('stats: no STATS binding, dropping waiting writes');
+      await this.ctx.storage.delete('pendingStats');
+    }
     await this.room.load();
     if (this.room.data && !this.room.expired()) return this.scheduleAlarm();
     if (this.room.data) {
@@ -145,12 +150,12 @@ export class GameRoom extends DurableObject {
     await this.ctx.storage.deleteAll();
   }
 
-  // the earlier of: room expiry, the next statistics retry
+  // the earlier of: room expiry, the next statistics retry (only with the STATS binding)
   async scheduleAlarm() {
     const times = [];
     const room = await this.ctx.storage.get('room');
     if (room) times.push(room.updated + ROOM_TTL_MS + 60_000);
-    for (const e of Object.values((await this.ctx.storage.get('pendingStats')) || {})) times.push(e.at);
+    if (this.env && this.env.STATS) for (const e of Object.values((await this.ctx.storage.get('pendingStats')) || {})) times.push(e.at);
     if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
   }
 
