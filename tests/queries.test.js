@@ -23,8 +23,9 @@ test('filters: defaults and junk fall back to safe values', () => {
   const f = q('');
   assert.deepEqual([f.period, f.source, f.mode, f.tz, f.before], ['30d', null, null, 0, null]);
   assert.equal(f.since, NOW - 30 * DAY);
-  const g = q('period=all&source=phone&mode=score&tz=-120&before=123');
-  assert.deepEqual([g.period, g.since, g.source, g.mode, g.tz, g.before], ['all', 0, 'phone', 'score', -120, 123]);
+  const g = q('period=all&source=phone&mode=score&tz=-120&before=123_00000000000000ab');
+  assert.deepEqual([g.period, g.since, g.source, g.mode, g.tz, g.before], ['all', 0, 'phone', 'score', -120, { at: 123, id: '00000000000000ab' }]);
+  assert.equal(q('before=123').before, null, 'a bare time is not a cursor');
   const h = q("period=1y&source=x'or'1&mode=dice;drop&tz=9999&before=abc");
   assert.deepEqual([h.period, h.source, h.mode, h.tz, h.before], ['30d', null, null, 0, null]);
 });
@@ -114,4 +115,15 @@ test('recent games come newest first, 20 per page, and one game opens with its s
   assert.equal(one.sheet.players[1], 'Ben');
   assert.equal(one.players[0].lost, true);
   assert.equal(await gameDetail(db, 'ffffffffffffffff'), null);
+});
+
+test('paging does not skip games that finished at the same time', async () => {
+  const db = fromD1(fakeD1());
+  const ids = [];
+  for (let i = 0; i < 25; i++) ids.push((await put(db, quickGame(['Anna', 'Ben']), { finishedAt: NOW - DAY })).game.id);
+  const p1 = await recentGames(db, q(''));
+  const p2 = await recentGames(db, q(`before=${p1.next}`));
+  assert.equal(p1.games.length, PAGE_SIZE);
+  assert.equal(p2.next, null);
+  assert.deepEqual([...p1.games, ...p2.games].map(g => g.id).sort(), [...ids].sort());
 });

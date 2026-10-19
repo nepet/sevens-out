@@ -14,7 +14,9 @@ export function parseFilters(q, now = Date.now()) {
   const mode = ['dice', 'score'].includes(q.get('mode')) ? q.get('mode') : null;
   const tzRaw = q.get('tz') || '';
   const tz = /^-?\d{1,3}$/.test(tzRaw) && Math.abs(+tzRaw) <= 840 ? +tzRaw : 0;
-  const before = /^\d{1,15}$/.test(q.get('before') || '') ? +q.get('before') : null;
+  // paging cursor "<finishedAt>_<id>", the `next` of the previous page of recentGames()
+  const cursor = /^(\d{1,15})_([0-9a-f]{16})$/.exec(q.get('before') || '');
+  const before = cursor ? { at: +cursor[1], id: cursor[2] } : null;
   return { period, since: days ? now - days * DAY : 0, source, mode, tz, before, now };
 }
 
@@ -101,9 +103,9 @@ export async function recentGames(db, f) {
   const w = finished(f, 0);
   const rows = await db.all(
     `SELECT g.id AS id, g.source AS source, g.mode AS mode, g.finished_at AS finishedAt, g.loser AS loser, g.early AS early, g.rounds AS rounds
-     FROM games g WHERE ${w.sql}${f.before ? ' AND g.finished_at < ?' : ''}
+     FROM games g WHERE ${w.sql}${f.before ? ' AND (g.finished_at < ? OR (g.finished_at = ? AND g.id < ?))' : ''}
      ORDER BY g.finished_at DESC, g.id DESC LIMIT ?`,
-    [...w.params, ...(f.before ? [f.before] : []), PAGE_SIZE + 1]);
+    [...w.params, ...(f.before ? [f.before.at, f.before.at, f.before.id] : []), PAGE_SIZE + 1]);
   const games = rows.slice(0, PAGE_SIZE);
   const players = games.length
     ? await db.all(`SELECT game_id AS gameId, idx, name, score, lost FROM players WHERE game_id IN (${games.map(() => '?').join(', ')}) ORDER BY idx`, games.map(g => g.id))
@@ -113,7 +115,7 @@ export async function recentGames(db, f) {
       id: g.id, source: g.source, mode: g.mode, finishedAt: g.finishedAt, loser: g.loser, early: !!g.early, rounds: g.rounds,
       players: players.filter(p => p.gameId === g.id).map(p => ({ idx: p.idx, name: p.name, score: p.score, lost: !!p.lost }))
     })),
-    next: rows.length > PAGE_SIZE ? games[games.length - 1].finishedAt : null
+    next: rows.length > PAGE_SIZE ? `${games[games.length - 1].finishedAt}_${games[games.length - 1].id}` : null
   };
 }
 
