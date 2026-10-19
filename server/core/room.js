@@ -7,9 +7,12 @@
  * Adapters plug in two small interfaces:
  *   storage: { get(): Promise<data|null>, put(data): Promise<void>, remove(): Promise<void> }
  *   net:     { send(conn, msg), conns(): conn[], seatOf(conn): string|null, bind(conn, seatId), close(conn, code, reason) }
+ *   stats:   { record(rec) } (optional): gets a stats record (server/core/stats.js summarize) whenever a game starts, ends or is abandoned
  * server/cloudflare/worker.js (Durable Object) and server/node/server.js (plain Node) are the two adapters.
  * The wire protocol is documented in CLAUDE.md.
  */
+
+import { summarize } from './stats.js';
 
 export const CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
 export const MAX_SEATS = 6;
@@ -27,8 +30,8 @@ const hex = n => { const b = new Uint8Array(n); crypto.getRandomValues(b); retur
 const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
 
 export class Room {
-  constructor({ engine, storage, net, now = () => Date.now() }) {
-    this.E = engine; this.storage = storage; this.net = net; this.now = now;
+  constructor({ engine, storage, net, stats = null, now = () => Date.now() }) {
+    this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.now = now;
     this.data = undefined; // undefined = not loaded yet, null = no room
     this.loading = null;
   }
@@ -154,12 +157,15 @@ export class Room {
     } else if (!TABLE_ACTIONS.has(action.type)) {
       return this.error(conn, 'bad_message', 'Unknown action.');
     }
+    const was = d.state.phase;
     const r = this.E.apply(d.state, action);
     if (r.error) return this.error(conn, r.error, 'That move is not allowed.');
     d.state = r.state;
     d.rev++;
     await this.save();
     this.broadcast(r.events);
+    if (d.state.phase === 'over') await this.recordStats('over');
+    else if (was === 'over') await this.recordStats('playing');
   }
 
   // ----- lobby -----
@@ -186,12 +192,15 @@ export class Room {
         const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, mode: d.settings.mode });
         if (r.error) return this.error(conn, r.error, 'Could not start.');
         d.state = r.state; d.phase = 'game'; d.rev++;
+        d.stats = { id: hex(8), startedAt: this.now() };
         await this.save();
-        return this.broadcast(r.events);
+        this.broadcast(r.events);
+        return this.recordStats('playing');
       }
       case 'reopen': {
         if (!isHost) return this.error(conn, 'host_only', 'Only the host can start a new game.');
-        d.phase = 'lobby'; d.state = null;
+        if (d.phase === 'game' && d.state && d.state.phase !== 'over') await this.recordStats('abandoned');
+        d.phase = 'lobby'; d.state = null; d.stats = null;
         break;
       }
       case 'rename': {
@@ -235,4 +244,20 @@ export class Room {
 
   // ----- housekeeping -----
   expired() { return !!this.data && this.now() - this.data.updated > ROOM_TTL_MS; }
+  // an unfinished game in a room that is being deleted
+  async expire() {
+    const d = this.data;
+    if (d && d.phase === 'game' && d.state && d.state.phase !== 'over') await this.recordStats('abandoned');
+  }
+
+  // ----- statistics -----
+  async recordStats(status) {
+    const d = this.data;
+    if (!this.stats || !d || !d.stats || !d.state || !d.state.game) return;
+    const rec = summarize(d.state, {
+      id: d.stats.id, source: 'online', roomCode: d.code, startedAt: d.stats.startedAt,
+      finishedAt: status === 'over' ? this.now() : null, status
+    });
+    try { await this.stats.record(rec); } catch (err) { console.error('stats', err); }
+  }
 }
