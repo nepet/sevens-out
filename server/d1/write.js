@@ -7,17 +7,28 @@ const GAME_COLS = ['id', 'source', 'mode', 'room_code', 'status', 'early', 'star
 const PLAYER_COLS = ['game_id', 'idx', 'name', 'name_key', 'score', 'lost', 'sevens_outs', 'shots', 'turns'];
 const TURN_COLS = ['game_id', 'round', 'idx', 'pts', 'rolls', 'starter', 'mark'];
 
-const insert = (table, cols) => `INSERT INTO ${table} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`;
+const MAX_PARAMS = 100; // D1's limit of bound parameters per statement
+
+const insert = (table, cols, rows = 1) => `INSERT INTO ${table} (${cols.join(', ')}) VALUES ${Array(rows).fill(`(${cols.map(() => '?').join(', ')})`).join(', ')}`;
 const UPSERT_GAME = `${insert('games', GAME_COLS)} ON CONFLICT (id) DO UPDATE SET ${GAME_COLS.slice(1).map(c => `${c} = excluded.${c}`).join(', ')}`;
 const values = (row, cols) => cols.map(c => (row[c] === undefined ? null : row[c]));
+// multi-row inserts keep a record to a handful of statements, each within the parameter limit
+function insertRows(table, cols, rows) {
+  const per = Math.floor(MAX_PARAMS / cols.length), stmts = [];
+  for (let i = 0; i < rows.length; i += per) {
+    const chunk = rows.slice(i, i + per);
+    stmts.push([insert(table, cols, chunk.length), chunk.flatMap(r => values(r, cols))]);
+  }
+  return stmts;
+}
 const clearChildren = id => [['DELETE FROM turns WHERE game_id = ?', [id]], ['DELETE FROM players WHERE game_id = ?', [id]]];
 
 export async function writeRecord(db, { game, players, turns }) {
   await db.batch([
     ...clearChildren(game.id),
     [UPSERT_GAME, values(game, GAME_COLS)],
-    ...players.map(p => [insert('players', PLAYER_COLS), values(p, PLAYER_COLS)]),
-    ...turns.map(t => [insert('turns', TURN_COLS), values(t, TURN_COLS)])
+    ...insertRows('players', PLAYER_COLS, players),
+    ...insertRows('turns', TURN_COLS, turns)
   ]);
 }
 

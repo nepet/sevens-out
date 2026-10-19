@@ -50,3 +50,23 @@ test('a failing write changes nothing', async () => {
   d1.down = true;
   await assert.rejects(db.all('SELECT 1'));
 });
+
+test('a big game is written in a few statements of at most 100 parameters each', async () => {
+  const d1 = fakeD1(), db = fromD1(d1), id = 'cccccccccccccccc', batches = [];
+  const spy = { all: db.all, batch: stmts => { batches.push(stmts); return db.batch(stmts); } };
+  const six = Array.from({ length: 6 }, (_, i) => ({ game_id: id, idx: i, name: `P${i}`, name_key: `p${i}`, score: 50 + i, lost: i === 5 ? 1 : 0, sevens_outs: 1, shots: 0, turns: 20 }));
+  const many = [];
+  for (let round = 1; round <= 20; round++) for (let idx = 0; idx < 6; idx++) many.push({ game_id: id, round, idx, pts: (round + idx) % 9, rolls: 1 + (idx % 3), starter: idx === 0 ? 1 : 0, mark: 3 });
+  await writeRecord(spy, { game: game({ id, rounds: 20, player_count: 6 }), players: six, turns: many });
+  assert.equal(count(d1, 'players'), 6);
+  assert.equal(count(d1, 'turns'), 120);
+  const sum = d1.raw.prepare('SELECT SUM(pts) AS s FROM turns WHERE round = 20 AND idx = 5').get().s;
+  assert.equal(sum, (20 + 5) % 9, 'values land in the right rows');
+  const [stmts] = batches;
+  assert.equal(batches.length, 1, 'one atomic batch');
+  for (const [sql, params] of stmts) assert.ok(params.length <= 100, `${params.length} parameters in: ${sql.slice(0, 40)}`);
+  assert.ok(stmts.length <= 13, `${stmts.length} statements`); // 2 deletes, the game, 1 for players, 9 for turns
+
+  await writeRecord(spy, { game: game({ id, rounds: 20, player_count: 6 }), players: six, turns: many });
+  assert.equal(count(d1, 'turns'), 120, 'writing it again still replaces it');
+});
