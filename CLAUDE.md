@@ -1,0 +1,252 @@
+# Sevens Out
+
+A dice game for 2–6 players, played on phones. It has two ways to play together:
+
+- **On one phone (pass-and-play):** a static page on GitHub Pages.
+- **Online:** everyone uses their own phone and joins a room by code. A small room server holds the game. It runs as a Cloudflare Worker with Durable Objects (option 4) or as a self-hosted Node server (option 5), using the same code.
+
+Each mode works either with dice in the app or with real dice, where players enter their scores.
+
+## The repo
+
+```
+index.html                 the page: markup, CSS, UI script (pass-and-play + online client)
+engine.js                  the rules engine, shared by the page and both servers
+server/core/room.js        one game room: seats, host, turn authority, persistence, protocol (no runtime code)
+server/cloudflare/         option 4: worker.js (Worker + Durable Object adapter), wrangler.jsonc
+server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files), ws.js (built-in WebSocket server)
+tests/                     node:test unit tests (engine, room, node server, worker adapter)
+tests/e2e/                 Playwright browser tests (local modes and two-phone online play)
+deploy/                    option 5: docker-compose.yml + Caddyfile, systemd unit
+docs/self-hosting.md       how to run option 5
+Dockerfile                 option 5 container
+.github/workflows/test.yml CI: unit + browser tests on every push
+```
+
+- **No build step and no framework.** GitHub Pages serves `index.html` and `engine.js` straight from `main`. The servers import `engine.js` directly.
+- **No runtime npm packages.** The servers use only Node built-ins or the Workers runtime. `package.json` holds dev tools only: Playwright and wrangler.
+- **The only external resource is Google Fonts:** Big Shoulders Display, Bungee and Instrument Sans, each with a system fallback.
+- **`engine.js` works in both worlds.** It's a classic script that sets `globalThis.SevensEngine`, so the page loads it with `<script src>` and the servers with `import '../../engine.js'`. Keep it free of `import` and `export`.
+
+## Commands
+
+```
+npm install                       # dev tools
+npx playwright install chromium   # browser for the e2e tests (once)
+npm run dev                       # Node server on http://localhost:8788 (page + online rooms)
+npm run test:unit                 # engine, room, node server, worker adapter (fast)
+npm run test:e2e                  # browser tests against the Node server
+npm test                          # both
+npm run worker:dev                # Worker locally on :8787 (wrangler dev)
+npm run test:worker               # online browser tests against wrangler dev
+npm run worker:deploy             # deploy option 4
+```
+
+## Deploy
+
+- **The page** is served by GitHub Pages from `main`, at the repo root. A push deploys it within about a minute. Check it with `gh api repos/<owner>/sevens-out/pages/builds/latest --jq .status`.
+- **The room server (option 4)** deploys with `npm run worker:deploy`, which needs `npx wrangler login` once.
+  - `ALLOWED_ORIGINS` in `server/cloudflare/wrangler.jsonc` must list the page origin, for example `https://<owner>.github.io`.
+  - The page finds the server through `<meta name="sevens-out-server" content="wss://sevens-out.<subdomain>.workers.dev">` in `index.html`.
+  - An empty `content` hides online play; `same-origin` means "this host", which is what the Node server sets when it serves the page.
+  - `?server=wss://…` in the page URL overrides the meta tag, which is useful for testing.
+- **Option 4 by hand:** see `docs/cloudflare.md` (account, subdomain, login, dashboard, limits, troubleshooting).
+- **Option 5:** see `docs/self-hosting.md`.
+
+## Game rules (source of truth)
+
+These rules were agreed with the owner. Don't change them unless asked.
+
+1. **Dice and pairs.** A turn uses 6 dice. After each roll, any pairs that add up to 7 (1+6, 2+5, 3+4) may be set aside. Only such pairs can be set aside. All other dice are rolled again.
+2. **Roll limit.** The round's starter may roll up to 3 times (`MAX_ROLLS`) and can stop after any roll. The number of rolls the starter used becomes the limit (`game.mark`) for everyone else that round. Everyone else may also stop earlier.
+3. **Scoring.** When a player stops, all remaining 7-pairs come out automatically. The pips on the dice still on the table are added to the player's score (higher is worse). Clearing all six dice scores 0 and triggers the "Sevens Out!" celebration.
+4. **Turn order.** Players take turns in seating order, starting from the round's starter.
+5. **Who starts a round.**
+   - First round: chosen on the setup screen or in the lobby, or picked at random.
+   - After that: the player with the highest total starts.
+   - **Tie:** whoever reached that score first, worked out by replaying the score sheet in playing order (`reachedAt`). A 0-point turn does not count as reaching the score again.
+   - **Still tied** (for example everyone on 0): the next of the tied players after the last starter.
+6. **Ending.** When any player reaches **101 or more** (`LIMIT`), the current round is played to the end. Then the highest score loses.
+   - **Tie for highest:** the player who played later in that last round loses.
+
+### Scoreboard mode ("Real dice, scores here")
+
+- **Entering a turn:** each turn the player enters the pips left on the table (0–36). The starter also enters the rolls used (1–3).
+- **Undo:** reverts the last entry, dropped die or correction, using snapshots in `game.history` (capped at 40).
+- **Dice on the floor:** one counter is shared by the table (`game.drops`), and each drop counts against the player whose turn it is. The third drop means that player pays a round of shots: it triggers the skull takeover, is recorded in `game.shots`, and resets the counter.
+- **Corrections:** tap a score card to edit any past round. The engine rebuilds the totals (`recalc`) and re-applies the starter and 101 rules wherever the game stands. A game ended early stays over.
+
+### Dice mode extras
+
+- Rolling sets all 7-pairs aside automatically.
+- The page then shows the dice lying still for about 0.7 s and flies each pair into the rack.
+- A pair from the current roll can be put back before the next roll.
+
+## Architecture
+
+### The engine (`engine.js`)
+
+`apply(state, action, { rng }) -> { state, events }`, or `{ error, state }` when the action isn't allowed.
+
+- **It is pure:** it never mutates its input, and it has no DOM, storage or network code.
+- **Dice:** they come from `crypto.getRandomValues` with rejection sampling. On a server, the server rolls.
+- **Read-only helpers are exported too:** `active`, `finalPenalty`, `pairable`, `canRoll`, `matchPairs`, `tiedForStart` and others.
+
+**Actions:**
+
+| Group | Actions |
+|---|---|
+| Setup | `start {names, starter, mode, seats?}` |
+| Dice turn | `roll`, `pair {a, b}`, `unpair {index}`, `takeall`, `stop` (alias `end`) |
+| Scoreboard turn | `score {pts, rolls?}` |
+| Table | `drop`, `undo`, `edit {player, values: {roundNo: pts}}` |
+| Flow | `nextround`, `endearly` |
+
+**Events** (for animations and messages): `started`, `rolled {auto, values}`, `paired {pairs}`, `unpaired`, `sevensOut {player}`, `turn`, `roundEnd {next}`, `gameOver {loser}`, `dropped {drops}`, `shots {player}`, `undone {msg}`, `edited`, `ended`.
+
+### State
+
+The page saves the phone's own game to `localStorage['sevens-out-v1']`. Online games live on the server and are never saved there.
+
+```js
+state = {
+  phase: 'setup' | 'play' | 'roundEnd' | 'over',
+  setup: { names: [..], starter, mode: 'dice' | 'score' },       // pass-and-play setup screen
+  game: {
+    mode, players: [{ name, score }], seats?: [seatId..],         // seats only in online games
+    round, starter, order: [playerIdx..], pos,                    // whose turn: order[pos]
+    mark,                                                         // roll limit set by this round's starter
+    rounds: [{ no, starter, mark, results: { [playerIdx]: { pts, rolls } } }],   // the score sheet
+    turn: { dice: [{ id, value, held }], rolls, maxRolls, pairs: [{ a, b, roll }], cleared },
+    ending, crosser, next, loser, early, last,
+    history: [..], drops, shots: [{ player, round }]
+  }
+}
+```
+
+**Saved games survive reloads, so changes must not break old saves.** When you add a field, read it with a default (for example `g.drops || 0`).
+
+Other storage keys, all per device:
+- `sevens-out-sound`: `off` | `jackpot` | `bandit`
+- `sevens-out-look`: `pub` | `vegas`
+- `sevens-out-shake`: `1` | `0`
+- `sevens-out-name`: the name last used online
+- `sevens-out-online`: `{code, token, name, server}`, used to rejoin a room after a reload or a locked screen
+
+### The page (`index.html`)
+
+The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template strings.
+
+**Events and actions:**
+- Clickable elements carry `data-act` (and optionally `data-id`). One document click listener calls `handle(action, id, el)`.
+- Game changes go through `dispatch(action)`. Locally, it applies the engine. Online, it sends `{t:'act', action}` and waits for the server.
+- New states are shown through `show()` or `present()`. When the events include `rolled` or `paired`, the page plays the tumble → pause → fly-out animation first, in order, through a queue. This works the same way for the player and for everyone watching. Other changes show at once.
+- Online, `canAct()` decides whether this phone may move:
+  - it's this phone's seat's turn, or
+  - this phone is the host and the current player is offline.
+  - Other players see a "Waiting for …" note instead of the controls.
+
+**Data actions:**
+- **Setup:** `add`, `remove`, `randstart`, `mode`, `start`
+- **Dice:** `roll`, `die`, `unpair`, `takeall`, `stop`, `end`
+- **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
+- **Corrections:** `edit`, `estep`, `esave`, `ecancel`
+- **Flow:** `nextround`, `again`, `new`/`newyes`/`newno`
+- **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`
+- **Settings:** `sound`, `look`, `shake`
+- **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
+
+**Debugging:** `window.SevensDebug` gives read-only `state`, `net` and `busy` views. The tests use it.
+
+### The room server (`server/core/room.js` + adapters)
+
+One `Room` per room code holds the authoritative game.
+
+**Wire protocol** (JSON over WebSocket at `/room/<CODE>`; codes are 5 characters from `A–Z` without `I`/`O` and `2–9`):
+
+| Direction | Message |
+|---|---|
+| client → server | `{t:'hello', name, token?, create?}` |
+| client → server | `{t:'act', action}` |
+| client → server | `{t:'lobby', op:'settings'\|'start'\|'reopen'\|'rename'\|'kick'\|'leave', …}` |
+| client → server | `{t:'ping'}` |
+| server → client | `{t:'welcome', seat, token}` |
+| server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings, seats:[{id,name,connected}]}, state, events}` |
+| server → client | `{t:'error', code, message}` |
+| server → client | `{t:'pong'}` |
+
+**What `hello` does:**
+- With a matching token, the player gets their seat back.
+- With `create` and no room yet, the player creates the room and becomes host. If the room exists, the answer is `room_taken`, and the page tries a new code.
+- Joining in the lobby adds a seat (up to 6). During a game, a newcomer joins as a spectator.
+
+**Authority:**
+
+| Actions | Who may make them |
+|---|---|
+| `roll`, `pair`, `unpair`, `takeall`, `stop`, `score` | The current player's seat. The host may make them when that player is offline. |
+| `drop`, `undo`, `edit`, `nextround` | Any seated player |
+| `endearly`, `start`, `reopen`, `kick` | The host |
+
+- **Host fallback:** if the host is offline, the first connected seat acts as host.
+- **Tokens:** they are never broadcast. Seat IDs are public.
+- **Revisions:** every change increments `rev`. A client only animates events when `rev` is exactly one more than the last one it saw; otherwise it just shows the new state.
+- **Expiry:** rooms are deleted after 14 days without activity. The Worker uses a Durable Object alarm, and the Node server sweeps its files.
+
+**Adapters:**
+- **Cloudflare (`server/cloudflare/worker.js`):** one Durable Object per room via `idFromName(code)`.
+  - It uses the WebSocket Hibernation API, and each socket's seat lives in its attachment.
+  - The room data is stored in the object's storage under `room`.
+  - An origin allowlist comes from `ALLOWED_ORIGINS`.
+- **Node (`server/node/server.js`):**
+  - Rooms are kept in memory while someone is connected, and messages for a room are handled one at a time.
+  - Each room is a JSON file in `DATA_DIR`, written atomically.
+  - The server pings sockets every 30 s and drops dead ones.
+
+**To add an action:**
+1. Add it to `engine.js`.
+2. Classify it in `room.js` (`TURN_ACTIONS`, `TABLE_ACTIONS` or `HOST_ACTIONS`).
+3. Dispatch it from the page.
+4. Add tests at each layer.
+
+## Features worth knowing
+
+- **Looks.** "Pub table" follows the system's light/dark setting. "Vegas" is dark-only and scoped under `html:root[data-look="vegas"]`. All colours are CSS custom properties.
+- **Sounds.** They are synthesized with Web Audio and unlocked on the first tap.
+- **Shake to roll.**
+  - **When the switch shows:** only when the page is the top-level window and the phone has a coarse pointer.
+  - **iPhone permission:** iOS needs `DeviceMotionEvent.requestPermission()` called directly inside a tap.
+  - **What counts as a shake:** 3 jolts above 14 m/s² within 900 ms, then a 1.5 s cool-down.
+  - **Where it works:** in dice mode, when this phone may roll.
+- **Developer menu.** Play confetti, Play shots alarm, and End game now (host only when online).
+- **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, and the shots takeover is shortened.
+
+## Conventions
+
+- **Phones first.** 390 px wide, 16 px gutters, no sideways scrolling. Check both looks and light/dark.
+- **Colours only through the CSS tokens.** The shots takeover is the deliberate exception.
+- **No `alert()` or `confirm()`.** Confirmations are built into the page.
+- **Copy is short, plain and active.** Errors say how to fix the problem.
+- **Artwork stays original.** No branded characters, logos or trademarked designs.
+- **The servers trust nothing from clients.** Validate in the engine and in `room.js`, never only in the page.
+
+## Testing
+
+- **Unit tests (`node --test`):**
+  - `engine.test.js` plays many seeded random games in both modes and checks every rule against the score sheet, plus the specific cases.
+  - `room.test.js` covers the protocol with in-memory connections.
+  - `node-server.test.js` starts the real server and talks to it over WebSockets.
+  - `worker.test.js` runs the Durable Object adapter against a stand-in runtime, including hibernation.
+- **Browser tests (`@playwright/test`):**
+  - Separate browser contexts act as separate phones.
+  - The tests read state through `window.SevensDebug` or `localStorage`.
+  - Use `contextOptions: { reducedMotion: 'reduce' }` for instant rolls.
+  - To fix the dice, stub `crypto.getRandomValues` for 1-byte arrays (`fixDice` in `tests/e2e/helpers.js`).
+  - `TARGET=worker` points online play at `wrangler dev` through the `?server=` override.
+
+Invariants to keep after rule changes:
+- Rolls stay within the round's `mark`.
+- Totals equal the score sheet.
+- Each starter follows the highest-score rule, including the got-there-first tie-break.
+- The game ends at the end of the first round in which anyone is at 101 or more, and the loser follows the tie rule.
+- Online, every phone shows the same state.

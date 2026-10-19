@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="description" content="Sevens Out: a dice game for 2 to 6 players. Set aside pairs that make 7; once someone reaches 101, the highest score loses.">
+<!-- Online play: the room server. Empty = online play hidden; "same-origin" = this host; or wss://… -->
+<meta name="sevens-out-server" content="">
 <meta name="theme-color" content="#ECEEF1" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111318" media="(prefers-color-scheme: dark)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -281,6 +283,40 @@ td.st::before{margin-right:6px}
 @keyframes quake{0%,100%{transform:none}10%{transform:translate(-9px,5px) rotate(-1deg)}20%{transform:translate(8px,-6px) rotate(1deg)}30%{transform:translate(-7px,-4px)}40%{transform:translate(6px,6px) rotate(.6deg)}50%{transform:translate(-5px,3px)}60%{transform:translate(4px,-3px)}70%{transform:translate(-3px,2px)}80%{transform:translate(2px,-1px)}}
 @media (prefers-reduced-motion:reduce){.doom,.doom *,#app.quake{animation-duration:.01s!important;animation-delay:0s!important}}
 
+/* online play */
+.you{font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--brass);margin-left:4px;vertical-align:middle}
+.who .you{font-family:var(--font-body);font-size:.8rem}
+.pl-away{font-size:.75rem;font-weight:700;color:var(--ink-soft)}
+.warn{color:var(--danger)}
+.waiting{display:flex;align-items:center;gap:10px;margin:0;padding:12px 14px;border:1.5px dashed var(--line);border-radius:12px;color:var(--ink-soft);font-weight:600}
+.pulse{width:10px;height:10px;border-radius:50%;background:var(--brass);flex:none;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25;transform:scale(.7)}}
+@media (prefers-reduced-motion:reduce){.pulse{animation:none}}
+.online-cta{display:flex;align-items:center;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;padding:12px 14px;border:1.5px solid var(--brass);border-radius:14px}
+.online-cta>div{display:flex;flex-direction:column;gap:2px;flex:1 1 14rem;min-width:0}
+.online-cta .sub{font-size:.88rem}
+.fld{display:flex;flex-direction:column;gap:6px}
+.text-in{height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem;width:100%}
+.text-in:focus-visible{border-color:var(--brass);outline:2px solid var(--brass);outline-offset:0}
+.code-in{font:800 1.6rem/1 var(--font-display);letter-spacing:.18em;text-transform:uppercase;text-align:center}
+.or{display:flex;align-items:center;gap:10px;color:var(--ink-soft);font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.roomcode{margin:0;font:800 clamp(3rem,16vw,4.2rem)/1 var(--font-display);letter-spacing:.14em;color:var(--brass);font-variant-numeric:tabular-nums;user-select:all}
+.link-box{margin:0;padding:10px 12px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:.85rem;overflow-wrap:anywhere;user-select:all}
+.seats{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.seat{display:flex;align-items:center;gap:10px;min-height:46px;border-bottom:1px solid var(--line)}
+.seat .nm{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.seat .dot{width:10px;height:10px;border-radius:50%;background:var(--line);flex:none}
+.seat .dot.on{background:#2E9E5B}
+.picks{display:flex;flex-wrap:wrap;gap:6px}
+.pickbtn{min-height:40px;padding:6px 14px;border-radius:999px;border:1.5px solid var(--line);background:transparent;font-weight:600;font-size:.92rem;max-width:100%;overflow-wrap:anywhere}
+.pickbtn.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}
+.pickbtn:disabled{cursor:default}
+.pickbtn:disabled:not(.on){color:var(--ink-soft)}
+.segbtn:disabled{cursor:default;opacity:1}
+.segbtn:disabled:not(.on){color:var(--ink-soft)}
+.die[role="img"]{cursor:default}
+
 /* ===== Vegas look: candy-red cabinet, chrome trim, chasing marquee bulbs, reel-window tray, red casino dice, LED meters.
    One deliberate dark visual world, so it ignores the light/dark setting. ===== */
 html:root[data-look="vegas"]{
@@ -338,6 +374,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 <body>
 <main id="app" class="wrap"></main>
 
+<script src="engine.js"></script>
 <script>
 (() => {
   const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = 6, KEY = 'sevens-out-v1';
@@ -776,115 +813,221 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (!reduceMotion) fx.burst(document.querySelector('.tray'));
   }
 
-  // ---------- rules ----------
-  function newTurn(maxRolls){
-    return { dice:Array.from({length:DICE}, (_, id) => ({ id, value:null, held:null })), rolls:0, maxRolls, pairs:[] };
+  // ---------- rules: engine.js ----------
+  const E = window.SevensEngine;
+  const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
+  const current = g => g.order[g.pos];
+  Object.assign(ui, { reveal:null, rollStart:0, screen:null, confirmLeave:false, joinCode:'', online:{} });
+
+  // ---------- online play: one WebSocket per phone to the room server ----------
+  const ONLINE_KEY = 'sevens-out-online';
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
+  const net = { ws:null, want:false, code:null, token:null, seat:null, name:'', server:'', room:null, status:'off', tries:0, timer:null, creating:false, rev:0, inGame:false };
+  const online = () => !!net.code;
+
+  // where the room server lives: ?server=… beats <meta name="sevens-out-server">; "same-origin" = this host
+  function serverBase(){
+    let s = '';
+    try { s = new URLSearchParams(location.search).get('server') || ''; } catch (e) {}
+    if (!s){ const m = document.querySelector('meta[name="sevens-out-server"]'); s = m ? (m.getAttribute('content') || '').trim() : ''; }
+    if (!s) return '';
+    if (s === 'same-origin'){
+      if (!/^https?:$/.test(location.protocol)) return '';
+      return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+    }
+    return s.replace(/^http(s?):/, 'ws$1:').replace(/\/+$/, '');
   }
-  function newGame(names, starter, mode){
-    return {
-      mode, history:[],
-      players:names.map(name => ({ name, score:0 })),
-      round:1, starter, order:orderFrom(starter, names.length), pos:0,
-      mark:null, ending:false, crosser:null, next:null, loser:null, last:null,
-      rounds:[{ no:1, starter, results:{} }],
-      turn:newTurn(MAX_ROLLS)
+  const onlineAvailable = () => !!serverBase() && 'WebSocket' in window;
+  function newCode(){
+    const b = new Uint8Array(5);
+    crypto.getRandomValues(b);
+    return Array.from(b, x => CODE_CHARS[x % CODE_CHARS.length]).join('');
+  }
+  function shareLink(){
+    const u = new URL(location.href);
+    u.search = ''; u.hash = '';
+    u.searchParams.set('join', net.code);
+    try { const q = new URLSearchParams(location.search).get('server'); if (q) u.searchParams.set('server', q); } catch (e) {}
+    return u.toString();
+  }
+  function saveOnline(){
+    try { localStorage.setItem(ONLINE_KEY, JSON.stringify({ code:net.code, token:net.token, name:net.name, server:net.server })); } catch (e) {}
+  }
+  function netStart(opts){
+    Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, token:null, seat:null,
+      room:null, want:true, server: serverBase(), rev:0, inGame:false, tries:0 });
+    resetUi(); ui.screen = null; ui.open = {};
+    netConnect();
+  }
+  function netConnect(){
+    clearTimeout(net.timer);
+    if (net.ws){ try { net.ws.onclose = null; net.ws.close(); } catch (e) {} net.ws = null; }
+    net.status = 'connecting'; render();
+    let ws;
+    try { ws = new WebSocket(`${net.server}/room/${net.code}`); }
+    catch (e){ net.status = 'closed'; scheduleReconnect(); return; }
+    net.ws = ws;
+    ws.onopen = () => {
+      net.status = 'open'; net.tries = 0;
+      ws.send(JSON.stringify({ t:'hello', name:net.name, token:net.token, create:net.creating && !net.token }));
+      render();
+    };
+    ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (err) { return; } onNet(m); };
+    ws.onclose = () => {
+      if (net.ws !== ws) return;
+      net.ws = null; net.status = 'closed';
+      if (net.want) scheduleReconnect();
+      render();
     };
   }
-  const active = t => t.dice.filter(d => d.held === null);
-  const sumActive = t => active(t).reduce((s, d) => s + (d.value || 0), 0);
-  function maxPairs(t){
-    const c = [0,0,0,0,0,0,0];
-    active(t).forEach(d => { if (d.value) c[d.value]++; });
-    return Math.min(c[1], c[6]) + Math.min(c[2], c[5]) + Math.min(c[3], c[4]);
+  function scheduleReconnect(){
+    clearTimeout(net.timer);
+    net.timer = setTimeout(() => { if (net.want) netConnect(); }, Math.min(10000, 600 * 2 ** net.tries++));
   }
-  // what is added to the score if the player stops now (all remaining 7-pairs come out first)
-  const finalPenalty = t => sumActive(t) - 7 * maxPairs(t);
-  function pairable(t){
-    const act = active(t).filter(d => d.value);
-    const s = new Set();
-    act.forEach(d => { if (act.some(e => e.value + d.value === 7)) s.add(d.id); });
-    return s;
+  // phones drop the socket when the screen locks; reconnect as soon as the page is back
+  const wake = () => { if (net.want && net.status === 'closed'){ net.tries = 0; netConnect(); } };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wake(); });
+  addEventListener('online', wake);
+  addEventListener('pageshow', wake);
+  function netSend(m){
+    if (net.ws && net.ws.readyState === 1){ net.ws.send(JSON.stringify(m)); return true; }
+    ui.hint = 'Not connected right now. Reconnecting…'; ui.rolling = false; stopTumble();
+    wake(); render();
+    return false;
   }
-  const canRoll = t => t.rolls < t.maxRolls && active(t).length > 0;
-  function hold(t, a, b){ t.dice[a].held = t.rolls; t.dice[b].held = t.rolls; t.pairs.push({ a, b, roll:t.rolls }); }
-  function matchPairs(t){
-    const act = active(t).filter(d => d.value), used = new Set(), out = [];
-    for (const d of act){
-      if (used.has(d.id)) continue;
-      const m = act.find(e => !used.has(e.id) && e.id !== d.id && e.value + d.value === 7);
-      if (m){ used.add(d.id); used.add(m.id); out.push([d.id, m.id]); }
+  function netLeave(){
+    if (net.ws && net.ws.readyState === 1){ try { net.ws.send(JSON.stringify({ t:'lobby', op:'leave' })); } catch (e) {} }
+    net.want = false; clearTimeout(net.timer);
+    if (net.ws){ const w = net.ws; net.ws = null; try { w.onclose = null; setTimeout(() => w.close(), 50); } catch (e) {} }
+    Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false });
+    try { localStorage.removeItem(ONLINE_KEY); } catch (e) {}
+    state = load() || blank(); resetUi(); ui.open = {};
+  }
+  function onNet(m){
+    switch (m.t){
+      case 'welcome':
+        net.seat = m.seat || null; if (m.token) net.token = m.token; net.creating = false; saveOnline();
+        break;
+      case 'room': receiveRoom(m); return;
+      case 'error': onNetError(m); break;
+      default: return;
     }
-    return out;
+    render();
   }
-  function takeAll(t){ const ps = matchPairs(t); ps.forEach(([a, b]) => hold(t, a, b)); return ps.length; }
-  function endTurn(){
-    const g = state.game, t = g.turn, p = g.order[g.pos];
-    takeAll(t);
-    const pts = sumActive(t);
-    if (pts === 0 && !t.cleared){ t.cleared = true; ui.celebrate = pname(p); }
-    recordTurn(pts, t.rolls);
+  const NET_ERRORS = {
+    not_your_turn: "It isn't your turn.", host_only: 'Only the host can do that.', not_seated: "You're watching this game, so you can't play.",
+    players: 'You need at least 2 players.', phase: 'That move isn\'t possible right now.', no_rolls: 'No rolls left.',
+    rate: 'Slow down a little.', bad_message: 'The server didn\'t understand that.'
+  };
+  function onNetError(m){
+    ui.rolling = false; stopTumble();
+    if (m.code === 'room_taken' && net.creating){ net.code = newCode(); netConnect(); return; }
+    if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked'){
+      const code = net.code;
+      netLeave();
+      ui.screen = 'online'; ui.joinCode = m.code === 'kicked' ? '' : code;
+      ui.hint = m.code === 'no_room' ? `There's no room with the code ${code}. Check the code and try again.`
+        : m.code === 'room_full' ? `Room ${code} is full. A room holds up to 6 players.`
+        : 'The host removed you from the room.';
+      return;
+    }
+    ui.hint = NET_ERRORS[m.code] || m.message || 'Something went wrong. Try again.';
   }
-  // shared by both modes: book a finished turn and move on
-  function recordTurn(pts, rolls){
-    const g = state.game, p = g.order[g.pos];
-    g.players[p].score += pts;
-    const rd = g.rounds[g.rounds.length - 1];
-    rd.results[p] = { pts, rolls };
-    if (g.pos === 0){ g.mark = rolls; rd.mark = rolls; }
-    g.last = { player:p, pts, rolls, total:g.players[p].score };
-    if (!g.ending && g.players[p].score >= LIMIT){ g.ending = true; g.crosser = p; }
-    g.pos++;
-    resetUi();
-    if (g.pos < g.order.length){ g.turn = newTurn(g.mark); return; }
-    if (g.ending){
-      // highest score loses; on a tie the player later in this round's order loses
-      let L = null;
-      for (const i of g.order){ if (L === null || g.players[i].score >= g.players[L].score) L = i; }
-      g.loser = L; state.phase = 'over'; ui.open.sheet = true;
+  function receiveRoom(m){
+    if (m.room.phase === 'game' && m.state){
+      const evs = net.inGame && m.rev === net.rev + 1 ? (m.events || []) : [];
+      net.rev = m.rev;
+      if (!net.inGame){ net.inGame = true; resetUi(); ui.open = {}; }
+      if (!animated(evs) && !pending){ net.room = m.room; show(m.state, evs); }
+      else enqueue(() => { net.room = m.room; return present(m.state, evs); });
     } else {
-      g.next = nextStarter(g); state.phase = 'roundEnd';
+      // back in the lobby: wait for any animation that is still playing
+      const toLobby = () => { net.room = m.room; net.rev = m.rev; net.inGame = false; ui.rolling = false; stopTumble(); render(); };
+      if (pending) enqueue(toLobby); else toLobby();
     }
   }
-  // replay the score sheet in playing order: when did each player arrive at their current score?
-  // a turn that adds 0 doesn't change the score, so it doesn't count as reaching it again
-  function reachedAt(g){
-    const n = g.players.length, at = Array(n).fill(-1);
-    let seq = 0;
-    for (const rd of g.rounds){
-      for (const p of orderFrom(rd.starter, n)){
-        const r = rd.results[p]; if (!r) continue;
-        seq++;
-        if (r.pts > 0) at[p] = seq;
+  const seatInfo = id => net.room && net.room.seats.find(s => s.id === id);
+  const seatOnline = id => !!(seatInfo(id) && seatInfo(id).connected);
+  const amHost = () => online() && !!net.room && net.room.host === net.seat;
+  const seated = () => !online() || !!(net.seat && state.game && state.game.seats && state.game.seats.includes(net.seat));
+  const isMe = i => online() && state.game && state.game.seats && state.game.seats[i] === net.seat;
+  // may this phone make the current player's moves? (the host may cover for a player who is offline)
+  function canAct(){
+    if (!online()) return true;
+    const g = state.game;
+    if (!g || !g.seats || !net.seat) return false;
+    const cur = g.seats[current(g)];
+    return cur === net.seat || (amHost() && !seatOnline(cur));
+  }
+  const coveringFor = () => online() && canAct() && state.game.seats[current(state.game)] !== net.seat;
+
+  // ---------- applying changes: locally through the engine, or via the server ----------
+  let queue = Promise.resolve(), pending = 0;
+  const enqueue = fn => { pending++; return (queue = queue.then(fn).catch(err => console.error(err)).finally(() => { pending--; })); };
+  const animated = events => !reduceMotion && events.some(e => e.type === 'rolled' || e.type === 'paired');
+  // changes without an animation show at once; rolls and pairs play in order, one after another
+  function show(next, events){
+    if (!animated(events) && !pending){ stopTumble(); ui.rolling = false; state = next; afterEvents(events); render(); return; }
+    enqueue(() => present(next, events));
+  }
+  function dispatch(action){
+    if (online()){ netSend({ t:'act', action }); return; }
+    const r = E.apply(state, action);
+    if (r.error){ ui.rolling = false; stopTumble(); render(); return; }
+    show(r.state, r.events);
+  }
+  // show a new state; when dice were rolled or paired, animate it first (same for everyone watching)
+  async function present(next, events){
+    const rolled = events.find(e => e.type === 'rolled');
+    const paired = events.find(e => e.type === 'paired');
+    if (rolled && !reduceMotion){
+      if (!ui.rolling){ ui.rolling = true; ui.rollStart = Date.now(); render(); startTumble(); }
+      await wait(Math.max(0, 520 - (Date.now() - ui.rollStart)));
+    }
+    stopTumble(); ui.rolling = false;
+    state = next;
+    const flying = reduceMotion ? [] : rolled ? rolled.auto : paired ? paired.pairs : [];
+    if (flying.length && state.phase === 'play' && state.game && !E.isScore(state.game)){
+      ui.reveal = { pairs:flying, idx:0 }; ui.busy = true; ui.selected = null; ui.hint = null;
+      render();
+      if (rolled) await wait(700); // let the dice lie on the table for a moment
+      while (ui.reveal && ui.reveal.idx < ui.reveal.pairs.length) await flyNext();
+      ui.reveal = null; ui.busy = false;
+    }
+    afterEvents(events);
+    render();
+  }
+  function afterEvents(events){
+    const g = state.game, nm = i => (g && g.players[i] ? g.players[i].name : '');
+    for (const e of events){
+      switch (e.type){
+        case 'started': resetUi(); break;
+        case 'turn': resetInputs(); break;
+        case 'rolled': {
+          const t = g.turn, n = e.auto.length, left = active(t).length;
+          if (!left) ui.hint = 'All six dice are out. Nothing counts against you.';
+          else ui.hint = (n ? `${plural(n, 'pair')} of 7 set aside.` : 'No 7s in this roll.') + (t.rolls >= t.maxRolls ? ' No rolls left.' : '');
+          break;
+        }
+        case 'paired': {
+          const d = g.turn.dice;
+          ui.hint = e.pairs.length === 1 ? `${d[e.pairs[0][0]].value} + ${d[e.pairs[0][1]].value} set aside.` : `${plural(e.pairs.length, 'pair')} of 7 set aside.`;
+          break;
+        }
+        case 'unpaired': ui.selected = null; ui.hint = `${e.values[0]} and ${e.values[1]} are back on the table and will be rolled again.`; break;
+        case 'sevensOut': ui.celebrate = nm(e.player); break;
+        case 'dropped': ui.hint = `${nm(e.player)} dropped a die. ${e.drops} of 3 on the floor.`; break;
+        case 'shots': ui.doom = nm(e.player); ui.hint = `${nm(e.player)} pays a round of shots.`; break;
+        case 'undone': resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
+        case 'edited': ui.hint = `${nm(e.player)}'s scores were corrected.`; break;
+        case 'gameOver': case 'ended': ui.open.sheet = true; ui.confirmEnd = false; break;
       }
     }
-    return at;
   }
-  // highest score starts; on a tie, whoever reached that score first; if they got there at the
-  // same moment (nobody has scored yet), the next of them after the last starter
-  function tiedForStart(g){
-    const max = Math.max(...g.players.map(p => p.score));
-    const tied = g.players.map((_, i) => i).filter(i => g.players[i].score === max);
-    const at = reachedAt(g), first = Math.min(...tied.map(i => at[i]));
-    return { max, tied, early: tied.filter(i => at[i] === first) };
-  }
-  function nextStarter(g){
-    const n = g.players.length, { early } = tiedForStart(g);
-    if (early.length === 1) return early[0];
-    for (let k = 1; k <= n; k++){ const i = (g.starter + k) % n; if (early.includes(i)) return i; }
-    return early[0];
-  }
-  function startRound(){
-    const g = state.game;
-    g.round++; g.starter = g.next; g.next = null;
-    g.order = orderFrom(g.starter, g.players.length); g.pos = 0; g.mark = null; g.last = null;
-    g.rounds.push({ no:g.round, starter:g.starter, results:{} });
-    g.turn = newTurn(MAX_ROLLS);
-    state.phase = 'play';
-    resetUi();
-  }
-  function resetUi(){ ui.selected = null; ui.hint = null; ui.armed = null; ui.nope = null; ui.entry = ''; ui.rolls = null; ui.edit = null; ui.editVals = {}; }
+  function resetInputs(){ ui.selected = null; ui.hint = null; ui.armed = null; ui.nope = null; ui.entry = ''; ui.rolls = null; }
+  function resetUi(){ resetInputs(); ui.edit = null; ui.editVals = {}; ui.reveal = null; }
 
-  // ----- correcting past scores (scoreboard mode) -----
+  // ---------- correcting past scores (scoreboard mode) ----------
   function editState(){
     const g = state.game, p = ui.edit;
     let total = 0, ok = true, changed = false;
@@ -892,7 +1035,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       const r = rd.results[p]; if (!r) continue;
       const raw = ui.editVals[rd.no];
       const v = raw == null ? r.pts : (/^\d{1,2}$/.test(String(raw).trim()) ? +raw : NaN);
-      if (!(v >= 0 && v <= 36)){ ok = false; continue; }
+      if (!(v >= 0 && v <= MAX_PIPS)){ ok = false; continue; }
       if (v !== r.pts) changed = true;
       total += v;
     }
@@ -905,99 +1048,71 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const err = document.getElementById('edit-err'); if (err) err.textContent = s.ok ? '' : 'Each round needs a whole number from 0 to 36.';
     $app.querySelectorAll('.edit-in').forEach(inp => {
       const raw = inp.value.trim();
-      inp.setAttribute('aria-invalid', String(!(/^\d{1,2}$/.test(raw) && +raw <= 36)));
+      inp.setAttribute('aria-invalid', String(!(/^\d{1,2}$/.test(raw) && +raw <= MAX_PIPS)));
     });
   }
-  // rebuild totals from the score sheet and re-apply the round rules to wherever the game stands now
-  function recalc(g){
-    const n = g.players.length;
-    g.players.forEach(pl => { pl.score = 0; });
-    let crosser = null;
-    for (const rd of g.rounds) for (const p of orderFrom(rd.starter, n)){
-      const r = rd.results[p]; if (!r) continue;
-      g.players[p].score += r.pts;
-      if (crosser === null && g.players[p].score >= LIMIT) crosser = p;
-    }
-    g.last = null;
-    const highestLater = () => { let L = null; for (const i of g.order) if (L === null || g.players[i].score >= g.players[L].score) L = i; return L; };
-    if (state.phase === 'play'){ g.ending = crosser !== null; g.crosser = crosser; return; }
-    if (state.phase === 'over' && g.early){ g.loser = highestLater(); return; }
-    if (crosser !== null){
-      g.ending = true; g.crosser = crosser; g.loser = highestLater(); g.next = null;
-      state.phase = 'over'; ui.open.sheet = true;
-    } else {
-      g.ending = false; g.crosser = null; g.loser = null; g.next = nextStarter(g);
-      state.phase = 'roundEnd';
-    }
-  }
-  function applyEdits(){
+  function saveEdits(){
     const g = state.game, p = ui.edit, s = editState();
     if (!s.ok) return;
     if (s.changed){
-      snapshot(`The score corrections for ${pname(p)} were undone.`);
-      g.rounds.forEach(rd => { const r = rd.results[p], raw = ui.editVals[rd.no]; if (r && raw != null) r.pts = +raw; });
-      recalc(g);
-      ui.hint = `${pname(p)}'s scores were corrected.`;
+      const values = {};
+      g.rounds.forEach(rd => { const raw = ui.editVals[rd.no]; if (rd.results[p] && raw != null && +raw !== rd.results[p].pts) values[rd.no] = +raw; });
+      dispatch({ type:'edit', player:p, values });
     }
     ui.edit = null; ui.editVals = {};
   }
 
-  // scoreboard mode: entries are typed in, every entry can be undone
-  function snapshot(msg){
-    const g = state.game, copy = JSON.parse(JSON.stringify(g));
-    delete copy.history;
-    g.history = (g.history || []).concat([JSON.stringify({ phase:state.phase, game:copy, msg })]).slice(-40);
-  }
-  function undo(){
-    const g = state.game;
-    if (!g || !g.history || !g.history.length) return;
-    const rest = g.history.slice(), snap = JSON.parse(rest.pop());
-    state.phase = snap.phase; state.game = snap.game; state.game.history = rest;
-    resetUi();
-    ui.hint = snap.msg || `${pname(state.game.order[state.game.pos])}'s entry was removed. Enter it again.`;
-  }
-  function scoreCommit(){
-    const g = state.game, p = g.order[g.pos], isStarter = g.pos === 0;
-    if (ui.entry === '' || (isStarter && !ui.rolls)) return;
-    const pts = +ui.entry;
-    snapshot(`${pname(p)}'s entry was removed. Enter it again.`);
-    if (pts === 0) ui.celebrate = pname(p);
-    recordTurn(pts, isStarter ? ui.rolls : null);
-  }
-
   // ---------- views ----------
+  const nameOf = i => esc(pname(i)) + (isMe(i) ? ' <small class="you">you</small>' : '');
   function header(g){
     const lim = g.mark != null
       ? `<span class="chip">Roll limit <b>${g.mark}</b> · set by ${esc(pname(g.starter))}</span>`
       : `<span class="chip">${esc(pname(g.starter))} sets the roll limit (max <b>${MAX_ROLLS}</b>)</span>`;
     return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Round ${g.round}${isScore(g) ? ' · Real dice' : ''}</div></header>
-      ${state.phase === 'play' ? `<div class="chips">${lim}</div>` : ''}
+      <div class="chips">${netChip()}${state.phase === 'play' ? lim : ''}</div>
       ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> This round is played to the end, then the highest score loses.</p>` : ''}`;
   }
+  function netChip(){
+    if (!online()) return '';
+    const st = net.status === 'open' ? '' : ` · <b class="warn">${net.status === 'connecting' ? 'Connecting…' : 'Reconnecting…'}</b>`;
+    return `<span class="chip">Room <b>${esc(net.code)}</b>${st}</span>`;
+  }
 
-  function board(g, current, tagIdx, tagText){
+  function board(g, cur, tagIdx, tagText){
     const rd = g.rounds[g.rounds.length - 1];
     const cols = g.players.length === 4 || g.players.length === 2 ? 2 : 3;
+    const canEdit = isScore(g) && seated();
     return `<section class="board cols-${cols}" aria-label="Scores">${g.players.map((pl, i) => {
       const r = rd.results[i], pct = Math.min(pl.score / LIMIT, 1) * 100;
       const shotsN = (g.shots || []).filter(s => s.player === i).length;
-      const editable = isScore(g);
-      const editAttrs = editable ? ` role="button" tabindex="0" data-act="edit" data-id="${i}" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
-      const foot = r ? `+${r.pts} this round${r.rolls != null ? ` · ${plural(r.rolls, 'roll')}` : ''}` : (i === current ? 'Playing now' : 'Still to play');
-      return `<div class="pl${i === current ? ' now' : ''}${pl.score >= LIMIT ? ' over' : ''}${state.phase === 'over' && i === g.loser ? ' lost' : ''}${editable ? ' editable' : ''}"${editAttrs}>
-        <div class="pl-top"><span class="nm">${esc(pl.name)}</span>${i === tagIdx ? `<span class="tag">${tagText}</span>` : ''}</div>
+      const away = online() && g.seats && !seatOnline(g.seats[i]);
+      const editAttrs = canEdit ? ` role="button" tabindex="0" data-act="edit" data-id="${i}" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
+      const foot = r ? `+${r.pts} this round${r.rolls != null ? ` · ${plural(r.rolls, 'roll')}` : ''}` : (i === cur ? 'Playing now' : 'Still to play');
+      return `<div class="pl${i === cur ? ' now' : ''}${pl.score >= LIMIT ? ' over' : ''}${state.phase === 'over' && i === g.loser ? ' lost' : ''}${canEdit ? ' editable' : ''}"${editAttrs}>
+        <div class="pl-top"><span class="nm">${nameOf(i)}</span>${i === tagIdx ? `<span class="tag">${tagText}</span>` : ''}</div>
         <div class="sc"><span class="num">${pl.score}</span><span class="of">/ ${LIMIT}</span></div>
         <div class="bar" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
-        <div class="pl-foot"><span>${foot}</span>${editable ? '<span class="pl-edit" aria-hidden="true">Edit</span>' : ''}</div>
+        <div class="pl-foot"><span>${foot}</span>${canEdit ? '<span class="pl-edit" aria-hidden="true">Edit</span>' : ''}</div>
+        ${away ? '<div class="pl-away">Offline</div>' : ''}
         ${shotsN ? `<div class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</div>` : ''}
       </div>`;
     }).join('')}</section>`;
   }
 
-  function dieView(d, can){
+  // the turn as it should look right now: pairs that haven't flown out yet are still on the table
+  function displayTurn(t){
+    if (!ui.reveal) return t;
+    const ids = new Set(ui.reveal.pairs.slice(ui.reveal.idx).flat());
+    const d = E.clone(t);
+    d.dice.forEach(x => { if (ids.has(x.id)) x.held = null; });
+    d.pairs = d.pairs.filter(p => !(ids.has(p.a) && ids.has(p.b)));
+    return d;
+  }
+  function dieView(d, can, interactive){
     if (d.held !== null) return `<span class="die gone" aria-hidden="true"></span>`;
     if (ui.rolling) return `<span class="die tumble" data-tumble aria-hidden="true">${face(rnd6())}</span>`;
     if (d.value === null) return `<span class="die blank" aria-hidden="true"></span>`;
+    if (!interactive) return `<span class="die" data-id="${d.id}" role="img" aria-label="Die showing ${d.value}">${face(d.value)}</span>`;
     const sel = ui.selected === d.id;
     return `<button class="die${sel ? ' sel' : ''}${can.has(d.id) ? ' can' : ''}${ui.nope === d.id ? ' nope' : ''}" data-act="die" data-id="${d.id}" aria-pressed="${sel}" aria-label="Die showing ${d.value}">${face(d.value)}</button>`;
   }
@@ -1006,7 +1121,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const L = g.last; if (!L) return '';
     return `<p class="last"><b>${esc(pname(L.player))}</b> ${L.pts === 0 ? 'cleared all six dice' : `left <b>${L.pts}</b> on the table`}${L.rolls != null ? ` after ${plural(L.rolls, 'roll')}` : ''} and is now at <b>${L.total}</b>.</p>`;
   }
-  const undoLink = g => isScore(g) && g.history && g.history.length ? '<button class="link" data-act="undo">Undo last entry</button>' : '';
+  const undoLink = g => isScore(g) && seated() && g.history && g.history.length ? '<button class="link" data-act="undo">Undo last entry</button>' : '';
 
   function viewEdit(){
     const g = state.game, p = ui.edit, s = editState();
@@ -1042,7 +1157,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return `<div class="floor">
         <div class="floor-txt"><span class="h3">Dice on the floor</span><small>The third one pays a round of shots</small></div>
         <div class="fslots" role="img" aria-label="${drops} of 3 dice on the floor">${[0, 1, 2].map(i => `<span class="fslot${i < drops ? ' on' : ''}${i === 2 ? ' last' : ''}">${i < drops ? mini(faces[i]) : ''}</span>`).join('')}</div>
-        <button class="btn small" data-act="drop">Die dropped</button>
+        ${seated() ? '<button class="btn small" data-act="drop">Die dropped</button>' : ''}
       </div>`;
   }
   function shotsSummary(g){
@@ -1051,9 +1166,10 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     g.shots.forEach(s => { counts[s.player] = (counts[s.player] || 0) + 1; });
     return `<p class="sub">Rounds of shots paid: ${Object.keys(counts).map(i => `${esc(pname(+i))} ${counts[i]}`).join(', ')}.</p>`;
   }
+  const waiting = (who, what) => `<p class="waiting"><span class="pulse" aria-hidden="true"></span>Waiting for ${esc(who)} to ${what}.</p>`;
 
   function viewScore(){
-    const g = state.game, p = g.order[g.pos], n = g.players.length, isStarter = g.pos === 0;
+    const g = state.game, p = current(g), n = g.players.length, isStarter = g.pos === 0, act = canAct();
     const sub = isStarter
       ? `Roll your dice up to ${MAX_ROLLS} times, then enter the pips left on the table and how many rolls you used. Your rolls become the limit for everyone else.`
       : `Up to ${plural(g.mark, 'roll')}, the limit ${esc(pname(g.starter))} set. Enter the pips left on the table.`;
@@ -1067,12 +1183,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (val === null) label = 'Enter the pips left';
     else if (isStarter && !ui.rolls) label = 'Choose the rolls used';
     else { label = `Save · ${pname(p)} +${val}`; ready = true; }
-    const hint = ui.hint != null ? ui.hint : (val === 0 ? 'Zero means all three pairs came out.' : '');
-    return header(g) + board(g, p, g.starter, 'Starts') + lastLine(g) + `
-      <section class="turn" aria-label="${esc(pname(p))}'s turn">
-        <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${esc(pname(p))}</h2></div>
-        <p class="sub">${sub}</p>
-        ${floorRow(g)}
+    let hint = ui.hint != null ? ui.hint : (val === 0 ? 'Zero means all three pairs came out.' : '');
+    if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the score for them.`;
+    const entry = act ? `
         <div class="tray">
           <div class="tray-top"><span class="tlabel">Pips left on the table</span><span class="tlabel">0–36</span></div>
           <div class="entry" aria-live="polite">${val === null ? '<span class="ph">–</span>' : val}</div>
@@ -1080,27 +1193,36 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <div class="pad">${keys}</div>
         ${rollPick}
         <p class="hint" aria-live="polite">${esc(hint)}</p>
-        <div class="actions"><button class="btn primary" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>${undoLink(g)}</div>
+        <div class="actions"><button class="btn primary" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>${undoLink(g)}</div>`
+      : `<p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${waiting(pname(p), 'enter their score')}<div class="actions">${undoLink(g)}</div>`;
+    return header(g) + board(g, p, g.starter, 'Starts') + lastLine(g) + `
+      <section class="turn" aria-label="${esc(pname(p))}'s turn">
+        <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${nameOf(p)}</h2></div>
+        <p class="sub">${sub}</p>
+        ${floorRow(g)}
+        ${entry}
       </section>` + sheet(g) + rules() + devBlock() + footer();
   }
 
   function viewPlay(){
-    const g = state.game, t = g.turn, p = g.order[g.pos], n = g.players.length;
+    const g = state.game, t = displayTurn(g.turn), p = current(g), n = g.players.length, act = canAct();
     const isStarter = g.pos === 0, rolled = t.rolls > 0, done = rolled && !canRoll(t);
-    const can = rolled && !ui.rolling ? pairable(t) : new Set();
+    const can = rolled && !ui.rolling && act ? pairable(t) : new Set();
     const pen = finalPenalty(t), left = t.maxRolls - t.rolls, nAct = active(t).length;
-    const undoable = rolled && !ui.rolling && !ui.busy && t.rolls < t.maxRolls;
+    const undoable = act && rolled && !ui.rolling && !ui.busy && t.rolls < t.maxRolls;
+    const you = online() && !coveringFor();
 
-    const last = lastLine(g);
     const sub = isStarter
-      ? `You start this round with up to ${MAX_ROLLS} rolls. The number of rolls you use becomes the limit for everyone else.`
-      : `Up to ${plural(t.maxRolls, 'roll')}, the limit ${esc(pname(g.starter))} set. You can stop earlier.`;
+      ? `${you ? 'You start' : `${esc(pname(p))} starts`} this round with up to ${MAX_ROLLS} rolls. The number of rolls used becomes the limit for everyone else.`
+      : `Up to ${plural(t.maxRolls, 'roll')}, the limit ${esc(pname(g.starter))} set. ${you || !online() ? 'You can' : 'They can'} stop earlier.`;
     const slots = Array.from({length:MAX_ROLLS}, (_, k) => `<span class="slot${k < t.rolls ? ' used' : ''}${k >= t.maxRolls ? ' off' : ''}"></span>`).join('');
     const rollsLabel = rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : `${plural(t.maxRolls, 'roll')} available`;
 
-    let hint = ui.busy ? (can.size ? 'Setting aside the 7s…' : '') : ui.hint;
+    let hint = ui.busy ? 'Setting aside the 7s…' : ui.hint;
     if (hint == null){
-      if (!rolled) hint = ui.rolling ? '' : shakeActive() ? `${pname(p)}, tap Roll or shake the phone.` : `${pname(p)}, roll when you're ready.`;
+      if (!act) hint = '';
+      else if (!rolled) hint = ui.rolling ? '' : coveringFor() ? `${pname(p)} is offline. As the host you can play for them.`
+        : shakeActive() ? `${online() ? 'Your turn. ' : `${pname(p)}, `}tap Roll or shake the phone.` : online() ? 'Your turn. Roll when you\'re ready.' : `${pname(p)}, roll when you're ready.`;
       else if (nAct === 0) hint = 'All six dice are out. Nothing counts against you.';
       else if (can.size) hint = 'Tap two dice that add up to 7 to set them aside.';
       else if (done) hint = 'No rolls left. End your turn.';
@@ -1118,6 +1240,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     let actions;
     if (ui.rolling) actions = `<button class="btn primary" disabled>Rolling…</button>`;
     else if (ui.busy) actions = `<button class="btn primary" disabled>Setting aside 7s…</button>`;
+    else if (!act) actions = waiting(pname(p), rolled ? 'finish their turn' : 'roll');
     else if (!rolled) actions = `<button class="btn primary" data-act="roll">Roll ${diceWord(nAct)}</button>`;
     else if (done) actions = `<button class="btn primary" data-act="end">End turn · +${pen}</button>`;
     else {
@@ -1129,16 +1252,16 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       actions = `<button class="btn primary" data-act="roll">Roll ${diceWord(nAct)} · ${plural(left, 'roll')} left</button><div class="row">${sec.join('')}</div>`;
     }
 
-    return header(g) + board(g, p, g.starter, 'Starts') + last + `
+    return header(g) + board(g, p, g.starter, 'Starts') + lastLine(g) + `
       <section class="turn" aria-label="${esc(pname(p))}'s turn">
         <div class="turnhead">
-          <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${esc(pname(p))}</h2></div>
+          <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${nameOf(p)}</h2></div>
           <div class="rolls"><div class="slots" aria-hidden="true">${slots}</div><small>${rollsLabel}</small></div>
         </div>
         <p class="sub">${sub}</p>
         <div class="tray">
-          <div class="tray-top"><span class="tlabel">Counts if you stop</span><span class="tval">${rolled ? pen : '–'}</span></div>
-          <div class="dice">${t.dice.map(d => dieView(d, can)).join('')}</div>
+          <div class="tray-top"><span class="tlabel">${act && !coveringFor() ? 'Counts if you stop' : 'Counts if they stop'}</span><span class="tval">${rolled ? pen : '–'}</span></div>
+          <div class="dice">${t.dice.map(d => dieView(d, can, act)).join('')}</div>
         </div>
         <p class="hint" aria-live="polite">${esc(hint)}</p>
         <div class="rackhead"><span class="h3">Set aside</span>${liveNote}</div>
@@ -1160,7 +1283,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="eyebrow">Round ${g.round} done</p>
         <h2 class="who">${esc(pname(g.next))} starts round ${g.round + 1}</h2>
         <p class="sub">${esc(why)}</p>
-        <button class="btn primary" data-act="nextround">Start round ${g.round + 1}</button>
+        ${seated() ? `<button class="btn primary" data-act="nextround">Start round ${g.round + 1}</button>` : waiting('a player', 'start the next round')}
         ${undoLink(g)}
       </section>` + board(g, -1, g.next, 'Starts next') + sheet(g) + rules() + devBlock() + footer();
   }
@@ -1174,6 +1297,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     else if (g.crosser !== L) why =`${pname(g.crosser)} reached ${LIMIT} first, but ${pname(L)} finished the round higher with ${ls}.`;
     else why = `${pname(L)} reached ${LIMIT} and finished with the highest score, ${ls}.`;
     const winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(1 - L))}</b> wins with ${g.players[1 - L].score}.</p>` : '';
+    const again = !online() ? '<button class="btn primary" data-act="again">Play again</button>'
+      : amHost() ? '<button class="btn primary" data-act="oreopen">Play again with this room</button>'
+      : waiting(hostName(), 'start a new game');
     return header(g) + `
       <section class="panel">
         <p class="eyebrow">${g.early ? 'Ended early in' : 'Game over after'} ${plural(g.round, 'round')}</p>
@@ -1181,7 +1307,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="sub">${esc(why)}</p>
         ${winner}
         ${shotsSummary(g)}
-        <button class="btn primary" data-act="again">Play again</button>
+        ${again}
         ${undoLink(g)}
       </section>` + board(g, -1, L, 'Loses') + sheet(g) + rules() + devBlock() + footer();
   }
@@ -1204,11 +1330,16 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         </div>
         <p class="sub">${mode === 'dice' ? 'The app rolls the dice. Pass the phone around.' : 'Roll your own dice. After each turn, enter the pips left on the table.'}</p>
       </section>`;
+    const onlineBlock = onlineAvailable() ? `<section class="online-cta">
+        <div><span class="h3">Not at the same table?</span><p class="sub">Play online. Everyone uses their own phone and joins with a room code.</p></div>
+        <button class="btn" data-act="online">Play online</button>
+      </section>` : '';
     return `<header class="hero">
         <h1 class="brand-xl marquee">Sevens<br><span>Out</span></h1>
         <p class="lede">Roll six dice and set aside every pair that makes 7. Whatever stays on the table counts against you. Once someone reaches ${LIMIT}, the round is finished and the highest score loses.</p>
         <div class="demo" role="img" aria-label="The three pairs that make 7: 1 and 6, 2 and 5, 3 and 4">${demo}</div>
       </header>
+      ${onlineBlock}
       ${modeBlock}
       <section class="panel" aria-labelledby="players-h">
         <h2 class="h2" id="players-h">Players</h2>
@@ -1218,6 +1349,74 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
         <button class="btn primary" data-act="start">Start game</button>
       </section>` + rules() + devBlock() + footer();
+  }
+
+  // ----- online screens -----
+  const hostName = () => { const s = net.room && seatInfo(net.room.host); return s ? s.name : 'the host'; };
+  function viewOnlineEntry(){
+    let name = ui.online.name;
+    if (name == null){ try { name = (JSON.parse(localStorage.getItem('sevens-out-name') || 'null')) || ''; } catch (e) { name = ''; } }
+    const code = ui.online.code != null ? ui.online.code : ui.joinCode;
+    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
+      <section class="panel" aria-labelledby="on-h">
+        <h2 class="h2" id="on-h">Play online</h2>
+        <p class="sub">Everyone uses their own phone. One person creates a room and shares the code; the others join with it.</p>
+        <label class="fld" for="oname"><span class="h3">Your name</span>
+          <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="done"></label>
+        <button class="btn primary" data-act="ocreate">Create a room</button>
+        <div class="or"><span>or join a room</span></div>
+        <label class="fld" for="ocode"><span class="h3">Room code</span>
+          <input type="text" id="ocode" class="text-in code-in" data-online="code" value="${esc(code || '')}" placeholder="ABCDE" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"></label>
+        <button class="btn" data-act="ojoin">Join room</button>
+        <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
+        <button class="link" data-act="oback">Back to playing on one phone</button>
+      </section>` + footer();
+  }
+  function viewConnecting(){
+    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
+      <section class="panel">
+        <p class="eyebrow">Room ${esc(net.code)}</p>
+        <h2 class="who">${net.status === 'closed' ? 'Reconnecting…' : 'Connecting…'}</h2>
+        <p class="sub">${net.status === 'closed' ? "Can't reach the game server right now. Trying again." : 'Joining the room.'}</p>
+        <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
+        <button class="link" data-act="oleaveyes">Stop and go back</button>
+      </section>`;
+  }
+  function viewLobby(){
+    const r = net.room, host = amHost(), seats = r.seats, mode = r.settings.mode === 'score' ? 'score' : 'dice';
+    const st = r.settings.starter;
+    const list = seats.map(s => `<li class="seat">
+        <span class="dot${s.connected ? ' on' : ''}" aria-label="${s.connected ? 'Online' : 'Offline'}"></span>
+        <span class="nm">${esc(s.name)}${s.id === net.seat ? ' <small class="you">you</small>' : ''}</span>
+        ${s.id === r.host ? '<span class="tag">Host</span>' : ''}
+        ${host && s.id !== net.seat ? `<button class="iconbtn" data-act="okick" data-seat="${esc(s.id)}" aria-label="Remove ${esc(s.name)}">×</button>` : ''}
+      </li>`).join('');
+    const modeSeg = `<div class="seg mode" role="group" aria-labelledby="omode-h">${[['dice', 'Dice in the app'], ['score', 'Real dice, scores here']].map(([v, l]) =>
+      `<button class="segbtn${mode === v ? ' on' : ''}" data-act="omode" data-id="${v === 'score' ? 1 : 0}" aria-pressed="${mode === v}"${host ? '' : ' disabled'}>${l}</button>`).join('')}</div>`;
+    const starterSeg = `<div class="picks" role="group" aria-labelledby="ostart-h">${seats.map((s, i) =>
+      `<button class="pickbtn${st === i ? ' on' : ''}" data-act="ostarter" data-id="${i}" aria-pressed="${st === i}"${host ? '' : ' disabled'}>${esc(s.name)}</button>`).join('')}<button class="pickbtn${st === 'random' ? ' on' : ''}" data-act="ostarter" data-id="-1" aria-pressed="${st === 'random'}"${host ? '' : ' disabled'}>Random</button></div>`;
+    const canShare = typeof navigator.share === 'function' && window.self === window.top;
+    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
+      <div class="chips">${netChip()}</div>
+      <section class="panel" aria-labelledby="room-h">
+        <p class="eyebrow" id="room-h">Room code</p>
+        <p class="roomcode">${esc(net.code)}</p>
+        <p class="sub">Send the code or this link to the others. Everyone opens it on their own phone.</p>
+        <p class="link-box" id="olink">${esc(shareLink())}</p>
+        <div class="row"><button class="btn" data-act="ocopy">Copy link</button>${canShare ? '<button class="btn" data-act="oshare">Share…</button>' : ''}</div>
+      </section>
+      <section class="panel" aria-labelledby="seats-h">
+        <h2 class="h2" id="seats-h">Players · ${seats.length} of ${MAX_PLAYERS}</h2>
+        <ul class="seats">${list}</ul>
+        <span class="h3" id="omode-h">How you play</span>
+        ${modeSeg}
+        <p class="sub">${mode === 'dice' ? 'The app rolls the dice. Everyone sees every roll.' : 'Everyone rolls real dice at home and enters the pips left on the table.'}</p>
+        <span class="h3" id="ostart-h">Who starts the first round</span>
+        ${starterSeg}
+        <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
+        ${host ? `<button class="btn primary" data-act="ostart"${seats.length < 2 ? ' disabled' : ''}>${seats.length < 2 ? 'Waiting for at least one more player' : `Start the game · ${seats.length} players`}</button>`
+          : waiting(hostName(), 'start the game')}
+      </section>` + rules() + footer();
   }
 
   function sheet(g){
@@ -1233,17 +1432,18 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   }
 
   function rules(){
+    const mode = state.game ? state.game.mode : online() && net.room ? net.room.settings.mode : state.setup.mode;
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>Rules</summary><ol>
       <li>On your turn you roll six dice. After each roll you may set aside any pairs that add up to 7 (1+6, 2+5, 3+4). Only such pairs can be set aside; every other die goes back into the next roll.</li>
       <li>The round's starter may roll up to three times and can stop after any roll. The number of rolls the starter used is the limit for everyone else in that round. Everyone else may stop earlier.</li>
       <li>When you stop, all remaining 7-pairs come out and the pips on the dice still on the table are added to your score. Clearing all six dice adds nothing.</li>
       <li>The players choose who starts the first round. After that, the player with the highest score starts each round. If several share the highest score, the one who reached that score first starts.</li>
       <li>When anyone reaches ${LIMIT} or more, the round is played to the end. Then the highest score loses. If the highest score is tied, the player who played later in that round loses.</li>
-    </ol>${(state.game ? state.game.mode : state.setup.mode) === 'score' ? '' : '<p class="note">The app sets pairs aside for you after each roll. Tap a pair from the current roll to put it back before rolling again.</p>'}</details>`;
+    </ol>${mode === 'score' ? '' : '<p class="note">The app sets pairs aside for you after each roll. Tap a pair from the current roll to put it back before rolling again.</p>'}</details>`;
   }
 
   function devBlock(){
-    const live = state.phase === 'play' || state.phase === 'roundEnd';
+    const live = (state.phase === 'play' || state.phase === 'roundEnd') && !!state.game && (!online() || amHost());
     const confirm = live && ui.confirmEnd
       ? `<div class="confirm"><span>End the game now? The highest score loses${state.phase === 'play' ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
@@ -1252,17 +1452,11 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       ${confirm}
       <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
   }
-  function endEarly(){
-    const g = state.game;
-    let L = null;
-    for (const i of g.order){ if (L === null || g.players[i].score >= g.players[L].score) L = i; }
-    g.loser = L; g.early = true; state.phase = 'over';
-    resetUi(); ui.open.sheet = true;
-  }
 
   function footer(){
     if (ui.confirmNew) return `<div class="foot"><div class="confirm"><span>End this game and go back to the player setup?</span><button class="btn small danger" data-act="newyes">End game</button><button class="btn small" data-act="newno">Keep playing</button></div></div>`;
-    const inGame = state.phase === 'play' || state.phase === 'roundEnd';
+    if (ui.confirmLeave) return `<div class="foot"><div class="confirm"><span>Leave room ${esc(net.code)}?${state.game && net.inGame ? ' The game goes on without this phone; you can rejoin with the code.' : ''}</span><button class="btn small danger" data-act="oleaveyes">Leave room</button><button class="btn small" data-act="oleaveno">Stay</button></div></div>`;
+    const inGame = !online() && (state.phase === 'play' || state.phase === 'roundEnd');
     const soundPick = `<div class="soundpick"><span class="h3" id="snd-h">Sound</span><div class="seg small" role="group" aria-labelledby="snd-h">${SOUND_OPTS.map(([v, label], i) =>
       `<button class="segbtn${soundMode === v ? ' on' : ''}" data-act="sound" data-id="${i}" aria-pressed="${soundMode === v}">${label}</button>`).join('')}</div></div>`;
     const lookPick = `<div class="soundpick"><span class="h3" id="look-h">Look</span><div class="seg small" role="group" aria-labelledby="look-h">${LOOK_OPTS.map(([v, label], i) =>
@@ -1270,62 +1464,33 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const shakeOn = shakePref && (shakeListening || needsMotionPermission());
     const shakePick = canShake() ? `<div class="soundpick"><span class="h3" id="shake-h">Shake to roll</span><div class="seg small" role="group" aria-labelledby="shake-h">${['Off', 'On'].map((label, i) =>
       `<button class="segbtn${(i === 1) === shakeOn ? ' on' : ''}" data-act="shake" data-id="${i}" aria-pressed="${(i === 1) === shakeOn}">${label}</button>`).join('')}</div></div>` : '';
-    return `<div class="foot">${soundPick}${lookPick}${shakePick}${inGame ? '<button class="link" data-act="new">New game</button>' : ''}</div>`;
+    const end = online() ? '<button class="link" data-act="oleave">Leave room</button>' : inGame ? '<button class="link" data-act="new">New game</button>' : '';
+    return `<div class="foot">${soundPick}${lookPick}${shakePick}${end}</div>`;
   }
 
-  // ---------- actions ----------
-  function doRoll(){
-    const t = state.game.turn, targets = active(t), finals = targets.map(() => rnd6());
-    resetUi(); ui.rolling = true; render();
-    let timer = null;
-    const finish = () => {
-      if (timer) clearInterval(timer);
-      targets.forEach((d, k) => { d.value = finals[k]; });
-      t.rolls++;
-      ui.rolling = false;
-      const settle = () => {
-        if (!state.game || state.game.turn !== t) return;
-        const n = t.pairs.filter(pr => pr.roll === t.rolls).length, left = active(t).length;
-        if (left === 0) ui.hint = 'All six dice are out. Nothing counts against you.';
-        else {
-          ui.hint = n ? `${plural(n, 'pair')} of 7 set aside.` : 'No 7s in this roll.';
-          if (t.rolls >= t.maxRolls) ui.hint += ' No rolls left.';
-        }
-        render();
-      };
-      // let the dice lie on the table for a moment, then draw the 7-pairs out one by one
-      if (reduceMotion){ takeAll(t); settle(); }
-      else drawPairs(t, true).then(settle);
-    };
-    if (reduceMotion){ finish(); return; }
-    timer = setInterval(() => { $app.querySelectorAll('[data-tumble]').forEach(el => { el.innerHTML = face(rnd6()); }); }, 70);
-    setTimeout(finish, 520);
+  // ---------- animations ----------
+  let tumbleTimer = null;
+  function startTumble(){
+    stopTumble();
+    tumbleTimer = setInterval(() => { $app.querySelectorAll('[data-tumble]').forEach(el => { el.innerHTML = face(rnd6()); }); }, 70);
   }
-
+  function stopTumble(){ if (tumbleTimer){ clearInterval(tumbleTimer); tumbleTimer = null; } }
   const wait = ms => new Promise(r => setTimeout(r, ms));
-  async function drawPairs(t, pause){
-    ui.busy = true; render();
-    if (pause) await wait(700);
-    for (const [a, b] of matchPairs(t)){
-      if (!state.game || state.game.turn !== t) break;
-      await flyPair(t, a, b);
-    }
-    ui.busy = false;
-  }
-  // light up a pair, then fly both dice in an arc from the tray into the set-aside rack
-  async function flyPair(t, a, b){
+  // light up the next pair, then fly both dice in an arc from the tray into the set-aside rack
+  async function flyNext(){
+    const [a, b] = ui.reveal.pairs[ui.reveal.idx];
     await 0; // let any pending render finish so we measure the live dice
-    const els = [a, b].map(id => $app.querySelector(`.die[data-id="${id}"]`));
+    const els = [a, b].map(id => $app.querySelector(`.dice .die[data-id="${id}"]`));
     els.forEach(el => { if (el) el.classList.add('pairing'); });
     await wait(240);
     const from = els.map(el => el ? el.getBoundingClientRect() : null);
-    hold(t, a, b); render();
+    ui.reveal.idx++; render();
     if (!from[0] || !from[1]) return;
     const packs = $app.querySelectorAll('.rack .pair'), last = packs[packs.length - 1];
     const minis = last ? last.querySelectorAll('.die.mini') : [];
     if (minis.length < 2) return;
     minis.forEach(m => { m.style.visibility = 'hidden'; });
-    const vals = [t.dice[a].value, t.dice[b].value];
+    const vals = [state.game.turn.dice[a].value, state.game.turn.dice[b].value];
     await Promise.all(from.map((r, k) => {
       const to = minis[k].getBoundingClientRect();
       const s = to.width / r.width;
@@ -1346,42 +1511,52 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     minis.forEach(m => { m.style.visibility = ''; });
   }
 
+  // ---------- input ----------
   function tapDie(id){
     const t = state.game.turn, d = t.dice[id];
-    if (!d || d.held !== null || d.value === null || ui.rolling) return;
+    if (!d || d.held !== null || d.value === null || ui.rolling || !canAct()) return;
     if (ui.selected === null){
       if (!pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; return; }
       ui.selected = id; ui.hint = `Now tap a ${7 - d.value}.`; return;
     }
     if (ui.selected === id){ ui.selected = null; ui.hint = null; return; }
     const s = t.dice[ui.selected];
-    if (s.value + d.value === 7){
-      ui.selected = null;
-      const sv = s.value, dv = d.value;
-      if (reduceMotion){ hold(t, s.id, d.id); ui.hint = `${sv} + ${dv} set aside.`; return; }
-      ui.busy = true; ui.hint = null;
-      flyPair(t, s.id, d.id).then(() => { ui.busy = false; ui.hint = `${sv} + ${dv} set aside.`; render(); });
-      return;
-    }
+    if (s.value + d.value === 7){ ui.selected = null; ui.hint = null; dispatch({ type:'pair', a:s.id, b:d.id }); return; }
     ui.hint = `${s.value} + ${d.value} makes ${s.value + d.value}, not 7.`; ui.nope = id;
   }
-
+  function startRoll(){
+    const g = state.game;
+    if (!g || state.phase !== 'play' || E.isScore(g) || ui.rolling || ui.busy || !canRoll(g.turn) || !canAct()) return;
+    resetInputs();
+    if (!reduceMotion){ ui.rolling = true; ui.rollStart = Date.now(); }
+    dispatch({ type:'roll' }); // roll first, then show the tumbling dice until the result is revealed
+    if (ui.rolling){ render(); startTumble(); }
+  }
   function toSetup(){ state.phase = 'setup'; state.game = null; resetUi(); ui.open = {}; }
+  function readOnlineFields(){
+    const n = document.getElementById('oname'), c = document.getElementById('ocode');
+    if (n) ui.online.name = n.value;
+    if (c) ui.online.code = c.value;
+    const name = (ui.online.name || '').replace(/\s+/g, ' ').trim().slice(0, 16);
+    const code = (ui.online.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return { name, code };
+  }
 
   function handle(a, id, el){
     const g = state.game;
     // while pairs are flying out, only settings and the developer buttons respond
-    if (ui.busy && !['sound', 'look', 'shake', 'devconfetti', 'devdoom'].includes(a)) return;
+    if ((ui.busy || ui.rolling) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'oleave', 'oleaveyes', 'oleaveno'].includes(a)) return;
     ui.nope = null;
     if (a !== 'stop') ui.armed = null;
     if (a !== 'new') ui.confirmNew = false;
     if (a !== 'endearly') ui.confirmEnd = false;
-    if (state.phase === 'setup') ui.hint = null;
+    if (a !== 'oleave') ui.confirmLeave = false;
+    if (state.phase === 'setup' && !online()) ui.hint = null;
     switch (a){
       case 'add':
         if (state.setup.names.length < MAX_PLAYERS){
           state.setup.names.push(''); render();
-          const el = document.getElementById(`name-${state.setup.names.length - 1}`); if (el) el.focus();
+          const inp = document.getElementById(`name-${state.setup.names.length - 1}`); if (inp) inp.focus();
         }
         return;
       case 'remove': {
@@ -1398,78 +1573,50 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       case 'start': {
         const s = state.setup;
         const names = s.names.map((nm, i) => nm.trim() || `Player ${i + 1}`);
-        state.game = newGame(names, Math.min(s.starter, names.length - 1), s.mode === 'score' ? 'score' : 'dice');
-        state.phase = 'play'; resetUi(); ui.open = {};
-        break;
-      }
-      case 'roll':
-        if (state.phase === 'play' && !ui.rolling && canRoll(g.turn)) doRoll();
+        ui.open = {};
+        dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), mode:s.mode === 'score' ? 'score' : 'dice' });
         return;
+      }
+      case 'roll': startRoll(); return;
       case 'die': tapDie(id); break;
-      case 'unpair': {
-        const t = g.turn, pr = t.pairs[id];
-        if (pr && pr.roll === t.rolls && t.rolls < t.maxRolls && !ui.rolling){
-          const va = t.dice[pr.a].value, vb = t.dice[pr.b].value;
-          t.dice[pr.a].held = null; t.dice[pr.b].held = null; t.pairs.splice(id, 1);
-          ui.selected = null; ui.hint = `${va} and ${vb} are back on the table and will be rolled again.`;
-        }
-        break;
-      }
-      case 'takeall': {
-        const t = g.turn; ui.selected = null;
-        if (reduceMotion){ const n = takeAll(t); ui.hint = n ? `${plural(n, 'pair')} of 7 set aside.` : null; break; }
-        const before = t.pairs.length;
-        drawPairs(t, false).then(() => { const n = t.pairs.length - before; ui.hint = n ? `${plural(n, 'pair')} of 7 set aside.` : null; render(); });
-        return;
-      }
-      case 'drop': {
-        if (state.phase !== 'play' || !isScore(g)) return;
-        const p = g.order[g.pos];
-        snapshot('The last dropped die was taken back.');
-        g.drops = (g.drops || 0) + 1;
-        if (g.drops >= 3){
-          g.drops = 0;
-          g.shots = (g.shots || []).concat([{ player:p, round:g.round }]);
-          ui.doom = pname(p);
-          ui.hint = `${pname(p)} pays a round of shots.`;
-        } else ui.hint = `${pname(p)} dropped a die. ${g.drops} of 3 on the floor.`;
-        break;
-      }
+      case 'unpair': if (canAct()) dispatch({ type:'unpair', index:id }); break;
+      case 'takeall': if (canAct()){ ui.selected = null; dispatch({ type:'takeall' }); } break;
+      case 'drop': if (state.phase === 'play' && E.isScore(g) && seated()) dispatch({ type:'drop' }); break;
       case 'edit':
-        if (!isScore(g) || state.phase === 'setup' || !g.players[id]) return;
+        if (!E.isScore(g) || state.phase === 'setup' || !g.players[id] || !seated()) return;
         ui.edit = id; ui.editVals = {};
         break;
       case 'ecancel': ui.edit = null; ui.editVals = {}; break;
       case 'estep': {
         const inp = document.getElementById(`edit-${id}`); if (!inp || !el) return;
         let v = parseInt(inp.value, 10); if (isNaN(v)) v = 0;
-        v = Math.max(0, Math.min(36, v + (+el.dataset.d || 0)));
+        v = Math.max(0, Math.min(MAX_PIPS, v + (+el.dataset.d || 0)));
         inp.value = String(v); ui.editVals[id] = String(v);
         refreshEdit();
         return;
       }
-      case 'esave': if (ui.edit != null) applyEdits(); break;
-      case 'devdoom': showDoom(state.phase === 'play' ? pname(g.order[g.pos]) : 'Test player'); break;
+      case 'esave': if (ui.edit != null) saveEdits(); break;
+      case 'devdoom': showDoom(state.phase === 'play' && g ? pname(current(g)) : 'Test player'); break;
       case 'stop': {
-        const t = g.turn; if (!t.rolls || ui.rolling) return;
+        const t = g.turn; if (!t.rolls || !canAct()) return;
         if (canRoll(t) && ui.armed !== 'stop'){
           ui.armed = 'stop';
           const left = t.maxRolls - t.rolls;
           ui.hint = g.pos === 0
             ? `Stopping now sets the limit to ${plural(t.rolls, 'roll')} for everyone this round. Tap again to confirm.`
-            : `You still have ${plural(left, 'roll')}. Tap again to stop.`;
+            : `${coveringFor() ? `${pname(current(g))} still has` : 'You still have'} ${plural(left, 'roll')}. Tap again to stop.`;
           break;
         }
-        endTurn(); break;
+        dispatch({ type:'stop' }); break;
       }
-      case 'end': if (g.turn.rolls && !ui.rolling) endTurn(); break;
-      case 'nextround': startRound(); break;
+      case 'end': if (g.turn.rolls && canAct()) dispatch({ type:'stop' }); break;
+      case 'nextround': if (seated()) dispatch({ type:'nextround' }); break;
       case 'new': ui.confirmNew = true; break;
       case 'newyes': toSetup(); break;
       case 'newno': break;
       case 'again': toSetup(); break;
-      case 'endearly': if (state.phase === 'play' || state.phase === 'roundEnd') ui.confirmEnd = true; break;
-      case 'endyes': if ((state.phase === 'play' && !ui.rolling) || state.phase === 'roundEnd') endEarly(); break;
+      case 'endearly': if ((state.phase === 'play' || state.phase === 'roundEnd') && (!online() || amHost())) ui.confirmEnd = true; break;
+      case 'endyes': if (state.phase === 'play' || state.phase === 'roundEnd') dispatch({ type:'endearly' }); break;
       case 'endno': break;
       case 'shake': {
         if (!canShake()) return;
@@ -1499,45 +1646,89 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       }
       case 'mode': state.setup.mode = id === 1 ? 'score' : 'dice'; break;
       case 'key': {
-        if (state.phase !== 'play' || !isScore(g)) return;
+        if (state.phase !== 'play' || !E.isScore(g) || !canAct()) return;
         ui.hint = null;
         const s = ui.entry === '0' ? String(id) : ui.entry + id;
-        if (s.length > 2 || +s > 36){ ui.hint = 'The most you can have left is 36 (six 6s).'; break; }
+        if (s.length > 2 || +s > MAX_PIPS){ ui.hint = 'The most you can have left is 36 (six 6s).'; break; }
         ui.entry = String(+s);
         break;
       }
       case 'back': ui.hint = null; ui.entry = (ui.entry || '').slice(0, -1); break;
       case 'clear': ui.hint = null; ui.entry = ''; break;
       case 'rolls': ui.hint = null; ui.rolls = id; break;
-      case 'commit': if (state.phase === 'play' && isScore(g)) scoreCommit(); break;
-      case 'undo': undo(); break;
-      case 'devconfetti': celebrate(state.phase === 'play' ? pname(g.order[g.pos]) : 'Test player'); break;
+      case 'commit': {
+        if (state.phase !== 'play' || !E.isScore(g) || !canAct() || ui.entry === '') break;
+        const isStarter = g.pos === 0;
+        if (isStarter && !ui.rolls) break;
+        dispatch({ type:'score', pts:+ui.entry, rolls:isStarter ? ui.rolls : undefined });
+        break;
+      }
+      case 'undo': if (seated()) dispatch({ type:'undo' }); break;
+      case 'devconfetti': celebrate(state.phase === 'play' && g ? pname(current(g)) : 'Test player'); break;
+
+      // ----- online -----
+      case 'online': ui.screen = 'online'; ui.hint = null; ui.online = {}; break;
+      case 'oback': ui.screen = null; ui.hint = null; break;
+      case 'ocreate': case 'ojoin': {
+        const { name, code } = readOnlineFields();
+        if (!name){ ui.hint = 'Enter your name first, so the others know who you are.'; break; }
+        try { localStorage.setItem('sevens-out-name', JSON.stringify(name)); } catch (e) {}
+        if (a === 'ojoin' && !CODE_RE.test(code)){ ui.hint = 'A room code has 5 letters and digits, like K7QPM.'; break; }
+        ui.hint = null;
+        netStart(a === 'ocreate' ? { create:true, name } : { create:false, code, name });
+        return;
+      }
+      case 'omode': if (amHost()) netSend({ t:'lobby', op:'settings', mode:id === 1 ? 'score' : 'dice' }); break;
+      case 'ostarter': if (amHost()) netSend({ t:'lobby', op:'settings', starter:id < 0 ? 'random' : id }); break;
+      case 'ostart': if (amHost()) netSend({ t:'lobby', op:'start' }); break;
+      case 'oreopen': if (amHost()) netSend({ t:'lobby', op:'reopen' }); break;
+      case 'okick': if (amHost() && el) netSend({ t:'lobby', op:'kick', seat:el.dataset.seat }); break;
+      case 'ocopy': {
+        const link = shareLink();
+        const done = ok => { ui.hint = ok ? 'Link copied. Send it to the others.' : 'Copy the link above and send it to the others.'; render(); };
+        try { navigator.clipboard.writeText(link).then(() => done(true), () => { selectText('olink'); done(false); }); }
+        catch (e) { selectText('olink'); done(false); }
+        return;
+      }
+      case 'oshare': try { navigator.share({ title:'Sevens Out', text:`Join my Sevens Out game. Room code ${net.code}`, url:shareLink() }).catch(() => {}); } catch (e) {} return;
+      case 'oleave': ui.confirmLeave = true; break;
+      case 'oleaveyes': netLeave(); break;
+      case 'oleaveno': break;
       default: return;
     }
     render();
   }
+  function selectText(id){
+    const el = document.getElementById(id); if (!el) return;
+    try { const r = document.createRange(); r.selectNodeContents(el); const s = getSelection(); s.removeAllRanges(); s.addRange(r); } catch (e) {}
+  }
 
   // ---------- render / persistence ----------
+  function gameView(){
+    return (ui.edit != null && E.isScore(state.game)) ? viewEdit()
+      : state.phase === 'play' ? (E.isScore(state.game) ? viewScore() : viewPlay())
+      : state.phase === 'roundEnd' ? viewRoundEnd()
+      : viewOver();
+  }
   function render(){
     const f = document.activeElement;
     const key = f && $app.contains(f) && f.dataset && f.dataset.act ? [f.dataset.act, f.dataset.id] : null;
+    const typing = f && $app.contains(f) && f.tagName === 'INPUT' && f.dataset && f.dataset.online ? f.id : null;
+    if (typing) readOnlineFields();
     let html;
     try {
-      if (state.phase === 'play' && !ui.rolling && !ui.busy && !isScore(state.game)){
-        const g = state.game, t = g.turn;
-        if (t.rolls > 0 && active(t).length === 0 && !t.cleared){ t.cleared = true; ui.celebrate = pname(g.order[g.pos]); }
-      }
-      html = state.phase === 'setup' ? viewSetup()
-        : (ui.edit != null && isScore(state.game)) ? viewEdit()
-        : state.phase === 'play' ? (isScore(state.game) ? viewScore() : viewPlay())
-        : state.phase === 'roundEnd' ? viewRoundEnd()
-        : viewOver();
+      html = online() ? (!net.room ? viewConnecting() : (net.room.phase !== 'game' || !state.game) ? viewLobby() : gameView())
+        : ui.screen === 'online' ? viewOnlineEntry()
+        : state.phase === 'setup' ? viewSetup()
+        : gameView();
     } catch (err){
       console.error(err);
+      if (online()) return;
       state = blank(); resetUi(); html = viewSetup();
     }
     $app.innerHTML = html;
-    if (key){
+    if (typing){ const el = document.getElementById(typing); if (el){ el.focus({ preventScroll:true }); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } }
+    else if (key){
       const el = $app.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
       if (el) el.focus({ preventScroll:true });
     }
@@ -1545,7 +1736,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (ui.celebrate){ const nm = ui.celebrate; ui.celebrate = null; celebrate(nm); }
     if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }
   }
-  function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  // the phone's own game is saved here; online games live on the server
+  function save(){ if (online()) return; try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
   function load(){
     try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.phase && s.setup) return s; } catch (e) {}
     return null;
@@ -1568,14 +1760,19 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const el = e.target;
     if (el.classList.contains('name-in')){ state.setup.names[+el.dataset.idx] = el.value; save(); }
     if (el.classList.contains('edit-in')){ ui.editVals[+el.dataset.round] = el.value; refreshEdit(); }
+    if (el.dataset.online === 'code'){ const v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (v !== el.value) el.value = v; ui.online.code = v; }
+    if (el.dataset.online === 'name') ui.online.name = el.value;
   });
   $app.addEventListener('change', e => {
     const el = e.target;
     if (el.name === 'starter'){ state.setup.starter = +el.value; save(); }
   });
   document.addEventListener('keydown', e => {
-    if (state.phase !== 'play' || !isScore(state.game) || ui.edit != null) return;
     const tag = e.target && e.target.tagName;
+    if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.online){
+      e.preventDefault(); handle(e.target.dataset.online === 'code' ? 'ojoin' : (ui.online.code ? 'ojoin' : 'ocreate'), null); return;
+    }
+    if (state.phase !== 'play' || !state.game || !E.isScore(state.game) || ui.edit != null || !canAct()) return;
     if (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button') return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
     if (/^[0-9]$/.test(e.key)){ e.preventDefault(); handle('key', +e.key); }
@@ -1589,9 +1786,27 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   function start(data){
     const s = (data && data.state) || load();
-    if (s) state = s;
+    if (s && s.setup) state = s;
+    // ?join=CODE opens the join screen with the code filled in
+    let join = '';
+    try { join = (new URLSearchParams(location.search).get('join') || '').toUpperCase(); } catch (e) {}
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(ONLINE_KEY) || 'null'); } catch (e) {}
+    if (saved && saved.code && saved.token && (saved.server || serverBase()) && (!join || join === saved.code)){
+      // rejoin the room this phone was in
+      Object.assign(net, { code:saved.code, token:saved.token, name:saved.name || '', server:saved.server || serverBase(), want:true });
+      netConnect();
+      return;
+    }
+    if (join && CODE_RE.test(join) && onlineAvailable()){ ui.screen = 'online'; ui.joinCode = join; }
     render();
   }
+  // read-only view for tests and debugging in the console
+  window.SevensDebug = Object.freeze({
+    get state(){ return E.clone(state); },
+    get net(){ return { code:net.code, seat:net.seat, status:net.status, rev:net.rev, room:net.room && E.clone(net.room) }; },
+    get busy(){ return ui.busy || ui.rolling; }
+  });
   try { window.claude?.hot?.snapshot?.(() => ({ state })); } catch (e) {}
   if (window.claude?.hot?.ready) window.claude.hot.ready(start);
   else start(window.claude?.hot?.data ?? {});

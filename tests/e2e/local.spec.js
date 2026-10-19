@@ -1,0 +1,167 @@
+// Pass-and-play on one phone: both modes, the animations, corrections, the shots alarm and shake to roll.
+import { test, expect } from '@playwright/test';
+import { saved, idle, fixDice, startLocal, enterScore, checkSheet, noSideScroll } from './helpers.js';
+
+test.describe('dice mode', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
+  test('a full game follows every rule', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(String(e)));
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], starter: 1 });
+    let seed = 7;
+    const coin = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % 10 < 6; };
+    for (let step = 0; step < 4000; step++) {
+      const s = await saved(page);
+      if (s.phase === 'over') break;
+      if (s.phase === 'roundEnd') { await page.click('[data-act=nextround]'); continue; }
+      const t = s.game.turn, canRoll = t.rolls < t.maxRolls && t.dice.some(d => d.held === null);
+      if (t.rolls === 0 || (canRoll && coin())) await page.click('[data-act=roll]');
+      else if (canRoll) { await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); }
+      else await page.click('[data-act=end]');
+    }
+    const s = await saved(page);
+    expect(s.phase).toBe('over');
+    expect(s.game.rounds[0].starter).toBe(1);
+    checkSheet(s.game);
+    await expect(page.locator('.verdict')).toContainText('loses');
+    expect(errors).toEqual([]);
+  });
+
+  test('a pair from this roll can be put back, and two dice can be paired by hand', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 2, 3, 3]);
+    await startLocal(page);
+    await page.click('[data-act=roll]');
+    await expect(page.locator('.rack .pair')).toHaveCount(1);
+    await page.click('[data-act=unpair][data-id="0"]');
+    await expect(page.locator('.rack .pair')).toHaveCount(0);
+    await expect(page.locator('.hint')).toContainText('back on the table');
+    await page.click('.dice [data-act=die][data-id="2"]');
+    await expect(page.locator('.hint')).toContainText('There is no 5 on the table to go with this 2');
+    await page.click('.dice [data-act=die][data-id="0"]');
+    await page.click('.dice [data-act=die][data-id="1"]');
+    await expect(page.locator('.rack .pair')).toHaveCount(1);
+    await expect(page.locator('.tval')).toHaveText('10');
+  });
+});
+
+test('after a roll the dice lie still, then the 7-pairs fly out one by one and Sevens Out celebrates', async ({ page, context }) => {
+  await fixDice(context, [1, 6, 2, 5, 3, 4]);
+  await startLocal(page);
+  await page.click('[data-act=roll]');
+  await page.waitForTimeout(900); // landed, still lying there
+  await expect(page.locator('.rack .pair')).toHaveCount(0);
+  await expect(page.locator('.dice .die:not(.gone)')).toHaveCount(6);
+  await expect(page.locator('[data-act=roll]')).toHaveCount(0); // locked while pairs fly
+  await expect(page.locator('.rack .pair')).toHaveCount(3, { timeout: 5000 });
+  await expect(page.locator('.fx-banner')).toContainText('Anna cleared all six dice');
+  await idle(page);
+  await expect(page.locator('.die.fly')).toHaveCount(0);
+  await expect(page.locator('[data-act=end]')).toContainText('+0');
+});
+
+test.describe('scoreboard mode', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
+  test('a full game with three players follows every rule, and undo works from game over', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
+    // 37 is refused and the starter must pick the rolls used
+    await page.click('[data-act=key][data-id="3"]');
+    await page.click('[data-act=key][data-id="7"]');
+    await expect(page.locator('.entry')).toHaveText('3');
+    await expect(page.locator('[data-act=commit]')).toBeDisabled();
+    let seed = 11;
+    const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+    for (let step = 0; step < 400; step++) {
+      const s = await saved(page);
+      if (s.phase === 'over') break;
+      if (s.phase === 'roundEnd') { await page.click('[data-act=nextround]'); continue; }
+      await enterScore(page, rnd(25), s.game.pos === 0 ? 1 + rnd(3) : 0);
+    }
+    const s = await saved(page);
+    expect(s.phase).toBe('over');
+    checkSheet(s.game);
+    await page.click('[data-act=undo]');
+    expect((await saved(page)).phase).toBe('play');
+  });
+
+  test('tie for the lead: whoever reached the score first starts', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await page.click('[data-act=nextround]');
+    await enterScore(page, 0, 2); await enterScore(page, 10);
+    await expect(page.locator('.panel')).toContainText('Ben got there first');
+    expect((await saved(page)).game.next).toBe(1);
+  });
+
+  test('corrections recompute totals, the starter and the 101 rule; undo takes them back', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await page.click('.pl[data-act=edit][data-id="1"]');
+    await page.fill('#edit-1', '40');
+    await expect(page.locator('[data-act=esave]')).toBeDisabled();
+    await page.fill('#edit-1', '5');
+    await expect(page.locator('#edit-total')).toHaveText('5');
+    await page.click('[data-act=esave]');
+    let s = await saved(page);
+    expect(s.game.players.map(p => p.score)).toEqual([10, 5]);
+    expect(s.game.next).toBe(0);
+    await page.click('[data-act=nextround]');
+    await enterScore(page, 36, 3); await enterScore(page, 0);
+    await page.click('.pl[data-act=edit][data-id="0"]');
+    await page.fill('#edit-1', '36');
+    await page.click('[data-act=esave]');
+    await page.click('[data-act=nextround]');
+    await enterScore(page, 30, 1); await enterScore(page, 0);
+    expect((await saved(page)).phase).toBe('over');
+    await page.click('.pl[data-act=edit][data-id="0"]');
+    await page.fill('#edit-3', '10');
+    await page.click('[data-act=esave]');
+    s = await saved(page);
+    expect(s.phase).toBe('roundEnd');
+    await page.click('[data-act=undo]');
+    expect((await saved(page)).phase).toBe('over');
+  });
+
+  test('the third dropped die sets off the round-of-shots alarm', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await page.click('[data-act=drop]');
+    await page.click('[data-act=drop]');
+    await expect(page.locator('.fslot.on')).toHaveCount(2);
+    await page.click('[data-act=drop]');
+    await expect(page.locator('.doom')).toBeVisible();
+    await expect(page.locator('.doom-sub')).toContainText('Anna dropped the third die');
+    await page.click('.doom-ok');
+    await expect(page.locator('.doom')).toHaveCount(0);
+    await expect(page.locator('.pl-shots')).toContainText('Paid 1 round of shots');
+    await page.click('[data-act=undo]');
+    const s = await saved(page);
+    expect(s.game.drops).toBe(2);
+    expect(s.game.shots.length).toBe(0);
+  });
+});
+
+test.describe('on a phone', () => {
+  test.use({ isMobile: true, hasTouch: true });
+
+  test('shake to roll: one bump does nothing, a shake rolls', async ({ page }) => {
+    await page.goto('/');
+    await page.click('[data-act=shake][data-id="1"]');
+    await startLocal(page);
+    await expect(page.locator('.hint')).toContainText('shake the phone');
+    const jolt = x => page.evaluate(v => window.dispatchEvent(new DeviceMotionEvent('devicemotion', { acceleration: { x: v, y: 0, z: 0 } })), x);
+    await jolt(25);
+    await page.waitForTimeout(1000);
+    expect((await saved(page)).game.turn.rolls).toBe(0);
+    for (let k = 0; k < 4; k++) { await jolt(k % 2 ? -22 : 22); await page.waitForTimeout(110); }
+    await expect.poll(async () => (await saved(page)).game.turn.rolls).toBe(1);
+  });
+});
+
+test('no sideways scrolling at phone width, in both looks', async ({ page }) => {
+  await page.goto('/');
+  expect(await noSideScroll(page)).toBe(true);
+  await page.click('[data-act=look][data-id="1"]');
+  await startLocal(page, { names: ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Finn'] });
+  expect(await noSideScroll(page)).toBe(true);
+});

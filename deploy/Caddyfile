@@ -1,0 +1,5 @@
+# Replace with your domain. Caddy gets the HTTPS certificate and passes WebSockets through.
+game.example.com {
+	encode gzip
+	reverse_proxy game:8788
+}

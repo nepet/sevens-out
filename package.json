@@ -1,0 +1,22 @@
+{
+  "name": "sevens-out",
+  "private": true,
+  "type": "module",
+  "description": "Sevens Out dice game: static page + room server (Cloudflare Durable Object or Node).",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node server/node/server.js",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "node --test tests/engine.test.js tests/room.test.js tests/node-server.test.js tests/worker.test.js",
+    "test:e2e": "playwright test",
+    "test:worker": "TARGET=worker playwright test tests/e2e/online.spec.js",
+    "worker:dev": "wrangler dev -c server/cloudflare/wrangler.jsonc",
+    "worker:deploy": "wrangler deploy -c server/cloudflare/wrangler.jsonc"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0",
+    "wrangler": "^4.0.0"
+  }
+}

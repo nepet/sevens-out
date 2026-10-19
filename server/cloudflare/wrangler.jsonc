@@ -1,0 +1,18 @@
+{
+  // Option 4: deploy with `npm run worker:deploy` (wrangler deploy -c server/cloudflare/wrangler.jsonc)
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sevens-out",
+  "main": "worker.js",
+  "compatibility_date": "2025-09-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "GameRoom" }]
+  },
+  // SQLite-backed Durable Objects are included in the Workers Free plan
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["GameRoom"] }],
+  "vars": {
+    // comma-separated list of page origins allowed to connect, e.g. "https://<owner>.github.io".
+    // Empty or "*" allows any origin (fine for local development).
+    "ALLOWED_ORIGINS": ""
+  },
+  "observability": { "enabled": true }
+}

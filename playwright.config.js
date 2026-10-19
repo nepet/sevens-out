@@ -1,0 +1,37 @@
+// Browser tests: `npm run test:e2e` (against the Node server) or `npm run test:worker` (online tests against `wrangler dev`).
+import { defineConfig } from '@playwright/test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+const PORT = 8790;
+const WORKER = process.env.TARGET === 'worker';
+
+export default defineConfig({
+  testDir: 'tests/e2e',
+  timeout: 90_000,
+  expect: { timeout: 8_000 },
+  workers: 2,
+  reporter: [['list']],
+  use: {
+    baseURL: `http://127.0.0.1:${PORT}`,
+    browserName: 'chromium',
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 2,
+    trace: 'retain-on-failure'
+  },
+  webServer: [
+    {
+      command: 'node server/node/server.js',
+      url: `http://127.0.0.1:${PORT}/health`,
+      env: { PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: mkdtempSync(path.join(tmpdir(), 'sevens-e2e-')) },
+      reuseExistingServer: false
+    },
+    ...(WORKER ? [{
+      command: 'npx wrangler dev -c server/cloudflare/wrangler.jsonc --port 8787 --ip 127.0.0.1 --var ALLOWED_ORIGINS:*',
+      url: 'http://127.0.0.1:8787/health',
+      timeout: 120_000,
+      reuseExistingServer: false
+    }] : [])
+  ]
+});

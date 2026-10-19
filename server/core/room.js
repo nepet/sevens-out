@@ -1,0 +1,238 @@
+/*
+ * One game room, independent of where it runs.
+ *
+ * The room owns the authoritative game: phones send actions, the room checks who may make them,
+ * applies them with the shared rules engine (it rolls the dice), saves, and broadcasts the result.
+ *
+ * Adapters plug in two small interfaces:
+ *   storage: { get(): Promise<data|null>, put(data): Promise<void>, remove(): Promise<void> }
+ *   net:     { send(conn, msg), conns(): conn[], seatOf(conn): string|null, bind(conn, seatId), close(conn, code, reason) }
+ * server/cloudflare/worker.js (Durable Object) and server/node/server.js (plain Node) are the two adapters.
+ * The wire protocol is documented in CLAUDE.md.
+ */
+
+export const CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
+export const MAX_SEATS = 6;
+export const MAX_MESSAGE = 4096;
+export const ROOM_TTL_MS = 14 * 24 * 60 * 60 * 1000; // rooms are deleted after two weeks without activity
+
+// actions only the player whose turn it is may make (or the host, when that player is offline)
+const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'stop', 'end', 'score']);
+// actions any seated player may make
+const TABLE_ACTIONS = new Set(['drop', 'undo', 'edit', 'nextround']);
+// actions only the host may make
+const HOST_ACTIONS = new Set(['endearly']);
+
+const hex = n => { const b = new Uint8Array(n); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); };
+const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+
+export class Room {
+  constructor({ engine, storage, net, now = () => Date.now() }) {
+    this.E = engine; this.storage = storage; this.net = net; this.now = now;
+    this.data = undefined; // undefined = not loaded yet, null = no room
+    this.loading = null;
+  }
+
+  async load() {
+    if (this.data !== undefined) return this.data;
+    if (!this.loading) this.loading = this.storage.get().then(d => { this.data = d || null; return this.data; });
+    return this.loading;
+  }
+  async save() {
+    this.data.updated = this.now();
+    await this.storage.put(this.data);
+  }
+
+  // ----- views -----
+  connectedSeats() {
+    const on = new Set();
+    for (const c of this.net.conns()) { const s = this.net.seatOf(c); if (s) on.add(s); }
+    return on;
+  }
+  // the host runs the lobby; if the host is offline, the first connected player stands in
+  effectiveHost(on = this.connectedSeats()) {
+    const d = this.data;
+    if (!d || !d.seats.length) return null;
+    if (on.has(d.host)) return d.host;
+    const stand = d.seats.find(s => on.has(s.id));
+    return stand ? stand.id : d.host;
+  }
+  publicRoom() {
+    const d = this.data, on = this.connectedSeats();
+    return {
+      code: d.code, phase: d.phase, host: this.effectiveHost(on), settings: d.settings,
+      seats: d.seats.map(s => ({ id: s.id, name: s.name, connected: on.has(s.id) }))
+    };
+  }
+  roomMessage(events = []) {
+    return { t: 'room', rev: this.data.rev, room: this.publicRoom(), state: this.data.state, events };
+  }
+  broadcast(events = []) {
+    const msg = this.roomMessage(events);
+    for (const c of this.net.conns()) this.net.send(c, msg);
+  }
+  error(conn, code, message) { this.net.send(conn, { t: 'error', code, message }); }
+
+  // ----- entry points called by the adapters -----
+  async message(conn, raw, code) {
+    if (typeof raw !== 'string' || raw.length > MAX_MESSAGE) return this.error(conn, 'bad_message', 'Message too large.');
+    let m;
+    try { m = JSON.parse(raw); } catch { return this.error(conn, 'bad_message', 'Not JSON.'); }
+    if (!m || typeof m.t !== 'string') return this.error(conn, 'bad_message', 'Missing type.');
+    await this.load();
+    switch (m.t) {
+      case 'hello': return this.hello(conn, m, code);
+      case 'act': return this.act(conn, m.action);
+      case 'lobby': return this.lobby(conn, m);
+      case 'ping': return this.net.send(conn, { t: 'pong' });
+      default: return this.error(conn, 'bad_message', 'Unknown message type.');
+    }
+  }
+  async closed(conn) {
+    await this.load();
+    if (this.data && this.net.seatOf(conn)) this.broadcast();
+  }
+
+  // ----- hello: create, join, rejoin or watch -----
+  async hello(conn, m, code) {
+    let d = this.data;
+    if (d && m.token) {
+      const seat = d.seats.find(s => s.token === m.token);
+      if (seat) return this.seat(conn, seat);
+    }
+    if (!d) {
+      if (!m.create) { this.error(conn, 'no_room', 'There is no room with this code.'); return this.net.close(conn, 4404, 'no_room'); }
+      if (!CODE_RE.test(code || '')) return this.error(conn, 'bad_message', 'Bad room code.');
+      d = this.data = {
+        v: 1, code, created: this.now(), updated: this.now(), rev: 1,
+        phase: 'lobby', host: null, settings: { mode: 'dice', starter: 0 }, seats: [], state: null
+      };
+      const seat = this.addSeat(m.name);
+      d.host = seat.id;
+      await this.save();
+      return this.seat(conn, seat);
+    }
+    if (m.create) return this.error(conn, 'room_taken', 'That code is in use.');
+    if (d.phase === 'lobby') {
+      if (d.seats.length >= MAX_SEATS) { this.error(conn, 'room_full', 'This room is full.'); return this.net.close(conn, 4409, 'room_full'); }
+      const seat = this.addSeat(m.name);
+      d.rev++;
+      await this.save();
+      return this.seat(conn, seat);
+    }
+    // a game is running: watch it
+    this.net.bind(conn, null);
+    this.net.send(conn, { t: 'welcome', seat: null });
+    this.net.send(conn, this.roomMessage());
+  }
+  addSeat(name) {
+    const d = this.data;
+    let base = cleanName(name) || `Player ${d.seats.length + 1}`, nm = base, k = 2;
+    while (d.seats.some(s => s.name.toLowerCase() === nm.toLowerCase())) nm = `${base.slice(0, 13)} ${k++}`;
+    const seat = { id: hex(4), name: nm, token: hex(16) };
+    d.seats.push(seat);
+    return seat;
+  }
+  seat(conn, seat) {
+    this.net.bind(conn, seat.id);
+    this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token });
+    this.broadcast();
+  }
+
+  // ----- game actions -----
+  async act(conn, action) {
+    const d = this.data, me = this.net.seatOf(conn);
+    if (!d || d.phase !== 'game' || !d.state || !d.state.game) return this.error(conn, 'phase', 'No game is running.');
+    if (!me || !d.state.game.seats.includes(me)) return this.error(conn, 'not_seated', 'You are watching this game.');
+    if (!action || typeof action.type !== 'string') return this.error(conn, 'bad_message', 'Bad action.');
+    const g = d.state.game, on = this.connectedSeats(), host = this.effectiveHost(on);
+    if (TURN_ACTIONS.has(action.type)) {
+      const cur = g.seats[g.order[g.pos]];
+      if (d.state.phase !== 'play' || (me !== cur && !(me === host && !on.has(cur)))) return this.error(conn, 'not_your_turn', "It isn't your turn.");
+    } else if (HOST_ACTIONS.has(action.type)) {
+      if (me !== host) return this.error(conn, 'host_only', 'Only the host can do that.');
+    } else if (!TABLE_ACTIONS.has(action.type)) {
+      return this.error(conn, 'bad_message', 'Unknown action.');
+    }
+    const r = this.E.apply(d.state, action);
+    if (r.error) return this.error(conn, r.error, 'That move is not allowed.');
+    d.state = r.state;
+    d.rev++;
+    await this.save();
+    this.broadcast(r.events);
+  }
+
+  // ----- lobby -----
+  async lobby(conn, m) {
+    const d = this.data, me = this.net.seatOf(conn);
+    if (!d || !me) return this.error(conn, 'not_seated', 'Join the room first.');
+    const isHost = me === this.effectiveHost();
+    switch (m.op) {
+      case 'settings': {
+        if (!isHost) return this.error(conn, 'host_only', 'Only the host can change the settings.');
+        if (d.phase !== 'lobby') return this.error(conn, 'phase', 'The game has started.');
+        if (m.mode === 'dice' || m.mode === 'score') d.settings.mode = m.mode;
+        if (m.starter === 'random' || (Number.isInteger(m.starter) && m.starter >= 0 && m.starter < MAX_SEATS)) d.settings.starter = m.starter;
+        break;
+      }
+      case 'start': {
+        if (!isHost) return this.error(conn, 'host_only', 'Only the host can start the game.');
+        if (d.phase !== 'lobby') return this.error(conn, 'phase', 'The game has started.');
+        if (d.seats.length < 2) return this.error(conn, 'players', 'You need at least 2 players.');
+        const n = d.seats.length;
+        let starter = d.settings.starter;
+        if (starter === 'random') { const b = new Uint8Array(1); crypto.getRandomValues(b); starter = b[0] % n; }
+        if (!(starter >= 0 && starter < n)) starter = 0;
+        const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, mode: d.settings.mode });
+        if (r.error) return this.error(conn, r.error, 'Could not start.');
+        d.state = r.state; d.phase = 'game'; d.rev++;
+        await this.save();
+        return this.broadcast(r.events);
+      }
+      case 'reopen': {
+        if (!isHost) return this.error(conn, 'host_only', 'Only the host can start a new game.');
+        d.phase = 'lobby'; d.state = null;
+        break;
+      }
+      case 'rename': {
+        const seat = d.seats.find(s => s.id === me), nm = cleanName(m.name);
+        if (!seat || !nm || d.phase !== 'lobby') return this.error(conn, 'phase', 'Names can only change before the game starts.');
+        seat.name = nm;
+        break;
+      }
+      case 'kick': {
+        if (!isHost) return this.error(conn, 'host_only', 'Only the host can remove players.');
+        if (d.phase !== 'lobby' || m.seat === me) return this.error(conn, 'phase', 'Players can only be removed before the game starts.');
+        const i = d.seats.findIndex(s => s.id === m.seat);
+        if (i < 0) return;
+        d.seats.splice(i, 1);
+        for (const c of this.net.conns()) if (this.net.seatOf(c) === m.seat) { this.error(c, 'kicked', 'The host removed you.'); this.net.bind(c, null); this.net.close(c, 4403, 'kicked'); }
+        this.fixStarter();
+        break;
+      }
+      case 'leave': {
+        // in the lobby the seat is freed; during a game the player keeps their seat and can rejoin
+        this.net.bind(conn, null);
+        if (d.phase === 'lobby') {
+          d.seats = d.seats.filter(s => s.id !== me);
+          if (d.host === me && d.seats.length) d.host = d.seats[0].id;
+          this.fixStarter();
+          if (!d.seats.length) { await this.storage.remove(); this.data = null; return; }
+        }
+        this.net.close(conn, 1000, 'left');
+        break;
+      }
+      default: return this.error(conn, 'bad_message', 'Unknown lobby operation.');
+    }
+    d.rev++;
+    await this.save();
+    this.broadcast();
+  }
+  fixStarter() {
+    const d = this.data;
+    if (Number.isInteger(d.settings.starter) && d.settings.starter >= d.seats.length) d.settings.starter = 0;
+  }
+
+  // ----- housekeeping -----
+  expired() { return !!this.data && this.now() - this.data.updated > ROOM_TTL_MS; }
+}

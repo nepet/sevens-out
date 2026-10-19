@@ -1,0 +1,189 @@
+// Rules engine tests: run with `node --test tests/`
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import '../engine.js';
+
+const E = globalThis.SevensEngine;
+
+// deterministic dice: a seeded generator, or a fixed list of faces
+function seeded(seed) {
+  let x = seed >>> 0 || 1;
+  return () => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return (x % 6) + 1; };
+}
+const faces = list => { let i = 0; return () => list[i++ % list.length]; };
+function must(state, action, opts) {
+  const r = E.apply(state, action, opts);
+  assert.ok(!r.error, `${action.type} failed: ${r.error}`);
+  return r;
+}
+const start = (n, starter = 0, mode = 'dice') =>
+  must(E.blank(), { type: 'start', names: Array.from({ length: n }, (_, i) => `P${i + 1}`), starter, mode }).state;
+
+// replay a finished game's score sheet and check every rule against it
+function checkSheet(g) {
+  const n = g.players.length, scores = Array(n).fill(0), at = Array(n).fill(-1);
+  let seq = 0, prev = null, order = [];
+  g.rounds.forEach((rd, ri) => {
+    if (ri) {
+      const mx = Math.max(...scores), tied = scores.map((_, i) => i).filter(i => scores[i] === mx);
+      const first = Math.min(...tied.map(i => at[i])), early = tied.filter(i => at[i] === first);
+      let exp = early[0];
+      if (early.length > 1) for (let k = 1; k <= n; k++) { const i = (prev + k) % n; if (early.includes(i)) { exp = i; break; } }
+      assert.equal(rd.starter, exp, `round ${rd.no} starter`);
+    }
+    const mark = rd.results[rd.starter]?.rolls;
+    order = E.orderFrom(rd.starter, n);
+    for (const p of order) {
+      const r = rd.results[p]; if (!r) continue;
+      if (g.mode === 'dice') { assert.ok(r.rolls >= 1 && r.rolls <= mark, 'rolls within the mark'); assert.ok(r.pts >= 0 && r.pts <= 36); }
+      seq++; if (r.pts > 0) at[p] = seq; scores[p] += r.pts;
+    }
+    if (ri < g.rounds.length - 1) assert.ok(Math.max(...scores) < E.LIMIT, 'game should have ended earlier');
+    prev = rd.starter;
+  });
+  assert.deepEqual(scores, g.players.map(p => p.score), 'totals match the sheet');
+  return { scores, order };
+}
+
+test('random dice games follow every rule', () => {
+  for (let seed = 1; seed <= 60; seed++) {
+    const rng = seeded(seed), n = 2 + (seed % 5);
+    let s = start(n, seed % n);
+    let guard = 0;
+    while (s.phase !== 'over' && guard++ < 5000) {
+      if (s.phase === 'roundEnd') { s = must(s, { type: 'nextround' }).state; continue; }
+      const t = s.game.turn;
+      if (t.rolls === 0 || (E.canRoll(t) && rng() > 2)) s = must(s, { type: 'roll' }, { rng }).state;
+      else s = must(s, { type: 'stop' }).state;
+    }
+    assert.equal(s.phase, 'over');
+    const { scores, order } = checkSheet(s.game);
+    assert.ok(Math.max(...scores) >= E.LIMIT);
+    let L = null; for (const i of order) if (L === null || scores[i] >= scores[L]) L = i;
+    assert.equal(s.game.loser, L, 'loser is the highest score, later player on a tie');
+  }
+});
+
+test('rolling sets 7-pairs aside automatically and clearing all six is a Sevens Out', () => {
+  let s = start(2);
+  const r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 5, 3, 4]) });
+  assert.equal(r.events[0].type, 'rolled');
+  assert.equal(r.events[0].auto.length, 3);
+  assert.ok(r.events.some(e => e.type === 'sevensOut' && e.player === 0));
+  s = must(r.state, { type: 'stop' }).state;
+  assert.equal(s.game.rounds[0].results[0].pts, 0);
+  assert.equal(s.game.mark, 1, 'starter used one roll, so the limit is 1');
+  assert.equal(s.game.turn.maxRolls, 1);
+});
+
+test('a pair from the current roll can be put back and paired by hand', () => {
+  let s = start(2);
+  s = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 2, 3, 3]) }).state;
+  assert.equal(s.game.turn.pairs.length, 1);
+  s = must(s, { type: 'unpair', index: 0 }).state;
+  assert.equal(s.game.turn.pairs.length, 0);
+  assert.ok(E.apply(s, { type: 'pair', a: 2, b: 3 }).error, '2+2 is not 7');
+  s = must(s, { type: 'pair', a: 0, b: 1 }).state;
+  assert.equal(E.finalPenalty(s.game.turn), 10);
+  s = must(s, { type: 'stop' }).state;
+  assert.equal(s.game.players[0].score, 10);
+});
+
+test('the input state is never mutated and bad actions are refused', () => {
+  const s = start(3), before = JSON.stringify(s);
+  E.apply(s, { type: 'roll' });
+  assert.equal(JSON.stringify(s), before);
+  assert.equal(E.apply(s, { type: 'stop' }).error, 'phase', 'cannot stop before rolling');
+  assert.equal(E.apply(s, { type: 'score', pts: 3 }).error, 'phase', 'not a scoreboard game');
+  assert.equal(E.apply(s, { type: 'nope' }).error, 'unknown_action');
+});
+
+// scoreboard helpers
+const score = (s, pts, rolls) => must(s, { type: 'score', pts, rolls }).state;
+
+test('random scoreboard games follow every rule', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const rng = seeded(seed * 7), n = 2 + (seed % 5);
+    let s = start(n, 0, 'score'), guard = 0;
+    while (s.phase !== 'over' && guard++ < 3000) {
+      if (s.phase === 'roundEnd') { s = must(s, { type: 'nextround' }).state; continue; }
+      const pts = (rng() - 1) * 5 + (rng() - 1); // 0..30
+      s = score(s, pts, s.game.pos === 0 ? 1 + (rng() % 3) : undefined);
+    }
+    checkSheet(s.game);
+  }
+});
+
+test('tie for the lead: whoever reached the score first starts', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);
+  assert.equal(s.game.next, 1);
+  s = must(s, { type: 'nextround' }).state;
+  s = score(s, 0, 2); s = score(s, 10);       // Ben stays on 20, Anna climbs to 20
+  assert.deepEqual(s.game.players.map(p => p.score), [20, 20]);
+  assert.equal(s.game.next, 1, 'Ben got to 20 first');
+  s = must(s, { type: 'nextround' }).state;
+  s = score(s, 5, 1); s = score(s, 5);        // Ben 25 first, then Anna 25
+  assert.equal(s.game.next, 1);
+});
+
+test('a tie when nobody has scored passes the start to the next player', () => {
+  let s = start(3, 1, 'score');
+  s = score(s, 0, 1); s = score(s, 0); s = score(s, 0);
+  assert.equal(s.game.next, 2);
+});
+
+test('reaching 101 finishes the round, and a tie at the top goes against the later player', () => {
+  let s = start(2, 0, 'score');
+  s.game.players = [{ name: 'A', score: 0 }, { name: 'B', score: 0 }];
+  for (let i = 0; i < 2; i++) { s = score(s, 36, 3); s = score(s, 36); s = must(s, { type: 'nextround' }).state; }
+  s = score(s, 30, 1);                         // A 102: round continues
+  assert.equal(s.phase, 'play');
+  assert.ok(s.game.ending);
+  s = score(s, 30);                            // B 102 as well: tie, B played later
+  assert.equal(s.phase, 'over');
+  assert.equal(s.game.loser, 1);
+});
+
+test('dropped dice: the third pays a round of shots, and undo takes it back', () => {
+  let s = start(2, 0, 'score');
+  s = must(s, { type: 'drop' }).state;
+  s = must(s, { type: 'drop' }).state;
+  const r = must(s, { type: 'drop' });
+  assert.ok(r.events.some(e => e.type === 'shots' && e.player === 0));
+  assert.equal(r.state.game.drops, 0);
+  assert.equal(r.state.game.shots.length, 1);
+  const u = must(r.state, { type: 'undo' });
+  assert.equal(u.state.game.drops, 2);
+  assert.equal(u.state.game.shots.length, 0);
+  assert.equal(u.events[0].msg, 'The last dropped die was taken back.');
+});
+
+test('corrections recompute totals, the next starter and the 101 rule', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);
+  s = must(s, { type: 'edit', player: 1, values: { 1: 5 } }).state;
+  assert.deepEqual(s.game.players.map(p => p.score), [10, 5]);
+  assert.equal(s.game.next, 0);
+  assert.equal(E.apply(s, { type: 'edit', player: 1, values: { 1: 40 } }).error, 'pts');
+  assert.equal(E.apply(s, { type: 'edit', player: 1, values: { 1: 5 } }).error, 'no_change');
+  s = must(s, { type: 'nextround' }).state;
+  s = score(s, 30, 1); s = score(s, 0);
+  s = must(s, { type: 'edit', player: 0, values: { 1: 36, 2: 36 } }).state; // A 72 between rounds
+  s = must(s, { type: 'nextround' }).state;
+  s = score(s, 30, 1); s = score(s, 0);       // A 102 -> over
+  assert.equal(s.phase, 'over');
+  s = must(s, { type: 'edit', player: 0, values: { 3: 10 } }).state;        // back to 82 -> reopens
+  assert.equal(s.phase, 'roundEnd');
+  s = must(s, { type: 'undo' }).state;
+  assert.equal(s.phase, 'over');
+});
+
+test('ending early: the highest score loses and the game is marked early', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 12, 1); s = score(s, 3);
+  const r = must(s, { type: 'endearly' });
+  assert.equal(r.state.phase, 'over');
+  assert.equal(r.state.game.loser, 0);
+  assert.ok(r.state.game.early);
+});

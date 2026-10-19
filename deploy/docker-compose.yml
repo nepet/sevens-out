@@ -1,0 +1,23 @@
+# Option 5 on one small server: the game + Caddy for automatic HTTPS.
+# 1. Point a DNS name (e.g. game.example.com) at the server.
+# 2. Put that name in deploy/Caddyfile.
+# 3. docker compose -f deploy/docker-compose.yml up -d --build
+services:
+  game:
+    build: ..
+    restart: unless-stopped
+    environment:
+      ALLOWED_ORIGINS: ""          # e.g. "https://game.example.com,https://<owner>.github.io"
+    volumes:
+      - game-data:/data
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [game]
+volumes:
+  game-data:
+  caddy-data:
