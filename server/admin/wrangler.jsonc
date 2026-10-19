@@ -1,0 +1,15 @@
+{
+  // The owner's admin page (statistics). Deploy with `npm run admin:deploy`; set up Access first (docs/admin.md).
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sevens-out-admin",
+  "main": "worker.js",
+  "compatibility_date": "2025-09-01",
+  "d1_databases": [{ "binding": "STATS", "database_name": "sevens-out-stats", "database_id": "9d714305-77cc-4e55-b642-ba4c2900a657" }],
+  "vars": {
+    // Zero Trust team name (<team>.cloudflareaccess.com) and the Access application's audience tag (docs/admin.md)
+    "ACCESS_TEAM": "",
+    "ACCESS_AUD": ""
+  },
+  // ADMIN_EMAIL is a secret: npx wrangler secret put ADMIN_EMAIL -c server/admin/wrangler.jsonc
+  "observability": { "enabled": true }
+}
