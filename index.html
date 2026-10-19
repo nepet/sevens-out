@@ -1740,9 +1740,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // the phone's own game is saved here; online games live on the server
   function save(){
     if (online()) return;
-    if (state.phase === 'over') queueReport();
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-    if (state.phase === 'over') flushReports();
+    if (state.phase === 'over'){ try { queueReport(); flushReports(); } catch (e) {} } // statistics never break playing
   }
   function load(){
     try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.phase && s.setup) return s; } catch (e) {}
@@ -1754,11 +1753,19 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // the server checks it against the rules (server/core/stats.js checkReport) and keeps one record per game id.
   const REPORTS_KEY = 'sevens-out-reports', MAX_REPORTS = 20, MAX_SENT = 50;
   let reportSending = false;
-  function randomId(){ const b = new Uint8Array(8); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); }
+  function randomId(){
+    const b = new Uint8Array(8);
+    try { crypto.getRandomValues(b); } catch (e) { for (let i = 0; i < b.length; i++) b[i] = Math.floor(Math.random() * 256); }
+    return Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+  }
   function hashText(s){ let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h.toString(16); }
   function reportUrl(){ const b = serverBase(); return b ? b.replace(/^ws(s?):/, 'http$1:') + '/report' : ''; }
   function readReports(){
-    try { const r = JSON.parse(localStorage.getItem(REPORTS_KEY) || 'null'); if (r && Array.isArray(r.queue) && r.sent && typeof r.sent === 'object') return r; } catch (e) {}
+    try { const r = JSON.parse(localStorage.getItem(REPORTS_KEY) || 'null'); if (r && Array.isArray(r.queue) && r.sent && typeof r.sent === 'object'){
+        r.queue = r.queue.filter(q => q && typeof q.id === 'string' && typeof q.sig === 'string' && q.body && typeof q.body === 'object');
+        return r;
+      }
+    } catch (e) {}
     return { queue:[], sent:{} };
   }
   function writeReports(r){ try { localStorage.setItem(REPORTS_KEY, JSON.stringify(r)); } catch (e) {} }

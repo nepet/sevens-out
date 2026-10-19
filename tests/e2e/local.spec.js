@@ -227,4 +227,11 @@ test.describe('statistics', () => {
     expect(sent[1].id).toBe(sent[0].id);
     expect(sent[1].sheet.rounds[2].results[1].pts).toBe(6);
   });
+
+  test('damaged report storage does not stop a game from being saved', async ({ page }) => {
+    await page.addInitScript(() => { try { if (!localStorage.getItem('sevens-out-reports')) localStorage.setItem('sevens-out-reports', '{"queue":[null,5],"sent":{}}'); } catch (e) {} });
+    await page.route('**/report', route => route.fulfill({ status: 204 }));
+    await playShortGame(page);
+    expect((await saved(page)).phase).toBe('over');
+  });
 });
