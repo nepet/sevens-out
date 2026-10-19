@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
+import { fakeD1 } from './fake-d1.js';
 
 // resolve `cloudflare:workers` to a minimal DurableObject base class
 register('data:text/javascript,' + encodeURIComponent(`
@@ -32,6 +33,7 @@ function fakeCtx() {
     storage: {
       get: async k => structuredClone(kv.get(k)),
       put: async (k, v) => { kv.set(k, structuredClone(v)); },
+      delete: async k => { kv.delete(k); },
       deleteAll: async () => { kv.clear(); },
       setAlarm: async t => { ctx.alarm = t; }
     },
@@ -93,6 +95,72 @@ test('the cleanup alarm deletes rooms that have not been used for two weeks', as
   ctx.kv.set('room', room);
   const later = new GameRoom(ctx, {});
   await later.alarm();
+  assert.equal(ctx.kv.size, 0);
+});
+
+const DAY = 24 * 3600 * 1000;
+const gameRow = d1 => d1.raw.prepare('SELECT id, status, loser FROM games').all().map(r => ({ ...r }));
+async function startedGame(env) {
+  const ctx = fakeCtx(), obj = new GameRoom(ctx, env);
+  const a = await connect(obj, 'K7QPM'), b = await connect(obj, 'K7QPM');
+  await say(obj, a, { t: 'hello', name: 'Anna', create: true });
+  await say(obj, b, { t: 'hello', name: 'Ben' });
+  await say(obj, a, { t: 'lobby', op: 'start' });
+  return { ctx, obj, a, b };
+}
+const duePending = ctx => { const p = ctx.kv.get('pendingStats'); for (const e of Object.values(p)) e.at = 0; ctx.kv.set('pendingStats', p); };
+
+test('statistics: games go to D1, and a failed write is retried from the alarm', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  const { ctx, a } = await startedGame(env);
+  assert.deepEqual(gameRow(d1).map(r => r.status), ['playing']);
+
+  d1.down = true;
+  await say(new GameRoom(ctx, env), a, { t: 'act', action: { type: 'endearly' } });
+  assert.equal(last(a, 'room').state.phase, 'over', 'players see the result although D1 is down');
+  assert.equal(Object.keys(ctx.kv.get('pendingStats')).length, 1);
+  assert.ok(ctx.alarm <= Date.now() + 61_000, 'a retry is scheduled within a minute');
+
+  d1.down = false;
+  duePending(ctx);
+  const woken = new GameRoom(ctx, env); // after hibernation
+  await woken.alarm();
+  assert.deepEqual(gameRow(d1).map(r => r.status), ['over']);
+  assert.equal(ctx.kv.get('pendingStats'), undefined);
+  assert.ok(ctx.alarm > Date.now() + 13 * DAY, 'back to the expiry alarm');
+});
+
+test('statistics: an older record waiting for a retry never replaces a newer one', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  d1.down = true;
+  const { ctx, obj, a } = await startedGame(env);       // "playing" fails and waits
+  d1.down = false;
+  await say(obj, a, { t: 'act', action: { type: 'endearly' } }); // "over" is written
+  assert.equal(ctx.kv.get('pendingStats'), undefined, 'the newer record replaced the waiting one');
+  await obj.alarm();
+  assert.deepEqual(gameRow(d1).map(r => r.status), ['over']);
+});
+
+test('statistics: a write that keeps failing is given up after a day', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  d1.down = true;
+  const { ctx, obj } = await startedGame(env);
+  const p = ctx.kv.get('pendingStats');
+  for (const e of Object.values(p)) { e.at = 0; e.since = Date.now() - 25 * 3600 * 1000; }
+  ctx.kv.set('pendingStats', p);
+  await obj.alarm();
+  assert.equal(ctx.kv.get('pendingStats'), undefined);
+  assert.ok(ctx.kv.get('room'), 'the room itself is untouched');
+});
+
+test('statistics: an expired room with an unfinished game is recorded as abandoned, then deleted', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  const { ctx } = await startedGame(env);
+  const room = ctx.kv.get('room');
+  room.updated = Date.now() - 15 * DAY;
+  ctx.kv.set('room', room);
+  await new GameRoom(ctx, env).alarm();
+  assert.deepEqual(gameRow(d1).map(r => r.status), ['abandoned']);
   assert.equal(ctx.kv.size, 0);
 });
 

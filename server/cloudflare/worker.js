@@ -6,12 +6,19 @@
  *
  * The Durable Object uses the WebSocket Hibernation API, so an idle room costs nothing and survives
  * hibernation: each socket remembers its seat in its attachment, and the room data lives in storage.
+ *
+ * Statistics: when env.STATS (D1) is bound, each room records its games (server/core/stats.js);
+ * a failed write waits in the object's storage under `pendingStats` and is retried from the alarm.
  */
 import { DurableObject } from 'cloudflare:workers';
 import '../../engine.js';
 import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
+import { fromD1 } from '../d1/db.js';
+import { writeRecord } from '../d1/write.js';
 
 const E = globalThis.SevensEngine;
+
+const RETRY_FIRST_MS = 60_000, RETRY_MAX_MS = 3_600_000, RETRY_GIVE_UP_MS = 24 * 3_600_000;
 
 function originAllowed(request, env) {
   const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -39,7 +46,7 @@ export class GameRoom extends DurableObject {
       get: () => ctx.storage.get('room'),
       put: async data => {
         await ctx.storage.put('room', data);
-        await ctx.storage.setAlarm(Date.now() + ROOM_TTL_MS + 60_000);
+        await this.scheduleAlarm();
       },
       remove: () => ctx.storage.deleteAll()
     };
@@ -50,7 +57,8 @@ export class GameRoom extends DurableObject {
       bind: (ws, seat) => ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), seat }),
       close: (ws, code, reason) => { try { ws.close(code, reason); } catch {} }
     };
-    this.room = new Room({ engine: E, storage, net });
+    const stats = env && env.STATS ? { record: rec => this.recordStats(rec) } : null;
+    this.room = new Room({ engine: E, storage, net, stats });
   }
 
   async fetch(request) {
@@ -78,10 +86,74 @@ export class GameRoom extends DurableObject {
     await this.room.closed(ws);
   }
 
-  // delete rooms nobody has used for two weeks
+  // the alarm retries waiting statistics and deletes rooms nobody has used for two weeks
   async alarm() {
+    if (this.env && this.env.STATS) await this.retryStats();
     await this.room.load();
-    if (!this.room.data || this.room.expired()) await this.ctx.storage.deleteAll();
-    else await this.ctx.storage.setAlarm(this.room.data.updated + ROOM_TTL_MS + 60_000);
+    if (this.room.data && !this.room.expired()) return this.scheduleAlarm();
+    if (this.room.data) {
+      await this.room.expire(); // an unfinished game counts as abandoned
+      await this.ctx.storage.delete('room');
+      this.room.data = null;
+    }
+    if (await this.ctx.storage.get('pendingStats')) return this.scheduleAlarm();
+    await this.ctx.storage.deleteAll();
+  }
+
+  // the earlier of: room expiry, the next statistics retry
+  async scheduleAlarm() {
+    const times = [];
+    const room = await this.ctx.storage.get('room');
+    if (room) times.push(room.updated + ROOM_TTL_MS + 60_000);
+    for (const e of Object.values((await this.ctx.storage.get('pendingStats')) || {})) times.push(e.at);
+    if (times.length) await this.ctx.storage.setAlarm(Math.min(...times));
+  }
+
+  // ----- statistics -----
+  // writes run one after another, so an older record never lands after a newer one
+  serialStats(fn) {
+    const run = (this.statsChain || Promise.resolve()).then(fn);
+    this.statsChain = run.catch(() => {});
+    return run;
+  }
+  async updatePending(fn) {
+    const p = (await this.ctx.storage.get('pendingStats')) || {};
+    fn(p);
+    if (Object.keys(p).length) await this.ctx.storage.put('pendingStats', p);
+    else await this.ctx.storage.delete('pendingStats');
+  }
+  recordStats(rec) {
+    return this.serialStats(async () => {
+      const id = rec.game.id;
+      try {
+        await writeRecord(fromD1(this.env.STATS), rec);
+        await this.updatePending(p => { delete p[id]; });
+      } catch (err) {
+        console.error('stats write failed', err);
+        const now = Date.now();
+        await this.updatePending(p => {
+          const old = p[id];
+          p[id] = { rec, since: old ? old.since : now, tries: old ? old.tries : 0, at: now + RETRY_FIRST_MS };
+        });
+        await this.scheduleAlarm();
+      }
+    });
+  }
+  retryStats() {
+    return this.serialStats(async () => {
+      const now = Date.now(), p = (await this.ctx.storage.get('pendingStats')) || {};
+      for (const [id, e] of Object.entries(p)) {
+        if (e.at > now) continue;
+        try {
+          await writeRecord(fromD1(this.env.STATS), e.rec);
+          delete p[id];
+        } catch (err) {
+          if (now - e.since > RETRY_GIVE_UP_MS) { console.error('stats: giving up on game', id, err); delete p[id]; continue; }
+          e.tries++;
+          e.at = now + Math.min(RETRY_FIRST_MS * 2 ** e.tries, RETRY_MAX_MS);
+        }
+      }
+      await this.updatePending(q => { for (const k of Object.keys(q)) delete q[k]; Object.assign(q, p); });
+    });
   }
 }
