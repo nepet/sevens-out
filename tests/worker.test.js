@@ -164,4 +164,23 @@ test('statistics: an expired room with an unfinished game is recorded as abandon
   assert.equal(ctx.kv.size, 0);
 });
 
+test('statistics: a waiting write survives the room being removed when everyone leaves', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  const { ctx, obj, a, b } = await startedGame(env);
+  d1.down = true;
+  await say(obj, a, { t: 'act', action: { type: 'endearly' } });
+  d1.down = false; // only the later steps matter now; the waiting write stays until the alarm
+  await say(obj, a, { t: 'lobby', op: 'reopen' });
+  await say(obj, a, { t: 'lobby', op: 'leave' });
+  await say(obj, b, { t: 'lobby', op: 'leave' });
+  assert.equal(ctx.kv.has('room'), false, 'the room is gone');
+  assert.equal(Object.keys(ctx.kv.get('pendingStats')).length, 1, 'the waiting write is kept');
+  assert.ok(ctx.alarm <= Date.now() + 61_000, 'a retry is scheduled');
+
+  duePending(ctx);
+  await new GameRoom(ctx, env).alarm();
+  assert.deepEqual(gameRow(d1).map(r => r.status), ['over']);
+  assert.equal(ctx.kv.size, 0);
+});
+
 test.after(() => { globalThis.Response = NodeResponse; });

@@ -48,7 +48,12 @@ export class GameRoom extends DurableObject {
         await ctx.storage.put('room', data);
         await this.scheduleAlarm();
       },
-      remove: () => ctx.storage.deleteAll()
+      // statistics still waiting for a retry outlive the room; the alarm cleans up afterwards
+      remove: async () => {
+        await ctx.storage.delete('room');
+        if (await ctx.storage.get('pendingStats')) await this.scheduleAlarm();
+        else await ctx.storage.deleteAll();
+      }
     };
     const net = {
       send: (ws, msg) => { try { ws.send(JSON.stringify(msg)); } catch {} },
