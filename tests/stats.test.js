@@ -139,6 +139,8 @@ test('broken or made-up reports are refused', () => {
   refused(edit(d, r => { r.startedAt = r.finishedAt + 1; }), 'started after it finished');
   refused(edit(d, (r, sh) => { sh.players = ['Solo']; }), 'one player');
   refused(edit(d, (r, sh) => { sh.players[0] = '   '; }), 'empty name');
+  refused(edit(d, (r, sh) => { sh.players[0] = { toString: 1 }; }), 'name is an object');
+  refused(edit(d, (r, sh) => { sh.players[0] = 12345; }), 'name is a number');
   refused(edit(d, (r, sh) => { sh.rounds[1].starter = (sh.rounds[1].starter + 1) % sh.players.length; }), 'wrong starter');
   refused(edit(d, (r, sh) => { const rd = sh.rounds[0], p = (rd.starter + 1) % sh.players.length; rd.results[p].rolls = rd.mark + 1; }), 'rolls over the limit');
   refused(edit(d, (r, sh) => { sh.rounds[0].mark = 9; }), 'limit does not match the starter');

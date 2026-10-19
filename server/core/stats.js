@@ -80,6 +80,7 @@ export function checkReport(r, E, now = Date.now()) {
   if (!isObj(sh) || !Array.isArray(sh.players) || !Array.isArray(sh.rounds) || !Array.isArray(sh.shots)) return bad('sheet');
   const n = sh.players.length;
   if (n < 2 || n > E.MAX_PLAYERS) return bad('players');
+  if (sh.players.some(nm => typeof nm !== 'string')) return bad('names');
   const names = sh.players.map(cleanName);
   if (names.some(nm => !nm)) return bad('names');
   if (sh.rounds.length < 1 || sh.rounds.length > MAX_ROUNDS) return bad('rounds');
