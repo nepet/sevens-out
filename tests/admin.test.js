@@ -73,6 +73,10 @@ test('on the internet only the owner gets in', async () => {
   assert.equal((await handle(live(), env, deps)).status, 403, 'dev mode does not count off 127.0.0.1');
   assert.equal((await handle(live({ 'Cf-Access-Jwt-Assertion': await token('someone@example.com') }), env, deps)).status, 403);
   assert.equal((await handle(live({ 'Cf-Access-Jwt-Assertion': await token(OWNER) }), env, deps)).status, 200);
+  const pasted = { ...env, ADMIN_EMAIL: 'owner@example.com\n' }; // a secret pasted with a line break
+  assert.equal((await handle(live({ 'Cf-Access-Jwt-Assertion': await token(OWNER) }), pasted, deps)).status, 200);
+  const blank = await handle(live({ 'Cf-Access-Jwt-Assertion': await token(OWNER) }), { ...env, ADMIN_EMAIL: ' \n' }, deps);
+  assert.equal(blank.status, 500, 'a blank ADMIN_EMAIL is missing configuration');
   const unconfigured = await handle(live({ 'Cf-Access-Jwt-Assertion': await token(OWNER) }), { STATS: env.STATS }, deps);
   assert.equal(unconfigured.status, 500);
   const noKeys = await handle(live({ 'Cf-Access-Jwt-Assertion': await token(OWNER) }), env, { keys: async () => { throw new Error('down'); } });

@@ -23,11 +23,12 @@ const text = (body, status) => new Response(body, { status, headers: { ...SECURI
 async function signIn(request, env, keys) {
   const host = new URL(request.url).hostname;
   if (env.ADMIN_DEV_NO_ACCESS === '1' && (host === '127.0.0.1' || host === 'localhost')) return null;
-  if (!env.ACCESS_TEAM || !env.ACCESS_AUD || !env.ADMIN_EMAIL) return text('The admin page is not set up yet. See docs/admin.md.', 500);
+  const owner = (env.ADMIN_EMAIL || '').trim().toLowerCase(); // a pasted secret may end in a line break
+  if (!env.ACCESS_TEAM || !env.ACCESS_AUD || !owner) return text('The admin page is not set up yet. See docs/admin.md.', 500);
   let jwks;
   try { jwks = await keys(env.ACCESS_TEAM); } catch (err) { console.error('access keys', err); return text('Sign-in is unavailable. Try again in a minute.', 503); }
   const r = await verifyAccess(request.headers.get('Cf-Access-Jwt-Assertion'), { team: env.ACCESS_TEAM, aud: env.ACCESS_AUD, keys: jwks });
-  if (!r.ok || !r.email || r.email.toLowerCase() !== env.ADMIN_EMAIL.toLowerCase()) return text('Forbidden', 403);
+  if (!r.ok || !r.email || r.email.toLowerCase() !== owner) return text('Forbidden', 403);
   return null;
 }
 

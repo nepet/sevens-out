@@ -146,3 +146,10 @@ test('filters, leaderboard, a score sheet and deleting a game', async ({ page, r
   await expect(page.locator('.tile[data-k=games] .v')).toHaveText('4');
   expect(await noSideScroll(page)).toBe(true);
 });
+
+test('when the API cannot be reached, the page says how to fix it', async ({ page }) => {
+  await page.route('**/api/**', route => route.abort('internetdisconnected'));
+  await page.goto(ADMIN);
+  await expect(page.locator('#activity .err')).toHaveText("Couldn't reach the admin page. Reload to sign in again.");
+  await expect(page.locator('#games .err')).toHaveText("Couldn't reach the admin page. Reload to sign in again.");
+});

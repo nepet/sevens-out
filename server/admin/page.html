@@ -134,7 +134,9 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 
   // ---------- loading ----------
   async function getJson(url, init) {
-    const res = await fetch(url, init);
+    let res;
+    // a network error, or an expired Access session redirecting the request to the sign-in page
+    try { res = await fetch(url, init); } catch (e) { throw new Error("Couldn't reach the admin page. Reload to sign in again."); }
     if (res.status === 403) throw new Error('You are signed out. Reload the page to sign in again.');
     if (!res.ok) throw new Error(`Could not load this (error ${res.status}). Try again.`);
     return res.status === 204 ? null : res.json();
