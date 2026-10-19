@@ -173,6 +173,7 @@ export class Room {
     const d = this.data, me = this.net.seatOf(conn);
     if (!d || !me) return this.error(conn, 'not_seated', 'Join the room first.');
     const isHost = me === this.effectiveHost();
+    let abandoned = null; // recorded after the lobby change reaches everyone
     switch (m.op) {
       case 'settings': {
         if (!isHost) return this.error(conn, 'host_only', 'Only the host can change the settings.');
@@ -199,7 +200,7 @@ export class Room {
       }
       case 'reopen': {
         if (!isHost) return this.error(conn, 'host_only', 'Only the host can start a new game.');
-        if (d.phase === 'game' && d.state && d.state.phase !== 'over') await this.recordStats('abandoned');
+        if (d.phase === 'game' && d.state && d.state.phase !== 'over') abandoned = this.statsRecord('abandoned');
         d.phase = 'lobby'; d.state = null; d.stats = null;
         break;
       }
@@ -236,6 +237,7 @@ export class Room {
     d.rev++;
     await this.save();
     this.broadcast();
+    if (abandoned) await this.sendStats(abandoned);
   }
   fixStarter() {
     const d = this.data;
@@ -252,12 +254,21 @@ export class Room {
 
   // ----- statistics -----
   async recordStats(status) {
+    await this.sendStats(this.statsRecord(status));
+  }
+  // the record of the current game, or null; recording never breaks play
+  statsRecord(status) {
     const d = this.data;
-    if (!this.stats || !d || !d.stats || !d.state || !d.state.game) return;
-    const rec = summarize(d.state, {
-      id: d.stats.id, source: 'online', roomCode: d.code, startedAt: d.stats.startedAt,
-      finishedAt: status === 'over' ? this.now() : null, status
-    });
+    if (!this.stats || !d || !d.stats || !d.state || !d.state.game) return null;
+    try {
+      return summarize(d.state, {
+        id: d.stats.id, source: 'online', roomCode: d.code, startedAt: d.stats.startedAt,
+        finishedAt: status === 'over' ? this.now() : null, status
+      });
+    } catch (err) { console.error('stats', err); return null; }
+  }
+  async sendStats(rec) {
+    if (!rec) return;
     try { await this.stats.record(rec); } catch (err) { console.error('stats', err); }
   }
 }

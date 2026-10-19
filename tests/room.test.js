@@ -232,3 +232,14 @@ test('statistics: a failing adapter does not stop the game', async () => {
   await send(room, a, { t: 'act', action: { type: 'roll' } });
   assert.equal(last(b, 'room').state.game.turn.rolls, 1);
 });
+
+test('statistics: "New game" reaches everyone before the abandoned game is recorded', async () => {
+  const seen = [];
+  const stats = { record: async rec => { seen.push([rec.game.status, last(b, 'room').room.phase]); throw new Error('D1 is down'); } };
+  const { room, a, b } = await lobbyOf2({ stats });
+  await send(room, a, { t: 'lobby', op: 'start' });
+  await send(room, a, { t: 'lobby', op: 'reopen' });
+  assert.deepEqual(seen.at(-1), ['abandoned', 'lobby'], 'the lobby is shown first');
+  assert.equal(last(a, 'room').room.phase, 'lobby');
+  assert.equal(last(a, 'error'), undefined, 'a failing record does not abort the reopen');
+});
