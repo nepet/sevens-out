@@ -35,3 +35,14 @@ export function scoreGame(seed, n = 2 + (seed % 5)) {
   return s;
 }
 export { must };
+
+// a scoreboard game with chosen names: the first player starts every round with 36 and loses in round 3,
+// everyone else enters `others` points per turn
+export function quickGame(names, others = 5) {
+  let s = must(E.blank(), { type: 'start', names, starter: 0, mode: 'score' });
+  while (s.phase !== 'over') {
+    if (s.phase === 'roundEnd') { s = must(s, { type: 'nextround' }); continue; }
+    s = s.game.pos === 0 ? must(s, { type: 'score', pts: 36, rolls: 2 }) : must(s, { type: 'score', pts: others });
+  }
+  return s;
+}
