@@ -4,12 +4,13 @@
   "type": "module",
   "description": "Sevens Out dice game: static page + room server (Cloudflare Durable Object or Node).",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "dev": "node server/node/server.js",
     "test": "npm run test:unit && npm run test:e2e",
-    "test:unit": "node --test tests/engine.test.js tests/room.test.js tests/node-server.test.js tests/worker.test.js",
+    "test:unit": "node --test tests/engine.test.js tests/room.test.js tests/node-server.test.js tests/worker.test.js tests/d1.test.js",
+    "db:schema": "wrangler d1 execute sevens-out-stats --remote -c server/cloudflare/wrangler.jsonc --file server/d1/schema.sql",
     "test:e2e": "playwright test",
     "test:worker": "TARGET=worker playwright test tests/e2e/online.spec.js",
     "worker:dev": "wrangler dev -c server/cloudflare/wrangler.jsonc",
