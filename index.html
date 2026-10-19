@@ -1740,8 +1740,11 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // the phone's own game is saved here; online games live on the server
   function save(){
     if (online()) return;
+    // statistics never break playing; queueReport runs first because it may give an old save its id, which is saved with it
+    let report = false;
+    if (state.phase === 'over'){ try { queueReport(); report = true; } catch (e) {} }
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
-    if (state.phase === 'over'){ try { queueReport(); flushReports(); } catch (e) {} } // statistics never break playing
+    if (report){ try { flushReports(); } catch (e) {} }
   }
   function load(){
     try { const s = JSON.parse(localStorage.getItem(KEY) || 'null'); if (s && s.phase && s.setup) return s; } catch (e) {}

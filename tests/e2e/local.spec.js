@@ -228,6 +228,28 @@ test.describe('statistics', () => {
     expect(sent[1].sheet.rounds[2].results[1].pts).toBe(6);
   });
 
+  test('a game saved before reports existed is sent under one id, however often the page loads', async ({ page }) => {
+    const sent = [];
+    await page.route('**/report', async route => { sent.push(route.request().postDataJSON()); await route.fulfill({ status: 204 }); });
+    await playShortGame(page);
+    await expect.poll(() => sent.length).toBe(1);
+    // turn it into an old save: no stats id, and nothing reported yet
+    await page.evaluate(() => {
+      const s = JSON.parse(localStorage.getItem('sevens-out-v1'));
+      delete s.stats;
+      localStorage.setItem('sevens-out-v1', JSON.stringify(s));
+      localStorage.removeItem('sevens-out-reports');
+    });
+    sent.length = 0;
+    for (let i = 0; i < 3; i++) {
+      await page.reload();
+      await page.waitForLoadState('networkidle');
+    }
+    expect(sent.length).toBeGreaterThan(0);
+    expect(new Set(sent.map(r => r.id)).size).toBe(1);
+    expect((await saved(page)).stats.id).toBe(sent[0].id);
+  });
+
   test('damaged report storage does not stop a game from being saved', async ({ page }) => {
     await page.addInitScript(() => { try { if (!localStorage.getItem('sevens-out-reports')) localStorage.setItem('sevens-out-reports', '{"queue":[null,5],"sent":{}}'); } catch (e) {} });
     await page.route('**/report', route => route.fulfill({ status: 204 }));
