@@ -68,6 +68,32 @@ test.describe('dice mode', () => {
     await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
     expect((await saved(page)).game.players[0].score).toBe(13);       // the 2 and 5 were missed
   });
+
+  test('a missed 7-pair gets the "Need glasses?" joke, rolled away or left on the table', async ({ page, context }) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(String(e)));
+    await fixDice(context, [1, 6, 2, 5, 3, 3, 4, 3, 1, 1]);
+    await startLocal(page);
+    await page.click('[data-act=roll]');
+    await page.click('.dice [data-act=die][data-id="0"]'); await page.click('.dice [data-act=die][data-id="1"]'); // the 1 + 6 is found
+    await expect(page.locator('.miss')).toHaveCount(0);
+    await page.click('[data-act=roll]');                                // the 2 + 5 is not
+    await expect(page.locator('.miss')).toContainText('Need glasses?');
+    await expect(page.locator('.miss-sub')).toHaveText('Anna rolled away 2 + 5.');
+    expect(await page.locator('.miss-die').evaluateAll(ds => ds.map(d => d.querySelectorAll('.pip').length))).toEqual([2, 5]);
+    // taps go through the joke to the game, and a new one replaces it
+    await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+    await expect(page.locator('.miss')).toHaveCount(1);
+    await expect(page.locator('.miss-sub')).toHaveText("Anna left 4 + 3 on the table. That's 7 extra points.");
+    expect((await saved(page)).game.players[0].score).toBe(4 + 3 + 1 + 1);
+    await page.click('[data-act=roll]');                                // Ben's roll clears it
+    await expect(page.locator('.miss')).toHaveCount(0);
+    await page.click('[data-fold=dev] summary');
+    await page.click('[data-act=devmiss]');                             // the developer menu can play it too
+    await expect(page.locator('.miss-sub')).toContainText('Ben left 2 + 5 on the table');
+    await expect(page.locator('.miss')).toHaveCount(0, { timeout: 5000 }); // and it goes by itself
+    expect(errors).toEqual([]);
+  });
 });
 
 test('after a roll the dice lie still, then the 7-pairs fly out one by one and Sevens Out celebrates', async ({ page, context }) => {

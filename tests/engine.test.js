@@ -55,11 +55,16 @@ test('random dice games follow every rule, with the 7s found by hand or by the a
       const t = s.game.turn;
       // by hand, the player spots most pairs but now and then misses one
       const seen = pairing === 'manual' && t.rolls > 0 ? E.matchPairs(t).filter(() => rng() > 1) : [];
+      // rolling on or stopping with a 7-pair still on the table is called out, by hand only
+      const left7 = pairing === 'manual' ? E.matchPairs(t).map(([a, b]) => [t.dice[a].value, t.dice[b].value]) : [];
+      const missed = (r, how) => assert.deepEqual(r.events.filter(e => e.type === 'missed'),
+        left7.length ? [{ type: 'missed', player: E.current(s.game), how, pairs: left7 }] : [], `missed on ${how}`);
       if (seen.length) s = must(s, { type: 'pair', a: seen[0][0], b: seen[0][1] }).state;
-      else if (t.rolls === 0 || (E.canRoll(t) && rng() > 2)) s = must(s, { type: 'roll' }, { rng }).state;
+      else if (t.rolls === 0 || (E.canRoll(t) && rng() > 2)) { const r = must(s, { type: 'roll' }, { rng }); missed(r, 'roll'); s = r.state; }
       else {
         const left = E.sumActive(t), r = must(s, { type: 'stop' });
         assert.equal(r.events.find(e => e.type === 'turn').pts, pairing === 'manual' ? left : E.finalPenalty(t), 'what stays on the table counts');
+        missed(r, 'stop');
         s = r.state;
       }
     }
@@ -106,6 +111,31 @@ test('by default the 7s are found by hand, and a missed pair counts when the pla
   s = must(r.state, { type: 'pair', a: 0, b: 1 }).state;
   s = must(s, { type: 'stop' }).state;
   assert.equal(s.game.players[0].score, 2 + 5 + 3 + 3, 'the 2 and 5 were missed');
+});
+
+test('by hand, a 7-pair left on the table is called out when the player rolls on or stops', () => {
+  let s = start(2);
+  let r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 5, 3, 3]) });
+  assert.ok(!r.events.some(e => e.type === 'missed'), 'nothing to miss before the first roll');
+  s = must(r.state, { type: 'pair', a: 0, b: 1 }).state;
+  r = must(s, { type: 'roll' }, { rng: faces([4, 1, 3, 6]) });
+  assert.deepEqual(r.events.map(e => e.type), ['missed', 'rolled'], 'called out before the dice are rolled away');
+  assert.deepEqual(r.events[0], { type: 'missed', player: 0, how: 'roll', pairs: [[2, 5]] });
+  r = must(r.state, { type: 'stop' });
+  assert.deepEqual(r.events[0], { type: 'missed', player: 0, how: 'stop', pairs: [[4, 3], [1, 6]] });
+  assert.equal(r.state.game.players[0].score, 14, 'the missed pairs still count');
+  s = must(r.state, { type: 'roll' }, { rng: faces([1, 1, 3, 3, 4, 2]) }).state;
+  s = must(s, { type: 'pair', a: 2, b: 4 }).state;
+  r = must(s, { type: 'stop' });
+  assert.ok(!r.events.some(e => e.type === 'missed'), 'nothing left that makes 7');
+});
+
+test('nothing is called missed when the app finds the 7s, or in an old save', () => {
+  for (const s of [start(2, 0, 'dice', 'auto'), (() => { const o = start(2); delete o.game.pairing; return o; })()]) {
+    const r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 5, 3, 3]) });
+    const u = must(r.state, { type: 'unpair', index: 0 });
+    for (const a of [{ type: 'roll' }, { type: 'stop' }]) assert.ok(!must(u.state, a, { rng: faces([2, 2]) }).events.some(e => e.type === 'missed'), a.type);
+  }
 });
 
 test('by hand, setting aside all three pairs is a Sevens Out', () => {

@@ -112,6 +112,11 @@
 
   // ---------- internal mutators (work on a private copy) ----------
   function hold(t, a, b) { t.dice[a].held = t.rolls; t.dice[b].held = t.rolls; t.pairs.push({ a, b, roll: t.rolls }); }
+  // by hand, rolling on or stopping with a 7-pair still on the table misses it (the page makes fun of that)
+  function checkMissed(g, ev, how) {
+    const t = g.turn, ps = byHand(g) ? matchPairs(t) : [];
+    if (ps.length) ev.push({ type: 'missed', player: current(g), how, pairs: ps.map(([a, b]) => [t.dice[a].value, t.dice[b].value]) });
+  }
   function checkCleared(s, ev) {
     const g = s.game, t = g.turn;
     if (t.rolls > 0 && active(t).length === 0 && !t.cleared) {
@@ -175,7 +180,7 @@
   // ---------- the reducer ----------
   /**
    * apply(state, action, { rng }) -> { state, events } on success, { error, state } when the action isn't allowed.
-   * Events describe what happened, so a screen can animate it: rolled, paired, unpaired, sevensOut, turn,
+   * Events describe what happened, so a screen can animate it: rolled, paired, unpaired, missed, sevensOut, turn,
    * roundEnd, gameOver, dropped, shots, undone, edited, started, ended.
    */
   function apply(state, action, opts) {
@@ -202,6 +207,7 @@
       case 'roll': {
         if (!inPlay || isScore(g)) return fail('phase');
         if (!canRoll(t)) return fail('no_rolls');
+        checkMissed(g, ev, 'roll');
         active(t).forEach(d => { d.value = rng(); });
         t.rolls++;
         const auto = action.auto === false || byHand(g) ? [] : matchPairs(t);
@@ -241,6 +247,7 @@
         if (!inPlay || isScore(g) || !t.rolls) return fail('phase');
         // a pair the player missed counts against them when they find the 7s by hand
         if (!byHand(g)) matchPairs(t).forEach(([a, b]) => hold(t, a, b));
+        else checkMissed(g, ev, 'stop');
         checkCleared(s, ev);
         recordTurn(s, sumActive(t), t.rolls, ev);
         break;

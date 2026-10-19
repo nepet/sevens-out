@@ -71,6 +71,39 @@ test.describe('dice in the app', () => {
     await A.ctx.close(); await B.ctx.close();
   });
 
+  test('every phone gets the joke when a player misses a 7-pair', async ({ browser }) => {
+    const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
+    const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+    await A.page.click('[data-act=ostart]');
+    await expect(A.page.locator('[data-act=roll]')).toBeVisible();
+    // the server rolls, so keep rolling until a 7-pair turns up, then stop without setting it aside
+    const act = async (P, sel) => {
+      const rev = (await net(P.page)).rev;
+      await P.page.click(sel);
+      for (const Q of [A, B]) await expect.poll(async () => (await net(Q.page)).rev).toBeGreaterThan(rev);
+    };
+    let who = null, pairs = null;
+    for (let i = 0; i < 20 && !who; i++) {
+      const P = (await A.page.locator('.turn .actions [data-act]').count()) ? A : B; // only the player whose turn it is has buttons
+      const t = (await live(P.page)).game.turn;
+      const found = await P.page.evaluate(() => SevensEngine.matchPairs(SevensDebug.state.game.turn));
+      if (!t.rolls) await act(P, '[data-act=roll]');
+      else if (found.length) {
+        who = P; pairs = found.map(([a, b]) => [t.dice[a].value, t.dice[b].value]);
+        if (await P.page.locator('[data-act=stop]').count()) { await P.page.click('[data-act=stop]'); await act(P, '[data-act=stop]'); }
+        else await act(P, '[data-act=end]');
+      } else if (await P.page.locator('[data-act=roll]').count()) await act(P, '[data-act=roll]');
+      else await act(P, '[data-act=end]');
+    }
+    expect(who).not.toBeNull();
+    const other = who === A ? B : A, name = who === A ? 'Anna' : 'Ben';
+    const what = pairs.map(([a, b]) => `${a} + ${b}`);
+    await expect(who.page.locator('.miss-sub')).toContainText(`You left ${what[0]}`);
+    await expect(other.page.locator('.miss-sub')).toContainText(`${name} left ${what[0]}`);
+    for (const P of [A, B]) expect(await P.page.locator('.miss-die').evaluateAll(ds => ds.map(d => d.querySelectorAll('.pip').length))).toEqual(pairs[0]);
+    await A.ctx.close(); await B.ctx.close();
+  });
+
   test('the host can play for a player who went offline', async ({ browser }) => {
     const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
     const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });

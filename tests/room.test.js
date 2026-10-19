@@ -85,6 +85,18 @@ test('only the host starts, and the server rolls the dice for the player whose t
   assert.ok(after.state.game.turn.dice.every(d => d.value >= 1 && d.value <= 6));
 });
 
+test('a missed 7-pair is shown on every phone', async () => {
+  const { room, a, b } = await lobbyOf2();
+  await send(room, a, { t: 'lobby', op: 'start' });
+  // the server rolls 1 6 2 5 3 3 (byte b gives face b % 6 + 1)
+  const orig = crypto.getRandomValues, seq = [0, 5, 1, 4, 2, 2];
+  crypto.getRandomValues = arr => { arr[0] = seq.shift(); return arr; };
+  try { await send(room, a, { t: 'act', action: { type: 'roll' } }); } finally { crypto.getRandomValues = orig; }
+  await send(room, a, { t: 'act', action: { type: 'pair', a: 0, b: 1 } });
+  await send(room, a, { t: 'act', action: { type: 'stop' } });
+  for (const c of [a, b]) assert.deepEqual(last(c, 'room').events[0], { type: 'missed', player: 0, how: 'stop', pairs: [[2, 5]] });
+});
+
 test('a full online game reaches the end with both phones in sync', async () => {
   const { room, a, b } = await lobbyOf2({ mode: 'score' });
   await send(room, a, { t: 'lobby', op: 'start' });

@@ -283,6 +283,30 @@ td.st::before{margin-right:6px}
 @keyframes quake{0%,100%{transform:none}10%{transform:translate(-9px,5px) rotate(-1deg)}20%{transform:translate(8px,-6px) rotate(1deg)}30%{transform:translate(-7px,-4px)}40%{transform:translate(6px,6px) rotate(.6deg)}50%{transform:translate(-5px,3px)}60%{transform:translate(4px,-3px)}70%{transform:translate(-3px,2px)}80%{transform:translate(2px,-1px)}}
 @media (prefers-reduced-motion:reduce){.doom,.doom *,#app.quake{animation-duration:.01s!important;animation-delay:0s!important}}
 
+/* a missed 7: the two dice wave, a pair of glasses drops onto them and the table is asked if it needs glasses */
+.miss{position:fixed;inset:0;z-index:48;display:grid;place-items:center;padding-inline:16px;pointer-events:none;background:var(--shade);animation:doom-in .25s ease-out both}
+.miss.out{animation:doom-out .45s ease-in both}
+.miss.out .miss-card{animation:plaque-out .45s ease-in both}
+.miss-card{--u:min(1.1px,calc((100vw - 100px) / 260));max-width:100%;gap:6px}
+.miss-look{position:relative;width:calc(260 * var(--u));height:calc(124 * var(--u));margin-bottom:6px;animation:tsk .3s ease-in-out 1.75s 2}
+@keyframes tsk{25%{rotate:-5deg}75%{rotate:5deg}}
+.miss-die{--die:calc(60 * var(--u));position:absolute;top:calc(32 * var(--u));left:calc(44 * var(--u));animation:hop .3s ease-in-out calc(.3s + var(--k) * .15s) 2,magnify .35s cubic-bezier(.2,1.6,.4,1) 1.2s both}
+.miss-die+.miss-die{left:calc(156 * var(--u))}
+@keyframes hop{50%{translate:0 calc(-18 * var(--u));rotate:calc(12deg - var(--k) * 24deg)}}
+@keyframes magnify{from{scale:1}to{scale:1.16}}
+.miss-specs{position:absolute;inset:0;width:100%;height:100%;overflow:visible;animation:specs-drop .55s cubic-bezier(.3,1.25,.5,1) .75s both}
+@keyframes specs-drop{0%{translate:0 -260%;rotate:-18deg;opacity:0}30%{opacity:1}72%{translate:0 5%;rotate:3deg;scale:1.07 .88}100%{translate:0 0;rotate:0deg;scale:1;opacity:1}}
+.miss-specs .rim{fill:none;stroke:var(--on-leather);stroke-width:15;stroke-linecap:round}
+.miss-specs .frame{fill:none;stroke:var(--pip);stroke-width:9;stroke-linecap:round}
+.miss-specs .frame circle{fill:var(--card);fill-opacity:.14}
+.miss-specs .glint{fill:none;stroke:var(--on-leather);stroke-width:5;stroke-linecap:round;animation:glint .5s ease-out 1.3s both}
+@keyframes glint{from{opacity:0}to{opacity:.85}}
+.miss-title .w{display:inline-block;white-space:nowrap}
+.miss-title .w span{display:inline-block;animation:slam .45s cubic-bezier(.2,1.7,.4,1) calc(1.25s + var(--i) * 45ms) both}
+.miss-sub{max-width:30ch;text-wrap:balance;animation:rise .45s ease-out 1.8s both}
+.miss-sub b{color:var(--stitch)}
+@media (prefers-reduced-motion:reduce){.miss,.miss *{animation-duration:.01s!important;animation-delay:0s!important;animation-iteration-count:1!important}}
+
 /* online play */
 .you{font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--brass);margin-left:4px;vertical-align:middle}
 .who .you{font-family:var(--font-body);font-size:.8rem}
@@ -393,7 +417,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   applyLook();
 
   let state = blank();
-  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, doom:null, edit:null, editVals:{} };
+  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, doom:null, missed:null, edit:null, editVals:{} };
 
   function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice', pairing:'manual' }, game:null }; }
   const isScore = g => !!g && g.mode === 'score';
@@ -680,6 +704,34 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         tone(t, f, 0.5, 'sine', 0.07); tone(t, f * 2.32, 0.3, 'sine', 0.03);
       }
     }
+    // ---- a missed 7: the sad trombone, wah wah wah waaah ----
+    function wah(t, freq, dur, last){
+      const f = ctx.createBiquadFilter(), g = ctx.createGain();
+      // the mute opening and closing over each note gives the "wah"
+      f.type = 'lowpass'; f.Q.value = 7;
+      f.frequency.setValueAtTime(280, t); f.frequency.exponentialRampToValueAtTime(1500, t + 0.12); f.frequency.exponentialRampToValueAtTime(480, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t + 0.05);
+      g.gain.setValueAtTime(0.3, t + dur - 0.12); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      f.connect(g); g.connect(master);
+      [1, 1.006].forEach(det => {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.setValueAtTime(freq * det * 1.05, t); o.frequency.exponentialRampToValueAtTime(freq * det, t + 0.08);
+        if (last){
+          // the long last note wobbles and droops
+          o.frequency.setValueAtTime(freq * det, t + dur - 0.35); o.frequency.exponentialRampToValueAtTime(freq * det * 0.9, t + dur);
+          const lfo = ctx.createOscillator(), depth = ctx.createGain();
+          lfo.frequency.value = 5.5; depth.gain.setValueAtTime(0, t); depth.gain.linearRampToValueAtTime(freq * 0.035, t + 0.4);
+          lfo.connect(depth); depth.connect(o.frequency); lfo.start(t); lfo.stop(t + dur + 0.05);
+        }
+        o.connect(f); o.start(t); o.stop(t + dur + 0.05);
+      });
+    }
+    function trombone(){
+      const c = get(); if (!c) return;
+      const t0 = c.currentTime + 0.3;
+      [[196, 0, 0.36], [185, 0.42, 0.36], [174.6, 0.84, 0.36], [164.8, 1.26, 1.3]].forEach(([f, d, dur], i) => wah(t0 + d, f, dur, i === 3));
+    }
     function jackpot(){
       const c = get(); if (!c) return;
       const t0 = c.currentTime + 0.04;
@@ -706,7 +758,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       unlock(){ try { get(); } catch (e) {} },
       jackpot(){ try { jackpot(); } catch (e) {} },
       bandit(){ try { bandit(); } catch (e) {} },
-      doom(){ try { doom(); } catch (e) {} }
+      doom(){ try { doom(); } catch (e) {} },
+      trombone(){ try { trombone(); } catch (e) {} }
     };
   })();
   // browsers only allow audio after a tap; wake the audio engine on every interaction
@@ -811,6 +864,39 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     fx.banner('Sevens out!', `${name} cleared all six dice`);
     playSound();
     if (!reduceMotion) fx.burst(document.querySelector('.tray'));
+  }
+
+  // ---------- a missed 7: every phone at the table gets to laugh ----------
+  const SPECS_SHAPE = '<circle cx="74" cy="62" r="50"/><circle cx="186" cy="62" r="50"/><path d="M124 54q6-12 12 0M24 50L4 40M236 50l20-10"/>';
+  const SPECS = `<svg class="miss-specs" viewBox="0 0 260 124" aria-hidden="true"><g class="rim">${SPECS_SHAPE}</g><g class="frame">${SPECS_SHAPE}</g>
+      <path class="glint" d="M44 50a34 34 0 0 1 20-22M156 50a34 34 0 0 1 20-22"/></svg>`;
+  // m: { name, me, how: 'roll' | 'stop', pairs: [[a, b], ..] } from the engine's missed event
+  function showMissed(m){
+    if (!m.pairs || !m.pairs.length) return;
+    if (soundMode !== 'off') sound.trombone();
+    document.querySelectorAll('.miss').forEach(n => n.remove());
+    const list = m.pairs.map(([a, b]) => `${a} + ${b}`);
+    const what = list.length === 1 ? list[0] : list.slice(0, -1).join(', ') + ' and ' + list[list.length - 1];
+    const who = `<b>${esc(m.me ? 'You' : m.name)}</b>`;
+    const sub = m.how === 'roll' ? `${who} rolled away ${what}.` : `${who} left ${what} on the table. That's ${7 * m.pairs.length} extra points.`;
+    let i = 0;
+    const title = 'Need glasses?'.split(' ')
+      .map(w => `<span class="w">${[...w].map(ch => `<span style="--i:${i++}">${esc(ch)}</span>`).join('')}</span>`).join(' ');
+    const el = document.createElement('div');
+    el.className = 'miss'; el.setAttribute('role', 'status');
+    el.innerHTML = `<div class="fx-plaque marquee miss-card">
+      <div class="miss-look" aria-hidden="true">${m.pairs[0].map((v, k) => `<span class="die miss-die" style="--k:${k}">${face(v)}</span>`).join('')}${SPECS}</div>
+      <span class="sr">Need glasses? </span><span class="fx-title miss-title" aria-hidden="true">${title}</span>
+      <span class="fx-sub miss-sub">${sub}</span></div>`;
+    document.body.appendChild(el);
+    setTimeout(() => dropMissed(el), 3200);
+  }
+  // taps go through to the game; the next roll clears the joke so nobody's new dice are hidden
+  function dropMissed(only){
+    document.querySelectorAll('.miss:not(.out)').forEach(el => {
+      if (only && el !== only) return;
+      el.classList.add('out'); setTimeout(() => el.remove(), 450);
+    });
   }
 
   // ---------- rules: engine.js ----------
@@ -1004,6 +1090,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         case 'started': resetUi(); break;
         case 'turn': resetInputs(); break;
         case 'rolled': {
+          dropMissed();
           if (E.byHand(g)){ ui.hint = null; break; }
           const t = g.turn, n = e.auto.length, left = active(t).length;
           if (!left) ui.hint = 'All six dice are out. Nothing counts against you.';
@@ -1017,6 +1104,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         }
         case 'unpaired': ui.selected = null; ui.hint = `${e.values[0]} and ${e.values[1]} are back on the table and will be rolled again.`; break;
         case 'sevensOut': ui.celebrate = nm(e.player); break;
+        case 'missed': ui.missed = { name:nm(e.player), me:isMe(e.player), how:e.how, pairs:e.pairs }; break;
         case 'dropped': ui.hint = `${nm(e.player)} dropped a die. ${e.drops} of 3 on the floor.`; break;
         case 'shots': ui.doom = nm(e.player); ui.hint = `${nm(e.player)} pays a round of shots.`; break;
         case 'undone': resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
@@ -1464,9 +1552,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       ? `<div class="confirm"><span>End the game now? The highest score loses${state.phase === 'play' ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
     return `<details class="fold" data-fold="dev"${ui.open.dev ? ' open' : ''}><summary>Developer</summary>
-      <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
+      <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button><button class="btn ghost" data-act="devmiss">Play missed 7</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
       ${confirm}
-      <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
+      <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor. Play missed 7 shows what everyone sees when a player rolls on or stops with a 7-pair still on the table.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
   }
 
   function footer(){
@@ -1487,7 +1575,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // ---------- animations ----------
   let tumbleTimer = null;
   function startTumble(){
-    stopTumble();
+    stopTumble(); dropMissed();
     tumbleTimer = setInterval(() => { $app.querySelectorAll('[data-tumble]').forEach(el => { el.innerHTML = face(rnd6()); }); }, 70);
   }
   function stopTumble(){ if (tumbleTimer){ clearInterval(tumbleTimer); tumbleTimer = null; } }
@@ -1562,7 +1650,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function handle(a, id, el){
     const g = state.game;
     // while pairs are flying out, only settings and the developer buttons respond
-    if ((ui.busy || ui.rolling) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'oleave', 'oleaveyes', 'oleaveno'].includes(a)) return;
+    if ((ui.busy || ui.rolling) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno'].includes(a)) return;
     ui.nope = null;
     if (a !== 'stop') ui.armed = null;
     if (a !== 'new') ui.confirmNew = false;
@@ -1615,6 +1703,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       }
       case 'esave': if (ui.edit != null) saveEdits(); break;
       case 'devdoom': showDoom(state.phase === 'play' && g ? pname(current(g)) : 'Test player'); break;
+      case 'devmiss': showMissed({ name:state.phase === 'play' && g ? pname(current(g)) : 'Test player', how:'stop', pairs:[[2, 5]] }); break;
       case 'stop': {
         const t = g.turn; if (!t.rolls || !canAct()) return;
         if (canRoll(t) && ui.armed !== 'stop'){
@@ -1755,6 +1844,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     save();
     if (ui.celebrate){ const nm = ui.celebrate; ui.celebrate = null; celebrate(nm); }
     if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }
+    if (ui.missed){ const m = ui.missed; ui.missed = null; showMissed(m); }
   }
   // the phone's own game is saved here; online games live on the server
   function save(){

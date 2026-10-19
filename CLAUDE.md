@@ -91,6 +91,7 @@ These rules were agreed with the owner. Don't change them unless asked.
 
 - **Pairs of 7** is chosen on the setup screen or in the lobby.
   - **Find them yourself** (default): nothing is set aside after a roll. The player taps two dice that add up to 7. The page doesn't highlight pairs or offer "Set aside all 7s" (`takeall` is refused with `by_hand`), and "Counts if you stop" shows every pip on the table.
+  - **Missed 7s:** rolling on or stopping with a 7-pair still on the table emits `missed` (before `rolled` on a roll). Every phone then shows the "Need glasses?" joke: the missed dice get a pair of glasses and a sad trombone plays. Taps go through it, the next roll clears it, and otherwise it goes after about 3 s.
   - **The app finds them:** rolling sets all 7-pairs aside. The page then shows the dice lying still for about 0.7 s and flies each pair into the rack.
   - Games saved before the choice existed have no `pairing` field and keep the automatic behaviour (`byHand(g)` is false).
 - A pair from the current roll can be put back before the next roll.
@@ -115,7 +116,7 @@ These rules were agreed with the owner. Don't change them unless asked.
 | Table | `drop`, `undo`, `edit {player, values: {roundNo: pts}}` |
 | Flow | `nextround`, `endearly` |
 
-**Events** (for animations and messages): `started`, `rolled {auto, values}`, `paired {pairs}`, `unpaired`, `sevensOut {player}`, `turn`, `roundEnd {next}`, `gameOver {loser}`, `dropped {drops}`, `shots {player}`, `undone {msg}`, `edited`, `ended`.
+**Events** (for animations and messages): `started`, `rolled {auto, values}`, `paired {pairs}`, `unpaired`, `missed {player, how: 'roll'|'stop', pairs: [[a, b]..]}` (pip values), `sevensOut {player}`, `turn`, `roundEnd {next}`, `gameOver {loser}`, `dropped {drops}`, `shots {player}`, `undone {msg}`, `edited`, `ended`.
 
 ### State
 
@@ -167,7 +168,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
 - **Flow:** `nextround`, `again`, `new`/`newyes`/`newno`
-- **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`
+- **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`
 - **Settings:** `sound`, `look`, `shake`
 - **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
 
@@ -239,8 +240,8 @@ One `Room` per room code holds the authoritative game.
   - **iPhone permission:** iOS needs `DeviceMotionEvent.requestPermission()` called directly inside a tap.
   - **What counts as a shake:** 3 jolts above 14 m/s² within 900 ms, then a 1.5 s cool-down.
   - **Where it works:** in dice mode, when this phone may roll.
-- **Developer menu.** Play confetti, Play shots alarm, and End game now (host only when online).
-- **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, and the shots takeover is shortened.
+- **Developer menu.** Play confetti, Play shots alarm, Play missed 7, and End game now (host only when online).
+- **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving.
 
 ## Conventions
 
