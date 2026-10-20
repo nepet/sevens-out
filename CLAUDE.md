@@ -171,8 +171,13 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - Real-dice mode: seated players tap a line to correct that player's scores (`data-act="edit"`).
 - DOM, relied on by the tests and the race between rounds: `section.board` → `.bhead` → `ol.lines` → `li.pl[data-id]` (classes `now`, `wait`, `over`, `lost`, `editable`) with `.mk`, `.nm`, `.trk > .fill`, `.num`, `.dl` and an optional `.pl-sub`; then `p.bfoot`. `lineHtml` depends only on its arguments (and the room's connections), so the race can reuse it.
 
+**The game menu, the bottom sheet and the bottom bar:**
+- **Game menu:** the menu button (`menuButton()`, `data-act="menu"`) sits at the top left of the play screens (dice, real dice, corrections, game over) and the lobby. It opens a bottom sheet with the score sheet (`sheet(g)`, a fold open by default), How to play (`rules()`), Sound / Look / Shake (`settingsBlock()`), New game (one phone, during play) or Leave room (online) with their in-page confirmations (`quitBlock()`), and Developer (`devBlock()`, folded). Nothing sits under the play screens any more; home and the online entry keep `footer()` (the settings only).
+- **Bottom sheet:** one layer outside `#app` (`.sheet-layer` → `.sheet-backdrop` + `section.sheet[role=dialog]` with `.sheet-grab`, `.sheet-head` (`#sheet-h`, `.sheet-close`) and `.sheet-body`). Kinds are registered in `SHEETS` as `{title, ok(), body()}`; `openSheet(kind, from)` shows one (`ui.sheet`), `closeSheet()` hides it and gives the focus back to the opener (`from` = its `[data-act, data-id]`, kept in `ui.sheetFrom`). Every `render()` rebuilds only the body (`renderSheet()`), keeping its scroll position and the focused control, and closes the sheet when `ok()` says it doesn't belong on the new screen. While it is open `#app` is `inert`, Escape, the close button and a backdrop tap (`data-act="sheetclose"`) close it, Tab stays inside, and the keypad keys and shake to roll are ignored. Reduced motion: no slide. `newyes`, `oleaveyes`, `endyes` and the `dev*` actions close it first.
+- **Bottom bar:** `bar(inner, {leather})` returns a `.bar` (`.bar.leather` for the turn screens), pinned to the bottom with `position: sticky` and padded by the safe area. Put it last in a view; `render()` then gives `#app` the class `has-bar`, so the bar reaches the bottom edge.
+
 **Events and actions:**
-- Clickable elements carry `data-act` (and optionally `data-id`). One document click listener calls `handle(action, id, el)`.
+- Clickable elements carry `data-act` (and optionally `data-id`). One document click listener calls `handle(action, id, el)`, for elements in `#app` and in the sheet.
 - Game changes go through `dispatch(action)`. Locally, it applies the engine. Online, it sends `{t:'act', action}` and waits for the server.
 - New states are shown through `show()` or `present()`. When the events include `rolled` or `paired`, the page plays the tumble → pause → fly-out animation first, in order, through a queue. This works the same way for the player and for everyone watching. Other changes show at once.
 - A `roundEnd` event always goes through the queue, with reduced motion too: `present()` plays the round's Sevens Out celebration or missed-7 joke first, then `playRace(recap, swap)`, which switches to the new state under the race's curtain. States that arrive meanwhile wait in the queue, so the race is never cut off. While it plays, `ui.race` makes the page busy: game actions and shake to roll are ignored.
@@ -186,7 +191,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Dice:** `roll`, `die`, `unpair`, `takeall`, `stop`, `end`
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
-- **Flow:** `again`, `new`/`newyes`/`newno`
+- **Flow:** `again`, `new`/`newyes`/`newno`, `menu`, `sheetclose`
 - **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`, `devround`
 - **Settings:** `sound`, `look`, `shake`
 - **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
@@ -290,7 +295,7 @@ One `Room` per room code holds the authoritative game.
   - While a passkey prompt is open (`ui.account.busy`), the panel's buttons are `aria-disabled` (so focus stays) and `handle()` ignores account actions. The hint is announced from `#acct-live`, a visually hidden live region outside `#app` that survives redraws.
   - **Online:** the online entry says "Playing as <name> #tag" instead of the name field, and `hello` carries `session` (only when the account belongs to the room server). If the server answers `welcome.user === null` to a hello with a session, the session has ended: the phone drops the account quietly and plays on as a guest in that seat. The lobby seats and the score list show `#tag` for seats with `user`.
   - **One phone:** when signed in, each setup row shows "You" (the first line whose name is the player name, case and spaces ignored) or "This is me", which puts the player name on that line (swapping names with the old "You" line). At start, `state.stats.owner` is that line and `ownerId` the player ID; the report carries `owner`, and its queue item keeps `ownerId`. It goes out with the bearer token only while that same player is signed in to the same server (signed out or someone else by then: a guest game).
-- **Developer menu.** Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
+- **Developer menu** (in the game menu, and on home). Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
 - **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving. The race between rounds shows the grown list with its final totals, order and badge at once. The curtain then appears without sliding, and the whole race takes about 2.5 s.
 
 ## Conventions
@@ -320,6 +325,7 @@ One `Room` per room code holds the authoritative game.
   - To fix the dice, stub `crypto.getRandomValues` for 1-byte arrays (`fixDice` in `tests/e2e/helpers.js`).
   - To load the page with a changed `engine.js` or CSS (an old cached engine, a browser without `color-mix()`), serve the changed file through `page.route`, as the tests in `local.spec.js` do.
   - After a round's last turn, the race plays for about 2.5 s even with reduced motion. Tests that act right after a round ends call `skipRace(page)` (helpers.js): it waits for a Sevens Out or missed-7 joke that plays first, taps the race away, then waits until the page is idle.
+  - Settings, New game, Leave room and the developer buttons live in the game menu on play screens and in the lobby: `openMenu(page, fold?)` opens it (and a fold: `sheet`, `rules`, `dev`), `closeMenu(page)` closes it with Escape. The sheet covers the game, so close it before tapping the game again.
   - `TARGET=worker` points online play at `wrangler dev` through the `?server=` override.
   - **Passkeys** (`account.spec.js`): `addAuthenticator(page)` adds a CDP virtual authenticator that says yes at once; `credentials` and `copyCredential` read a passkey and copy it to another phone (a synced passkey). WebAuthn refuses IP addresses, so these tests open `localUrl()` (`http://localhost:8790`), not the config's `127.0.0.1`. The virtual authenticator can't press Cancel; a cancelled prompt is a stubbed `navigator.credentials.create`. The page fetches passkey options ahead, so the test Node server runs with a high `AUTH_LIMIT` (every test phone is 127.0.0.1).
   - `tests/e2e/admin.spec.js` tests the admin page (`npm run test:admin`). Don't run it together with `test:worker`: both reset `.wrangler/e2e`.

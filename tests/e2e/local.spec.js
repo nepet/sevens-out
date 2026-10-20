@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll } from './helpers.js';
+import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -88,7 +88,7 @@ test.describe('dice mode', () => {
     expect((await saved(page)).game.players[0].score).toBe(4 + 3 + 1 + 1);
     await page.click('[data-act=roll]');                                // Ben's roll clears it
     await expect(page.locator('.miss')).toHaveCount(0);
-    await page.click('[data-fold=dev] summary');
+    await openMenu(page, 'dev');
     await page.click('[data-act=devmiss]');                             // the developer menu can play it too
     await expect(page.locator('.miss-sub')).toContainText('Ben left 2 + 5 on the table');
     await expect(page.locator('.miss')).toHaveCount(0, { timeout: 5000 }); // and it goes by itself
@@ -272,7 +272,7 @@ test.describe('the score list', () => {
   test('six players fit on one screen', async ({ page }) => {
     await startLocal(page, { names: ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'], mode: 'score' });
     for (const lookId of ['0', '1']) {
-      await page.click(`[data-act=look][data-id="${lookId}"]`);
+      await openMenu(page); await page.click(`[data-act=look][data-id="${lookId}"]`); await closeMenu(page);
       await expect(page.locator('.board .pl')).toHaveCount(6);
       const box = await page.locator('.board').boundingBox();
       expect(box.height).toBeLessThanOrEqual(260);
@@ -459,11 +459,12 @@ test.describe('between rounds', () => {
   test('"End game now" mentions the turn in progress only while dice are being rolled', async ({ page, context }) => {
     await fixDice(context, [1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2]);     // no 7s: Anna 6, Ben 12
     await startLocal(page);
-    await page.click('[data-fold=dev] summary');
     const askEnd = async () => {
+      await openMenu(page, 'dev');
       await page.click('[data-act=endearly]');
       const text = await page.locator('[data-fold=dev] .confirm span').innerText();
       await page.click('[data-act=endno]');
+      await closeMenu(page);
       return text;
     };
     const plain = 'End the game now? The highest score loses.';
@@ -481,7 +482,7 @@ test.describe('between rounds', () => {
     await startLocal(page, { mode: 'score' });
     await enterScore(page, 10, 1);
     let before = await saved(page);
-    await page.click('[data-fold=dev] summary');
+    await openMenu(page, 'dev');
     await page.click('[data-act=devround]');                    // no round finished yet: made-up points
     await expect(page.locator('.race')).toBeVisible();
     await expect(page.locator('.race-card .pl')).toHaveCount(2);
@@ -491,6 +492,7 @@ test.describe('between rounds', () => {
 
     await enterScore(page, 20); await skipRace(page);
     before = await saved(page);
+    await openMenu(page, 'dev');
     await page.click('[data-act=devround]');                    // the round just finished
     await expect(page.locator('.race-round')).toHaveText('Round 2');
     await expect(page.locator('.race-starter')).toHaveText('Ben starts');
@@ -587,7 +589,7 @@ test('without color-mix() (iOS 16.1 and older) the current line and the danger h
   const pub = await look();
   expect(pub.fill).not.toBe('rgba(0, 0, 0, 0)');
   expect(pub.hatch).toContain('repeating-linear-gradient');
-  await page.click('[data-act=look][data-id="1"]');
+  await openMenu(page); await page.click('[data-act=look][data-id="1"]'); await closeMenu(page);
   const vegas = await look();
   expect(vegas.fill).not.toBe('rgba(0, 0, 0, 0)');
   expect(vegas.ring).not.toBe('none');
@@ -689,4 +691,102 @@ test('a game saved between rounds carries on', async ({ page }) => {
   expect(now.game.starter).toBe(1);
   await expect(page.locator('[data-act=nextround]')).toHaveCount(0);
   await expect(page.locator('.board')).toBeVisible();
+});
+
+test.describe('game menu', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
+  test('holds the score sheet, how to play, settings, new game and developer; nothing is left under the play screen', async ({ page }) => {
+    await startLocal(page);
+    await expect(page.locator('#app .foot, #app details.fold')).toHaveCount(0);
+    const btn = page.locator('[data-act=menu]');
+    await expect(btn).toHaveAttribute('aria-expanded', 'false');
+    await btn.click();
+    const sheet = page.locator('.sheet-layer .sheet');
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toHaveAttribute('role', 'dialog');
+    await expect(page.locator('#sheet-h')).toHaveText('Game menu');
+    await expect(sheet.locator('.sheet-close')).toBeFocused();         // the focus moves in
+    await expect(btn).toHaveAttribute('aria-expanded', 'true');
+    await expect(sheet.locator('summary')).toHaveText(['Score sheet', 'How to play', 'Developer']);
+    await expect(sheet.locator('[data-fold=sheet]')).toHaveAttribute('open', '');
+    await expect(sheet.locator('[data-fold=sheet] thead')).toContainText('Anna');
+    await expect(sheet.locator('[data-act=sound]')).toHaveCount(3);
+    await expect(sheet.locator('[data-act=look]')).toHaveCount(2);
+    await expect(sheet.locator('[data-act=new]')).toBeVisible();
+    // with reduced motion it appears without sliding
+    expect(await sheet.evaluate(el => getComputedStyle(el).animationName)).toBe('none');
+    expect(await noSideScroll(page)).toBe(true);
+
+    // Escape closes it and the focus goes back to the menu button
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await expect(btn).toBeFocused();
+    await expect(btn).toHaveAttribute('aria-expanded', 'false');
+
+    // so do the close button and a tap on the backdrop
+    await btn.click(); await sheet.locator('.sheet-close').click();
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await btn.click(); await page.mouse.click(195, 40);                // above the sheet
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await expect(btn).toBeFocused();
+
+    // Tab stays inside the sheet
+    await btn.click();
+    for (let k = 0; k < 25; k++) {
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.querySelector('.sheet-layer').contains(document.activeElement))).toBe(true);
+    }
+    // while it is open, the keyboard doesn't reach the game behind it
+    await page.keyboard.press('Escape');
+  });
+
+  test('New game asks first, then goes back to the setup with the same players', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'] });
+    await openMenu(page);
+    await page.click('[data-act=new]');
+    const confirm = page.locator('.sheet-layer .confirm');
+    await expect(confirm).toContainText('End this game and go back to the player setup?');
+    await page.click('[data-act=newno]');                              // Keep playing
+    await expect(confirm).toHaveCount(0);
+    await expect(page.locator('.sheet-layer .sheet')).toBeVisible();
+    expect((await saved(page)).phase).toBe('play');
+    await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await expect(page.locator('[data-act=start]')).toBeVisible();
+    await expect(page.locator('#name-2')).toHaveValue('Cleo');
+    expect((await saved(page)).phase).toBe('setup');
+  });
+
+  test('a sound chosen in the menu is kept after a reload', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await openMenu(page);
+    const bandit = page.locator('.sheet-layer [data-act=sound][data-id="2"]');
+    await bandit.click();
+    await expect(bandit).toHaveAttribute('aria-pressed', 'true');
+    await expect(bandit).toBeFocused();                                // the redraw keeps the focus on it
+    expect(await page.evaluate(() => localStorage.getItem('sevens-out-sound'))).toBe('bandit');
+    // typing a digit while the menu is open doesn't enter a score behind it
+    await page.keyboard.press('7');
+    await page.reload();
+    await expect(page.locator('.pad')).toBeVisible();                  // the game carries on
+    await openMenu(page);
+    await expect(page.locator('.sheet-layer [data-act=sound][data-id="2"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('.sheet-layer [data-act=sound][data-id="1"]')).toHaveAttribute('aria-pressed', 'false');
+    await closeMenu(page);
+    await expect(page.locator('.entry')).toHaveText('–');              // the 7 went nowhere
+  });
+
+  test('End game now from the menu closes it and shows the result', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 12, 2);
+    await openMenu(page, 'dev');
+    await page.click('[data-act=endearly]'); await page.click('[data-act=endyes]');
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await expect(page.locator('.verdict')).toContainText('Anna');
+    await expect(page.locator('[data-act=menu]')).toBeFocused();
+    await openMenu(page);                                              // the menu works at game over too
+    await expect(page.locator('.sheet-layer [data-fold=sheet] tfoot')).toContainText('12');
+    await expect(page.locator('.sheet-layer [data-act=new]')).toHaveCount(0); // Play again is on the screen
+  });
 });

@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { url, live, net, idle, skipRace, enterScore, noSideScroll } from './helpers.js';
+import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 
@@ -268,6 +268,7 @@ test('leaving the room before the race keeps the game saved on this phone', asyn
   await expect(B.page.locator('.pad')).toBeVisible();
   await enterScore(B.page, 0);                                   // Sevens Out ends round 1: the celebration plays first
   await expect(A.page.locator('.fx-banner')).toBeVisible();
+  await openMenu(A.page);
   await A.page.click('[data-act=oleave]');
   await A.page.click('[data-act=oleaveyes]');
   await expect(A.page.locator('#name-0')).toHaveValue('Zed');     // back on this phone's own setup
@@ -297,6 +298,7 @@ test('lobby: wrong codes, leaving, kicking and a full room', async ({ browser })
   const B = await join(browser, A.code, 'Ben');
   const C = await join(browser, A.code, 'Cleo');
   await expect(A.page.locator('.seat')).toHaveCount(3);
+  await openMenu(B.page);
   await B.page.click('[data-act=oleave]');
   await B.page.click('[data-act=oleaveyes]');
   await expect(B.page.locator('[data-act=online]')).toBeVisible(); // back on the setup screen
@@ -314,12 +316,12 @@ test('the pass-and-play game on this phone is kept while playing online', async 
   await page.goto(url('/'));
   await page.fill('#name-0', 'Local');
   await page.click('[data-act=start]');
-  await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
+  await openMenu(page); await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
   await page.click('[data-act=online]');
   await page.fill('#oname', 'Anna');
   await page.click('[data-act=ocreate]');
   await expect(page.locator('.roomcode')).toBeVisible();
-  await page.click('[data-act=oleave]'); await page.click('[data-act=oleaveyes]');
+  await openMenu(page); await page.click('[data-act=oleave]'); await page.click('[data-act=oleaveyes]');
   await expect(page.locator('#name-0')).toHaveValue('Local');
   await ctx.close();
 });

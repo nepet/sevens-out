@@ -101,3 +101,18 @@ export async function copyCredential(from, to, credential = null) {
   await to.cdp.send('WebAuthn.addCredential', { authenticatorId: to.authenticatorId, credential: c });
   return c;
 }
+
+// ----- the game menu (play screens and the lobby) -----
+// open it from the header's menu button; `fold` also opens one of its folds ('sheet', 'rules', 'dev')
+export async function openMenu(page, fold) {
+  if (!(await page.locator('.sheet-layer').isVisible())) await page.click('[data-act=menu]');
+  await expect(page.locator('.sheet-layer .sheet')).toBeVisible();
+  if (fold) {
+    const d = page.locator(`.sheet-layer details[data-fold=${fold}]`);
+    if (!(await d.evaluate(el => el.open))) await d.locator('summary').click();
+  }
+}
+export async function closeMenu(page) {
+  if (await page.locator('.sheet-layer').isVisible()) await page.keyboard.press('Escape');
+  await expect(page.locator('.sheet-layer')).toBeHidden();
+}

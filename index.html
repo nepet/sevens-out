@@ -56,7 +56,7 @@ button{cursor:pointer}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
 /* header */
-.top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 .brand{font:800 1.55rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em}
 .brand span{color:var(--brass)}
 .meta{font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);font-weight:600}
@@ -215,6 +215,41 @@ td.st::before{margin-right:6px}
 .seg.small .segbtn{min-height:38px;font-size:.85rem;padding:6px 12px;flex:0 1 auto}
 .confirm{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .confirm span{flex-basis:100%;font-size:.9rem}
+
+/* the pinned bottom bar (bar()): the screen's main action under the thumb. #app.has-bar lets it reach the bottom edge */
+#app.has-bar{padding-bottom:0;min-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
+.bar{position:sticky;bottom:0;z-index:20;margin:auto -16px calc(-1 * env(safe-area-inset-bottom,0px));padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -6px 18px var(--shade)}
+.bar.leather{background:var(--leather-deep);border-top-color:var(--leather);color:var(--on-leather)}
+.bar.leather .btn:not(.primary):not(.danger){border-color:var(--on-leather);color:var(--on-leather)}
+.bar .row{flex-wrap:nowrap}
+.bar .waiting{border-color:currentColor;color:inherit;opacity:.85}
+
+/* the game menu button (menuButton()) */
+.top-l{display:flex;align-items:center;gap:10px;min-width:0}
+.menubtn{width:44px;height:44px;display:grid;place-items:center;flex:none;padding:0;border-radius:12px;border:1.5px solid var(--line);background:var(--card);color:var(--ink)}
+.menubtn svg,.sheet-close svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+html:root[data-look="vegas"] .menubtn{background:var(--leather-deep);border-color:var(--chrome)}
+
+/* the bottom sheet (openSheet()): lives outside #app, so a redraw only replaces its title and body */
+html.sheet-open{overflow:hidden}
+.sheet-layer{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;justify-content:flex-end}
+.sheet-backdrop{position:absolute;inset:0;background:var(--shade);animation:sheet-fade .2s ease-out both}
+.sheet{position:relative;width:100%;max-width:34rem;max-height:88dvh;margin-inline:auto;display:flex;flex-direction:column;background:var(--paper);color:var(--ink);border-radius:20px 20px 0 0;border-top:1px solid var(--line);box-shadow:0 -12px 36px var(--shade);padding-bottom:env(safe-area-inset-bottom,0px);animation:sheet-up .26s cubic-bezier(.2,.8,.3,1) both}
+.sheet:focus{outline:none}
+.sheet-guard{position:absolute;width:1px;height:1px;overflow:hidden}
+.sheet-grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:8px auto 0;flex:none}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 16px 8px;flex:none}
+.sheet-head .h2{min-width:0;overflow-wrap:anywhere}
+.sheet-close{width:44px;height:44px;display:grid;place-items:center;font-size:inherit}
+.sheet-body{overflow-y:auto;overscroll-behavior:contain;padding:4px 16px 20px;display:flex;flex-direction:column;gap:14px}
+.sheet-body .foot{flex-direction:column;align-items:stretch;gap:12px}
+.sheet-body .soundpick{justify-content:space-between}
+.sheet-body .seg.small .segbtn{min-height:44px}
+.sheet-body .fold summary{min-height:44px}
+.quit{display:flex;flex-direction:column;gap:8px}
+@keyframes sheet-up{from{transform:translateY(100%)}}
+@keyframes sheet-fade{from{opacity:0}}
+@media (prefers-reduced-motion:reduce){.sheet,.sheet-backdrop{animation:none}}
 
 /* scoreboard mode */
 .pick{display:flex;flex-direction:column;gap:6px}
@@ -518,6 +553,18 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   const $acctLive = document.createElement('p');
   $acctLive.className = 'sr'; $acctLive.id = 'acct-live'; $acctLive.setAttribute('aria-live', 'polite');
   document.body.appendChild($acctLive);
+  // the bottom sheet's layer (see openSheet): outside #app, so it keeps its slide-in and scroll position through redraws
+  const $sheet = document.createElement('div');
+  $sheet.className = 'sheet-layer'; $sheet.hidden = true;
+  $sheet.innerHTML = `<div class="sheet-backdrop" data-act="sheetclose"></div>
+    <section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-h" tabindex="-1">
+      <span class="sheet-guard" tabindex="0" data-guard="last"></span>
+      <div class="sheet-grab" aria-hidden="true"></div>
+      <div class="sheet-head"><h2 class="h2" id="sheet-h"></h2><button class="iconbtn sheet-close" data-act="sheetclose" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+      <div class="sheet-body"></div>
+      <span class="sheet-guard" tabindex="0" data-guard="first"></span>
+    </section>`;
+  document.body.appendChild($sheet);
 
   // visual look: 'pub' (stitched leather) or 'vegas' (slot-machine cabinet); kept on this phone
   const LOOK_KEY = 'sevens-out-look', LOOK_OPTS = [['pub', 'Pub table'], ['vegas', 'Vegas']];
@@ -530,7 +577,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   applyLook();
 
   let state = blank();
-  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{} };
+  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{}, sheet:null, sheetFrom:null };
 
   function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice', pairing:'manual' }, game:null }; }
   const isScore = g => !!g && g.mode === 'score';
@@ -937,7 +984,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function onShake(){
     const g = state.game;
     if (document.visibilityState !== 'visible' || document.querySelector('.doom')) return;
-    if (state.phase !== 'play' || !g || isScore(g) || ui.rolling || ui.busy || ui.race || ui.edit != null || !canRoll(g.turn)) return;
+    if (state.phase !== 'play' || !g || isScore(g) || ui.rolling || ui.busy || ui.race || ui.sheet || ui.edit != null || !canRoll(g.turn)) return;
     try { if (navigator.vibrate) navigator.vibrate(35); } catch (e) {}
     handle('roll', null);
   }
@@ -1650,7 +1697,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const lim = g.mark != null
       ? `<span class="chip">Roll limit <b>${g.mark}</b> · set by ${esc(pname(g.starter))}</span>`
       : `<span class="chip">${esc(pname(g.starter))} sets the roll limit (max <b>${MAX_ROLLS}</b>)</span>`;
-    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Round ${g.round}${isScore(g) ? ' · Real dice' : ''}</div></header>
+    return `<header class="top marquee"><div class="top-l">${menuButton()}<div class="brand">Sevens <span>Out</span></div></div><div class="meta">Round ${g.round}${isScore(g) ? ' · Real dice' : ''}</div></header>
       <div class="chips">${netChip()}${state.phase === 'play' ? lim : ''}</div>
       ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> This round is played to the end, then the highest score loses.</p>` : ''}`;
   }
@@ -1746,7 +1793,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
           <button class="btn primary" data-act="esave"${s.ok && s.changed ? '' : ' disabled'}>Save changes</button>
           <button class="btn" data-act="ecancel">Cancel</button>
         </div>
-      </section>` + sheet(g) + rules() + devBlock() + footer();
+      </section>`;
   }
 
   function floorRow(g){
@@ -1798,7 +1845,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="sub">${sub}</p>
         ${floorRow(g)}
         ${entry}
-      </section>` + sheet(g) + rules() + devBlock() + footer();
+      </section>`;
   }
 
   function viewPlay(){
@@ -1866,7 +1913,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <div class="rackhead"><span class="h3">Set aside</span>${liveNote}</div>
         <div class="rack">${rack}</div>
         <div class="actions">${actions}</div>
-      </section>` + sheet(g) + rules() + devBlock() + footer();
+      </section>`;
   }
 
   function viewOver(){
@@ -1890,7 +1937,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         ${shotsSummary(g)}
         ${again}
         ${undoLink(g)}
-      </section>` + board(g, -1) + sheet(g) + rules() + devBlock() + footer();
+      </section>` + board(g, -1);
   }
 
   // who sets the 7-pairs aside in dice mode: the player (the default) or the app
@@ -1999,7 +2046,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const starterSeg = `<div class="picks" role="group" aria-labelledby="ostart-h">${seats.map((s, i) =>
       `<button class="pickbtn${st === i ? ' on' : ''}" data-act="ostarter" data-id="${i}" aria-pressed="${st === i}"${host ? '' : ' disabled'}>${esc(s.name)}</button>`).join('')}<button class="pickbtn${st === 'random' ? ' on' : ''}" data-act="ostarter" data-id="-1" aria-pressed="${st === 'random'}"${host ? '' : ' disabled'}>Random</button></div>`;
     const canShare = typeof navigator.share === 'function' && window.self === window.top;
-    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
+    return `<header class="top marquee"><div class="top-l">${menuButton()}<div class="brand">Sevens <span>Out</span></div></div><div class="meta">Online</div></header>
       <div class="chips">${netChip()}</div>
       <section class="panel" aria-labelledby="room-h">
         <p class="eyebrow" id="room-h">Room code</p>
@@ -2020,7 +2067,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
         ${host ? `<button class="btn primary" data-act="ostart"${seats.length < 2 ? ' disabled' : ''}>${seats.length < 2 ? 'Waiting for at least one more player' : `Start the game · ${seats.length} players`}</button>`
           : waiting(hostName(), 'start the game')}
-      </section>` + rules() + footer();
+      </section>`;
   }
 
   function sheet(g){
@@ -2030,7 +2077,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       return `<td${i === rd.starter ? ' class="st"' : ''}>${r ? `+${r.pts}${r.rolls != null ? `<small>${r.rolls}×</small>` : ''}` : '–'}</td>`;
     }).join('')}</tr>`).join('');
     const foot = g.players.map(pl => `<td>${pl.score}</td>`).join('');
-    return `<details class="fold" data-fold="sheet"${ui.open.sheet ? ' open' : ''}><summary>Score sheet</summary>
+    return `<details class="fold" data-fold="sheet"${ui.open.sheet !== false ? ' open' : ''}><summary>Score sheet</summary>
       <div class="tablewrap"><table><thead><tr><th scope="col">Round</th>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr><th scope="row">Total</th>${foot}</tr></tfoot></table></div>
       <p class="note"><span class="dot"></span> marks the round's starter. The small number is how many rolls were used.</p></details>`;
   }
@@ -2039,7 +2086,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const set = online() && net.room ? net.room.settings : state.setup;
     const mode = state.game ? state.game.mode : set.mode;
     const hand = state.game ? E.byHand(state.game) : mode !== 'score' && set.pairing !== 'auto';
-    return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>Rules</summary><ol>
+    return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play</summary><ol>
       <li>On your turn you roll six dice. After each roll you may set aside any pairs that add up to 7 (1+6, 2+5, 3+4). Only such pairs can be set aside; every other die goes back into the next roll.</li>
       <li>The round's starter may roll up to three times and can stop after any roll. The number of rolls the starter used is the limit for everyone else in that round. Everyone else may stop earlier.</li>
       <li>${hand ? 'When you stop, the pips on the dice still on the table are added to your score, including any 7-pairs you missed.' : 'When you stop, all remaining 7-pairs come out and the pips on the dice still on the table are added to your score.'} Clearing all six dice adds nothing.</li>
@@ -2061,10 +2108,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor. Play missed 7 shows what everyone sees when a player rolls on or stops with a 7-pair still on the table. Play round change shows the race to ${LIMIT} that plays between rounds.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
   }
 
-  function footer(){
-    if (ui.confirmNew) return `<div class="foot"><div class="confirm"><span>End this game and go back to the player setup?</span><button class="btn small danger" data-act="newyes">End game</button><button class="btn small" data-act="newno">Keep playing</button></div></div>`;
-    if (ui.confirmLeave) return `<div class="foot"><div class="confirm"><span>Leave room ${esc(net.code)}?${state.game && net.inGame ? ' The game goes on without this phone; you can rejoin with the code.' : ''}</span><button class="btn small danger" data-act="oleaveyes">Leave room</button><button class="btn small" data-act="oleaveno">Stay</button></div></div>`;
-    const inGame = !online() && state.phase === 'play';
+  // Sound, Look and Shake to roll: the same controls wherever settings show (home's footer, the game menu)
+  function settingsBlock(){
     const soundPick = `<div class="soundpick"><span class="h3" id="snd-h">Sound</span><div class="seg small" role="group" aria-labelledby="snd-h">${SOUND_OPTS.map(([v, label], i) =>
       `<button class="segbtn${soundMode === v ? ' on' : ''}" data-act="sound" data-id="${i}" aria-pressed="${soundMode === v}">${label}</button>`).join('')}</div></div>`;
     const lookPick = `<div class="soundpick"><span class="h3" id="look-h">Look</span><div class="seg small" role="group" aria-labelledby="look-h">${LOOK_OPTS.map(([v, label], i) =>
@@ -2072,9 +2117,81 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const shakeOn = shakePref && (shakeListening || needsMotionPermission());
     const shakePick = canShake() ? `<div class="soundpick"><span class="h3" id="shake-h">Shake to roll</span><div class="seg small" role="group" aria-labelledby="shake-h">${['Off', 'On'].map((label, i) =>
       `<button class="segbtn${(i === 1) === shakeOn ? ' on' : ''}" data-act="shake" data-id="${i}" aria-pressed="${(i === 1) === shakeOn}">${label}</button>`).join('')}</div></div>` : '';
-    const end = online() ? '<button class="link" data-act="oleave">Leave room</button>' : inGame ? '<button class="link" data-act="new">New game</button>' : '';
-    return `<div class="foot">${soundPick}${lookPick}${shakePick}${end}</div>`;
+    return soundPick + lookPick + shakePick;
   }
+  // New game (one phone, during play) or Leave room (online), each with its in-page confirmation; '' when neither applies
+  function quitBlock(){
+    if (ui.confirmNew) return `<div class="confirm"><span>End this game and go back to the player setup?</span><button class="btn small danger" data-act="newyes">End game</button><button class="btn small" data-act="newno">Keep playing</button></div>`;
+    if (ui.confirmLeave) return `<div class="confirm"><span>Leave room ${esc(net.code)}?${state.game && net.inGame ? ' The game goes on without this phone; you can rejoin with the code.' : ''}</span><button class="btn small danger" data-act="oleaveyes">Leave room</button><button class="btn small" data-act="oleaveno">Stay</button></div>`;
+    return online() ? '<button class="btn ghost" data-act="oleave">Leave room</button>'
+      : state.phase === 'play' ? '<button class="btn ghost" data-act="new">New game</button>' : '';
+  }
+  // under the home and online-entry screens; play screens have the game menu instead
+  const footer = () => `<div class="foot">${settingsBlock()}</div>`;
+
+  // ----- the bottom bar and the bottom sheet -----
+  // bar(inner): the screen's main action, pinned to the bottom (put it last in the view). { leather:true } for the turn screens
+  const bar = (inner, { leather = false } = {}) => `<div class="bar${leather ? ' leather' : ''}">${inner}</div>`;
+  const ICON_MENU = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+  const menuButton = () => `<button class="menubtn" data-act="menu" aria-label="Game menu" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'menu'}">${ICON_MENU}</button>`;
+
+  // Sheets by kind: { title, ok() (may it show on this screen?), body() (html, rebuilt on every render) }.
+  // openSheet(kind, from) shows one; `from` is the opener's [data-act, data-id], which gets the focus back on close.
+  const SHEETS = {
+    menu:{ title:'Game menu', ok:() => online() ? !!net.room : state.phase !== 'setup' && ui.screen !== 'online' && !!state.game, body:menuBody }
+  };
+  let sheetReturn = null; // the opener to focus after the next render
+  function openSheet(kind, from){
+    if (!SHEETS[kind]) return;
+    ui.sheet = kind; ui.sheetFrom = from || null;
+    $sheet.querySelector('.sheet-body').scrollTop = 0;
+    render();
+    const first = $sheet.querySelector('.sheet-close'); if (first) first.focus({ preventScroll:true });
+  }
+  function closeSheet({ redraw = true } = {}){
+    if (!ui.sheet) return;
+    sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null;
+    if (redraw) render();
+  }
+  // called by render(): shows, refreshes or hides the sheet; keeps its scroll position and the focused control
+  function renderSheet(){
+    const def = ui.sheet && SHEETS[ui.sheet];
+    if (def && !def.ok()){ closeSheet({ redraw:false }); return renderSheet(); }
+    document.documentElement.classList.toggle('sheet-open', !!def);
+    $app.inert = !!def;
+    if (!def){
+      if (!$sheet.hidden){ $sheet.hidden = true; $sheet.querySelector('.sheet-body').innerHTML = ''; }
+      return;
+    }
+    const body = $sheet.querySelector('.sheet-body'), f = document.activeElement;
+    const key = f && body.contains(f) && f.dataset && f.dataset.act ? [f.dataset.act, f.dataset.id] : null;
+    const top = body.scrollTop, title = $sheet.querySelector('#sheet-h');
+    if (title.textContent !== def.title) title.textContent = def.title;
+    body.innerHTML = def.body();
+    $sheet.hidden = false;
+    body.scrollTop = top;
+    if (key){
+      const el = body.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
+      (el || $sheet.querySelector('.sheet')).focus({ preventScroll:true });
+    }
+  }
+  // the game menu: score sheet, how to play, settings, new game or leave room, developer
+  function menuBody(){
+    const g = state.game, quit = quitBlock();
+    return (g && (!online() || net.room.phase === 'game') ? sheet(g) : '') + rules()
+      + `<section class="foot" aria-label="Settings">${settingsBlock()}</section>`
+      + (quit ? `<div class="quit">${quit}</div>` : '') + devBlock();
+  }
+  // Escape closes the sheet. Tab stays inside it: a guard at each end sends the focus round to the other end
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && ui.sheet && !$sheet.hidden){ e.preventDefault(); closeSheet(); }
+  });
+  $sheet.addEventListener('focusin', e => {
+    const g = e.target.dataset && e.target.dataset.guard; if (!g) return;
+    const items = [...$sheet.querySelectorAll('button:not([disabled]),summary,input')].filter(el => el.getClientRects().length);
+    const to = g === 'last' ? items[items.length - 1] : items[0];
+    if (to) to.focus();
+  });
 
   // ---------- animations ----------
   let tumbleTimer = null;
@@ -2307,7 +2424,10 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (ACCOUNT_ACTS.includes(a) && ui.account.busy) return; // a passkey prompt or a request is running
     const g = state.game;
     // while pairs are flying out or the race between rounds plays, only settings and the developer buttons respond
-    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno'].includes(a)) return;
+    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose'].includes(a)) return;
+    if (a === 'sheetclose'){ closeSheet(); return; }
+    // these leave the game menu: the screen changes, or there is something to watch
+    if (['newyes', 'oleaveyes', 'endyes', 'devconfetti', 'devdoom', 'devmiss', 'devround'].includes(a)) closeSheet({ redraw:a === 'devround' });
     ui.nope = null;
     if (a !== 'stop') ui.armed = null;
     if (a !== 'new') ui.confirmNew = false;
@@ -2350,6 +2470,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         names[id] = mine;
         break;
       }
+      case 'menu': openSheet('menu', ['menu', null]); return;
       case 'roll': startRoll(); return;
       case 'die': tapDie(id); break;
       case 'unpair': if (canAct()) dispatch({ type:'unpair', index:id }); break;
@@ -2518,6 +2639,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       state = blank(); resetUi(); html = viewSetup();
     }
     $app.innerHTML = html;
+    $app.classList.toggle('has-bar', !!$app.querySelector(':scope > .bar'));
+    renderSheet();
     // the account hint is announced from one region that outlives the redraw
     const said = ui.account.hint || '';
     if ($acctLive.textContent !== said) $acctLive.textContent = said;
@@ -2526,6 +2649,11 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     else if (key){
       const el = $app.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
       if (el) el.focus({ preventScroll:true });
+    }
+    if (sheetReturn && !ui.sheet){ // a sheet just closed: back to the button that opened it, unless an overlay took the focus
+      const [act, id] = sheetReturn, at = document.activeElement; sheetReturn = null;
+      const el = $app.querySelector(`[data-act="${act}"]` + (id != null ? `[data-id="${id}"]` : ''));
+      if (el && (!at || at === document.body || $app.contains(at) || $sheet.contains(at))) el.focus({ preventScroll:true });
     }
     save();
     if (ui.celebrate){ const nm = ui.celebrate; ui.celebrate = null; celebrate(nm); }
@@ -2618,7 +2746,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
-    if (!el || !$app.contains(el) || el.disabled) return;
+    if (!el || !($app.contains(el) || $sheet.contains(el)) || el.disabled) return;
     handle(el.dataset.act, el.dataset.id != null ? +el.dataset.id : null, el);
   });
   // score lines act as buttons in scoreboard mode
@@ -2650,7 +2778,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.account){
       e.preventDefault(); handle(e.target.dataset.account === 'rename' ? 'arenamesave' : 'acreate', null); return;
     }
-    if (state.phase !== 'play' || !state.game || !E.isScore(state.game) || ui.edit != null || !canAct()) return;
+    if (state.phase !== 'play' || !state.game || !E.isScore(state.game) || ui.edit != null || ui.sheet || !canAct()) return;
     if (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button') return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(tag) || e.metaKey || e.ctrlKey || e.altKey) return;
     if (/^[0-9]$/.test(e.key)){ e.preventDefault(); handle('key', +e.key); }
