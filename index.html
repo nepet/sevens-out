@@ -396,6 +396,15 @@ td.st::before{margin-right:6px}
 .acct-hint{font-size:.88rem}
 .acct-hint:empty{display:none}
 html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
+/* a signed-in player's tag after their name (#3f9a), and "you" on the one-phone setup rows */
+.ptag{flex:none;font:600 .72rem/1 var(--font-body);letter-spacing:.02em;color:var(--ink-soft);white-space:nowrap;vertical-align:middle}
+/* in the score list a long name keeps its room: the tag gives way first */
+:is(.board,.race-card) .nm .ptag{flex:0 1000 auto;min-width:0;overflow:hidden}
+.playing-as{margin:0;font-size:1rem}
+.playing-as b{font-weight:700}
+.me-slot{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:4.6rem}
+.me-slot .you{margin:0}
+.me-link{font-size:.8rem;padding:10px 0;white-space:nowrap}
 .fld{display:flex;flex-direction:column;gap:6px}
 .text-in{height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem;width:100%}
 .text-in:focus-visible{border-color:var(--brass);outline:2px solid var(--brass);outline-offset:0}
@@ -1067,6 +1076,12 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   const accountsAvailable = () => authProbe.ok && accountsSupported();
   const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
   const tagOf = id => String(id || '').slice(0, 4);
+  const tagHtml = id => `<small class="ptag">#${esc(tagOf(id))}</small>`;
+  // the signed-in account, if it belongs to this room server (ws base); only then does hello carry the session
+  const accountFor = ws => account && ws && account.server === String(ws).replace(/^ws(s?):/, 'http$1:').replace(/\/+$/, '') ? account : null;
+  const sameName = (a, b) => cleanName(a).toLowerCase() === cleanName(b).toLowerCase();
+  // one-phone setup: the line that is the signed-in player's (the first whose name is the player name), or -1
+  const myLine = names => account ? names.findIndex(n => sameName(n, account.name)) : -1;
   function storedName(){ try { return JSON.parse(localStorage.getItem(NAME_KEY) || 'null') || ''; } catch (e) { return ''; } }
   function storeName(n){ try { localStorage.setItem(NAME_KEY, JSON.stringify(n)); } catch (e) {} }
   // an account saved for another server (a ?server= override, a moved Worker) is left alone, not used
@@ -1101,8 +1116,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (!res.ok) throw Object.assign(new Error('auth ' + res.status), { code:(data && data.error) || 'http', status:res.status, detail:data && data.detail });
     return data;
   }
-  // only the home screen shows the panel, so answers that arrive later redraw only that
-  function refreshHome(){ if (!online() && ui.screen !== 'online' && state.phase === 'setup' && !ui.busy && !ui.race) render(); }
+  // only the home screen (the panel, the setup rows) and the online entry ("Playing as") show the account,
+  // so answers that arrive later redraw only those
+  function refreshHome(){ if (!online() && (ui.screen === 'online' || state.phase === 'setup') && !ui.busy && !ui.race) render(); }
   function startAccounts(){
     if (!accountsSupported()) return;
     account = readAccount();
@@ -1318,7 +1334,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     net.ws = ws;
     ws.onopen = () => {
       net.status = 'open'; net.tries = 0;
-      ws.send(JSON.stringify({ t:'hello', name:net.name, token:net.token, create:net.creating && !net.token }));
+      const me = accountFor(net.server);
+      net.helloSession = me ? me.token : null;
+      ws.send(JSON.stringify(Object.assign({ t:'hello', name:me ? me.name : net.name, token:net.token, create:net.creating && !net.token }, me ? { session:me.token } : {})));
       render();
     };
     ws.onmessage = e => { if (net.ws !== ws) return; let m; try { m = JSON.parse(e.data); } catch (err) { return; } onNet(m); };
@@ -1357,6 +1375,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     switch (m.t){
       case 'welcome':
         net.seat = m.seat || null; if (m.token) net.token = m.token; net.creating = false; saveOnline();
+        // hello carried a session and the server saw a guest: the session has ended, so this phone signs out quietly
+        if (m.user === null && net.helloSession && account && account.token === net.helloSession) setAccount(null);
+        net.helloSession = null;
         break;
       case 'room': receiveRoom(m); return;
       case 'error': onNetError(m); break;
@@ -1594,12 +1615,13 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const shotsN = (g.shots || []).filter(s => s.player === i).length;
     const away = online() && g.seats && !seatOnline(g.seats[i]);
     const me = online() && g.seats && g.seats[i] === net.seat;
+    const user = online() && g.seats && !me && seatInfo(g.seats[i]) ? seatInfo(g.seats[i]).user : null;
     const dl = tag != null ? tag : played ? `+${pts}` : wait ? '–' : 'now';
     const attrs = edit ? ` role="button" tabindex="0" data-act="edit" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
     const sub = (away ? '<span class="pl-away">Offline</span>' : '') + (shotsN ? `<span class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</span>` : '');
     return `<li class="pl${now ? ' now' : ''}${wait ? ' wait' : ''}${tot >= LIMIT ? ' over' : ''}${lost ? ' lost' : ''}${edit ? ' editable' : ''}" data-id="${i}"${attrs}>`
       + '<span class="mk" aria-hidden="true">▶</span>'
-      + `<span class="nm">${starter ? '<i class="sd" role="img" aria-label="Starter"></i>' : ''}<span class="nt">${esc(pl.name)}</span>${me ? '<small class="you">you</small>' : ''}</span>`
+      + `<span class="nm">${starter ? '<i class="sd" role="img" aria-label="Starter"></i>' : ''}<span class="nt">${esc(pl.name)}</span>${user ? tagHtml(user) : ''}${me ? '<small class="you">you</small>' : ''}</span>`
       + `<span class="trk" aria-hidden="true"><span class="fill" style="width:${barWidth(tot)}"></span></span>`
       + `<span class="num">${tot}</span><span class="dl${played && tag == null ? '' : ' off'}">${dl}</span>`
       + (sub ? `<span class="pl-sub">${sub}</span>` : '') + '</li>';
@@ -1812,11 +1834,19 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="sub">${hand ? 'After each roll, tap the pairs that make 7. A pair you miss counts against you when you stop.' : 'The app sets every pair of 7 aside after each roll.'}</p>`;
   }
 
+  // the signed-in player's line: "You", or "This is me" on the other lines (it swaps in the player name)
+  const meSlot = (i, mine) => i === mine ? '<small class="you me-you">You</small>'
+    : `<button class="link me-link" data-act="me" data-id="${i}" aria-label="Line ${i + 1} is me">This is me</button>`;
+  function syncMe(){
+    const mine = myLine(state.setup.names);
+    $app.querySelectorAll('[data-me]').forEach(el => { const i = +el.dataset.me, h = meSlot(i, mine); if (el.innerHTML !== h) el.innerHTML = h; });
+  }
   function viewSetup(){
-    const s = state.setup;
+    const s = state.setup, mine = myLine(s.names);
     const rows = s.names.map((nm, i) => `<div class="prow">
         <label class="sr" for="name-${i}">Name of player ${i + 1}</label>
         <input type="text" id="name-${i}" class="name-in" data-idx="${i}" value="${esc(nm)}" placeholder="Player ${i + 1}" maxlength="16" autocomplete="off" enterkeyhint="done">
+        ${account ? `<span class="me-slot" data-me="${i}">${meSlot(i, mine)}</span>` : ''}
         <label class="startpick"><input type="radio" id="starter-${i}" name="starter" value="${i}"${s.starter === i ? ' checked' : ''}> Starts</label>
         ${s.names.length > 2 ? `<button class="iconbtn" data-act="remove" data-id="${i}" aria-label="Remove player ${i + 1}">×</button>` : ''}
       </div>`).join('');
@@ -1859,12 +1889,15 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     let name = ui.online.name;
     if (name == null){ try { name = (JSON.parse(localStorage.getItem('sevens-out-name') || 'null')) || ''; } catch (e) { name = ''; } }
     const code = ui.online.code != null ? ui.online.code : ui.joinCode;
+    const me = accountFor(serverBase());
+    const nameField = me ? `<p class="playing-as">Playing as <b>${esc(me.name)}</b> ${tagHtml(me.id)}</p>`
+      : `<label class="fld" for="oname"><span class="h3">Your name</span>
+          <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="done"></label>`;
     return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
       <section class="panel" aria-labelledby="on-h">
         <h2 class="h2" id="on-h">Play online</h2>
         <p class="sub">Everyone uses their own phone. One person creates a room and shares the code; the others join with it.</p>
-        <label class="fld" for="oname"><span class="h3">Your name</span>
-          <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="done"></label>
+        ${nameField}
         <button class="btn primary" data-act="ocreate">Create a room</button>
         <div class="or"><span>or join a room</span></div>
         <label class="fld" for="ocode"><span class="h3">Room code</span>
@@ -1889,7 +1922,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const st = r.settings.starter;
     const list = seats.map(s => `<li class="seat">
         <span class="dot${s.connected ? ' on' : ''}" aria-label="${s.connected ? 'Online' : 'Offline'}"></span>
-        <span class="nm">${esc(s.name)}${s.id === net.seat ? ' <small class="you">you</small>' : ''}</span>
+        <span class="nm">${esc(s.name)}${s.user ? ' ' + tagHtml(s.user) : ''}${s.id === net.seat ? ' <small class="you">you</small>' : ''}</span>
         ${s.id === r.host ? '<span class="tag">Host</span>' : ''}
         ${host && s.id !== net.seat ? `<button class="iconbtn" data-act="okick" data-seat="${esc(s.id)}" aria-label="Remove ${esc(s.name)}">×</button>` : ''}
       </li>`).join('');
@@ -2195,7 +2228,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const n = document.getElementById('oname'), c = document.getElementById('ocode');
     if (n) ui.online.name = n.value;
     if (c) ui.online.code = c.value;
-    const name = (ui.online.name || '').replace(/\s+/g, ' ').trim().slice(0, 16);
+    const me = accountFor(serverBase());
+    const name = me ? me.name : (ui.online.name || '').replace(/\s+/g, ' ').trim().slice(0, 16);
     const code = (ui.online.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     return { name, code };
   }
@@ -2235,8 +2269,17 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         const names = s.names.map((nm, i) => nm.trim() || `Player ${i + 1}`);
         ui.open = {};
         state.stats = { id:randomId(), startedAt:Date.now() }; // for the owner's statistics (see queueReport)
+        const mine = myLine(names);
+        if (mine >= 0) state.stats.owner = mine; // the signed-in player's line; the report credits it to them
         dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' });
         return;
+      }
+      case 'me': {
+        const s = state.setup, names = s.names; if (!account || !(id in names)) return;
+        const was = myLine(names), mine = account.name;
+        if (was >= 0 && was !== id) names[was] = names[id]; // swap: the other name moves to the old line
+        names[id] = mine;
+        break;
       }
       case 'roll': startRoll(); return;
       case 'die': tapDie(id); break;
@@ -2469,6 +2512,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const sheet = sheetOf(g), sig = hashText(JSON.stringify(sheet)), id = state.stats.id, r = readReports();
     if (r.sent[id] === sig || r.queue.some(q => q.id === id && q.sig === sig)) return;
     const body = { id, mode:g.mode, startedAt:state.stats.startedAt, finishedAt:Date.now(), sheet };
+    if (Number.isInteger(state.stats.owner)) body.owner = state.stats.owner;
     r.queue = r.queue.filter(q => q.id !== id).concat([{ id, sig, body }]).slice(-MAX_REPORTS);
     writeReports(r);
   }
@@ -2478,7 +2522,10 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const item = readReports().queue[0];
     if (!item) return;
     reportSending = true;
-    fetch(url, { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify(item.body) })
+    // the owner's session lets the server credit their line; without one (signed out since) it's stored as a guest game
+    const headers = { 'content-type':'application/json' };
+    if (account && account.server === authBase()) headers.authorization = `Bearer ${account.token}`;
+    fetch(url, { method:'POST', headers, body:JSON.stringify(item.body) })
       .then(res => res.ok || (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429), () => false)
       .then(done => {
         reportSending = false;
@@ -2508,7 +2555,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   });
   $app.addEventListener('input', e => {
     const el = e.target;
-    if (el.classList.contains('name-in')){ state.setup.names[+el.dataset.idx] = el.value; save(); }
+    if (el.classList.contains('name-in')){ state.setup.names[+el.dataset.idx] = el.value; save(); if (account) syncMe(); }
     if (el.classList.contains('edit-in')){ ui.editVals[+el.dataset.round] = el.value; refreshEdit(); }
     if (el.dataset.online === 'code'){ const v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (v !== el.value) el.value = v; ui.online.code = v; }
     if (el.dataset.online === 'name') ui.online.name = el.value;
@@ -2544,8 +2591,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (s && s.setup) state = s;
     // a game saved between rounds by an older version moves on to the next round
     if (state.phase === 'roundEnd'){ const r = E.apply(state, { type:'nextround' }); if (!r.error){ state = r.state; save(); } }
+    startAccounts(); // first: a waiting report goes out with the owner's session
     flushReports();
-    startAccounts();
     // ?join=CODE opens the join screen with the code filled in
     let join = '';
     try { join = (new URLSearchParams(location.search).get('join') || '').toUpperCase(); } catch (e) {}

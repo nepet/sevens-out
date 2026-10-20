@@ -139,7 +139,7 @@ state = {
     ending, crosser, next, loser, early, last,
     history: [..], drops, shots: [{ player, round }]
   },
-  stats: { id, startedAt }                                        // one-phone games only, for the statistics
+  stats: { id, startedAt, owner? }                                // one-phone games only, for the statistics; owner = the signed-in player's line
 }
 ```
 
@@ -160,7 +160,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 
 **The score list** (`board(g, cur)`, one `lineHtml(g, i, opts)` per player) sits at the top of the play screens (dice turn, real-dice keypad, corrections) and under the verdict at game over:
 - During play and corrections the lines follow this round's playing order (`g.order`), with the current player (or the player being corrected) highlighted. At game over they are sorted by total, highest first (equal totals keep seating order), and the loser's line says "Loses".
-- Each line: ▶ marker, name (a die mark for the round's starter, `you` online), a bar towards 101 with the last 15 hatched, the total, and this round's `+N`, `now` or `–`. Offline and rounds of shots paid add a small second row.
+- Each line: ▶ marker, name (a die mark for the round's starter, `you` online, and online the `#tag` of the other signed-in players, which gives way first to a long name), a bar towards 101 with the last 15 hatched, the total, and this round's `+N`, `now` or `–`. Offline and rounds of shots paid add a small second row.
 - Real-dice mode: seated players tap a line to correct that player's scores (`data-act="edit"`).
 - DOM, relied on by the tests and the race between rounds: `section.board` → `.bhead` → `ol.lines` → `li.pl[data-id]` (classes `now`, `wait`, `over`, `lost`, `editable`) with `.mk`, `.nm`, `.trk > .fill`, `.num`, `.dl` and an optional `.pl-sub`; then `p.bfoot`. `lineHtml` depends only on its arguments (and the room's connections), so the race can reuse it.
 
@@ -175,7 +175,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
   - Other players see a "Waiting for …" note instead of the controls.
 
 **Data actions:**
-- **Setup:** `add`, `remove`, `randstart`, `mode`, `pairing`, `start`
+- **Setup:** `add`, `remove`, `randstart`, `mode`, `pairing`, `start`, `me` ("This is me")
 - **Dice:** `roll`, `die`, `unpair`, `takeall`, `stop`, `end`
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
@@ -195,23 +195,24 @@ One `Room` per room code holds the authoritative game.
 
 | Direction | Message |
 |---|---|
-| client → server | `{t:'hello', name, token?, create?}` |
+| client → server | `{t:'hello', name, token?, create?, session?}` (`session`: the account token when signed in) |
 | client → server | `{t:'act', action}` |
 | client → server | `{t:'lobby', op:'settings'\|'start'\|'reopen'\|'rename'\|'kick'\|'leave', …}` |
 | client → server | `{t:'ping'}` |
-| server → client | `{t:'welcome', seat, token}` |
-| server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings:{mode, pairing, starter}, seats:[{id,name,connected}]}, state, events}` |
+| server → client | `{t:'welcome', seat, token, user?}` (`user`: the player ID the server resolved; `null`: a guest, or the session has ended; left out: the accounts database couldn't be reached, or an old server. The page drops its account only on `null`) |
+| server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings:{mode, pairing, starter}, seats:[{id,name,connected,user}]}, state, events}` |
 | server → client | `{t:'error', code, message}` |
 | server → client | `{t:'pong'}` |
 
 **Statistics** (`server/core/stats.js`, D1 via `server/d1/`):
 - Rooms record their game through the optional `stats` adapter: `playing` on start, `over` whenever an action leaves the game over, `playing` again when undo leaves game over, `abandoned` on reopen mid-game or when the room expires. Each game has a 16-hex `id`; a new record replaces the old one.
 - The Cloudflare adapter writes to D1 and keeps failed writes in `pendingStats`, retried from the alarm (1 min doubling to 1 h, dropped after 24 h). Writes in one room run one after another. When an empty room is removed, `pendingStats` stays and is retried; storage is cleared only once nothing is waiting.
-- `POST /report` takes a finished one-phone game; `checkReport` rebuilds it with the engine (dice games: full rules; scoreboard games skip the starter and 101-round checks because corrections can change past rounds). 10 per minute per IP, 16 KB max.
+- `POST /report` takes a finished one-phone game, with an optional `owner` (line index) and `Authorization: Bearer <token>`: the line counts for the signed-in player only when the session is valid and the line carries the player's name (case and spaces ignored). `checkReport` rebuilds it with the engine (dice games: full rules; scoreboard games skip the starter and 101-round checks because corrections can change past rounds). 10 per minute per IP, 16 KB max.
 - The admin page reads the same database. `/api/games?before=` takes the opaque cursor `<finishedAt>_<id>`.
 
 **What `hello` does:**
 - With a matching token, the player gets their seat back.
+- With a valid `session`, the signed-in player gets the seat that is theirs (`seat.user`) back from any phone, in the lobby or mid-game, without a token. A new seat sits under the player name. A guest seat whose token comes with a session is linked to the player (and renamed in the lobby). A player never takes two seats. An invalid session plays as a guest.
 - With `create` and no room yet, the player creates the room and becomes host. If the room exists, the answer is `room_taken`, and the page tries a new code.
 - Joining in the lobby adds a seat (up to 6). During a game, a newcomer joins as a spectator.
 
@@ -270,6 +271,8 @@ One `Room` per room code holds the authoritative game.
   - **Session:** a bearer token from `/auth`, kept in `sevens-out-account`. On load the page checks it with `GET /auth/me`: a new name is taken over, a 401 signs the phone out quietly, and network trouble keeps it. Create, sign-in and rename also write `sevens-out-name`.
   - **Passkey hygiene:** after Delete the page calls `PublicKeyCredential.signalAllAcceptedCredentials` with no IDs, and a sign-in with a deleted player's passkey calls `signalUnknownCredential`, so password managers can hide them.
   - While a passkey prompt is open (`ui.account.busy`), the panel's buttons are disabled.
+  - **Online:** the online entry says "Playing as <name> #tag" instead of the name field, and `hello` carries `session` (only when the account belongs to the room server). If the server answers `welcome.user === null` to a hello with a session, the session has ended: the phone drops the account quietly and plays on as a guest in that seat. The lobby seats and the score list show `#tag` for seats with `user`.
+  - **One phone:** when signed in, each setup row shows "You" (the first line whose name is the player name, case and spaces ignored) or "This is me", which puts the player name on that line (swapping names with the old "You" line). At start, `state.stats.owner` is that line; the report carries it as `owner` and goes out with the player's bearer token while the phone is signed in to the same server (signed out by then: a guest game).
 - **Developer menu.** Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
 - **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving. The race between rounds shows the grown list with its final totals, order and badge at once. The curtain then appears without sliding, and the whole race takes about 2.5 s.
 

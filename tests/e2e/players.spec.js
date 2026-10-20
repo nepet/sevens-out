@@ -1,0 +1,141 @@
+// Playing as your player: online seats carry the player (tags, the seat back from any phone, an ended session),
+// and a one-phone game credits the phone owner's line. Runs against the Node server, or `wrangler dev` with TARGET=worker.
+import { test, expect } from '@playwright/test';
+import { SERVER, LOCAL, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll } from './helpers.js';
+
+const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, reducedMotion: 'reduce' };
+const AUTH = SERVER ? SERVER.replace(/^ws/, 'http') : LOCAL;
+
+// a phone with a passkey authenticator; signed in as `name` when given
+async function newPhone(browser, name = null) {
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  const auth = await addAuthenticator(page);
+  await page.goto(localUrl('/'));
+  await expect(page.locator('[data-act=online]')).toBeVisible();
+  if (name) {
+    await expect(page.locator('[data-act=acreate]')).toBeVisible();
+    await page.fill('#aname', name);
+    await page.click('[data-act=acreate]');
+    await expect(page.locator('.acct-name')).toContainText(name);
+  }
+  return { ctx, page, auth, me: name ? await account(page) : null };
+}
+async function joinRoom(page, code, guestName = null) {
+  await page.goto(localUrl(`/?join=${code}`));
+  await expect(page.locator('#ocode')).toHaveValue(code);
+  if (guestName) await page.fill('#oname', guestName);
+  await page.click('[data-act=ojoin]');
+}
+const tag = p => `#${p.me.id.slice(0, 4)}`;
+const seatOf = async (page, name) => (await net(page)).room.seats.find(s => s.name === name);
+
+test('online: players show their tag, take their seat back from another phone, and an ended session plays as a guest', async ({ browser }) => {
+  const A = await newPhone(browser, 'Anna');
+  await A.page.click('[data-act=online]');
+  await expect(A.page.locator('.playing-as')).toHaveText(`Playing as Anna ${tag(A)}`);
+  await expect(A.page.locator('#oname')).toHaveCount(0);
+  await A.page.click('[data-act=ocreate]');
+  await expect(A.page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  const code = await A.page.locator('.roomcode').innerText();
+
+  const B = await newPhone(browser, 'Ben');
+  await joinRoom(B.page, code);
+  await expect(B.page.locator('.roomcode')).toHaveText(code);
+
+  // a guest
+  const C = await newPhone(browser);
+  await joinRoom(C.page, code, 'Cleo');
+  await expect(C.page.locator('.roomcode')).toHaveText(code);
+
+  // a session that ended on the server (signed out elsewhere): the phone joins as a guest and drops the account
+  const E = await newPhone(browser, 'Eve');
+  const dead = (await storedAccount(E.page)).token;
+  expect((await E.page.request.post(`${AUTH}/auth/signout`, { headers: { authorization: `Bearer ${dead}` } })).status()).toBe(204);
+  await E.page.click('[data-act=online]'); // no reload: the page still holds the session and sends it in hello
+  await expect(E.page.locator('.playing-as')).toContainText('Eve');
+  await E.page.fill('#ocode', code);
+  await E.page.click('[data-act=ojoin]');
+  await expect(E.page.locator('.roomcode')).toHaveText(code);
+  await expect.poll(async () => (await account(E.page)).signedIn).toBe(false);
+  expect(await storedAccount(E.page)).toBeNull();
+
+  // the lobby: tags for players, none for guests
+  await expect(A.page.locator('.seat')).toHaveCount(4);
+  const seats = (await net(A.page)).room.seats;
+  expect(seats.map(s => [s.name, s.user])).toEqual([['Anna', A.me.id], ['Ben', B.me.id], ['Cleo', null], ['Eve', null]]);
+  await expect(B.page.locator('.seat', { hasText: 'Anna' }).locator('.ptag')).toHaveText(tag(A));
+  await expect(A.page.locator('.seat', { hasText: 'Ben' }).locator('.ptag')).toHaveText(tag(B));
+  await expect(A.page.locator('.seat', { hasText: 'Cleo' }).locator('.ptag')).toHaveCount(0);
+  await expect(A.page.locator('.seat', { hasText: 'Eve' }).locator('.ptag')).toHaveCount(0);
+  expect(await noSideScroll(A.page)).toBe(true);
+
+  // the game: the score list shows the others' tags (this phone's own line says "you")
+  await A.page.click('[data-act=ostart]');
+  await expect(A.page.locator('.board')).toBeVisible();
+  await expect(A.page.locator('.board .pl', { hasText: 'Ben' }).locator('.ptag')).toHaveText(tag(B));
+  await expect(A.page.locator('.board .pl', { hasText: 'Anna' }).locator('.ptag')).toHaveCount(0);
+  await expect(A.page.locator('.board .pl', { hasText: 'Cleo' }).locator('.ptag')).toHaveCount(0);
+  await expect(C.page.locator('.board .pl', { hasText: 'Anna' }).locator('.ptag')).toHaveText(tag(A));
+
+  // Anna's passkey on another phone, without the room's token: she gets her seat back mid-game and plays her turn
+  const D = await newPhone(browser);
+  await copyCredential(A.auth, D.auth);
+  await D.page.click('[data-act=asignin]');
+  await expect(D.page.locator('.acct-name')).toContainText('Anna');
+  await joinRoom(D.page, code);
+  await expect(D.page.locator('.board')).toBeVisible();
+  expect((await net(D.page)).seat).toBe((await seatOf(A.page, 'Anna')).id);
+  const st = await live(D.page);
+  expect(st.game.seats[st.game.order[st.game.pos]]).toBe((await net(D.page)).seat); // Anna starts
+  await D.page.click('[data-act=roll]');
+  await expect.poll(async () => (await live(A.page)).game.turn.rolls).toBe(1);
+  await expect(D.page.locator('.board .pl', { hasText: 'Anna' }).locator('.you')).toBeVisible();
+
+  for (const p of [A, B, C, D, E]) await p.ctx.close();
+});
+
+test('one phone: the signed-in player\'s line says "You", "This is me" moves it, and the report credits it', async ({ browser }) => {
+  const P = await newPhone(browser, 'Anna');
+  const { page } = P;
+  const token = (await storedAccount(page)).token;
+  const sent = [];
+  await page.route('**/report', async route => {
+    sent.push({ body: route.request().postDataJSON(), auth: await route.request().headerValue('authorization') });
+    await route.fulfill({ status: 204 });
+  });
+
+  // no line is Anna yet: every line offers "This is me"
+  await expect(page.locator('.me-link')).toHaveCount(2);
+  await page.fill('#name-0', ' anna ');
+  await expect(page.locator('[data-me="0"] .me-you')).toHaveText('You');
+  await expect(page.locator('[data-me="1"] .me-link')).toBeVisible();
+  await page.fill('#name-1', 'Ben');
+  await page.click('[data-me="1"] .me-link');
+  await expect(page.locator('#name-1')).toHaveValue('Anna');
+  await expect(page.locator('#name-0')).toHaveValue('Ben'); // swapped
+  await expect(page.locator('[data-me="1"] .me-you')).toHaveText('You');
+  expect(await noSideScroll(page)).toBe(true);
+
+  // a short real-dice game: Ben starts and loses
+  await page.click('[data-act=mode][data-id="1"]');
+  await page.click('[data-act=start]');
+  expect((await live(page)).stats.owner).toBe(1);
+  for (let round = 1; round <= 3; round++) {
+    await enterScore(page, 36, 1);
+    await enterScore(page, 5);
+    if (round < 3) await skipRace(page);
+  }
+  await expect(page.locator('.verdict')).toContainText('loses');
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].body.owner).toBe(1);
+  expect(sent[0].body.sheet.players).toEqual(['Ben', 'Anna']);
+  expect(sent[0].auth).toBe(`Bearer ${token}`);
+
+  // signed out: no line is "you", and a new game has no owner
+  await page.click('[data-act=again]');
+  await page.locator('details[data-fold=account] summary').click();
+  await page.click('[data-act=asignout]');
+  await expect(page.locator('[data-me]')).toHaveCount(0);
+  await P.ctx.close();
+});

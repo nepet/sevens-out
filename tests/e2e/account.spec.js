@@ -65,7 +65,7 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
   expect((await account(page)).id).toBe(me.id);
   await expect(hint(page)).toHaveText('Signed in as Anna.');
 
-  // rename: Enter saves; the new name survives a reload and fills the online name field
+  // rename: Enter saves; the new name survives a reload and is the name online
   await page.click('[data-act=arename]');
   await expect(page.locator('#arename')).toBeFocused();
   await page.click('[data-act=arenamecancel]');
@@ -80,7 +80,7 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
   expect(await account(page)).toMatchObject({ id: me.id, name: 'Annie' });
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-name')))).toBe('Annie');
   await page.click('[data-act=online]');
-  await expect(page.locator('#oname')).toHaveValue('Annie');
+  await expect(page.locator('.playing-as')).toHaveText(`Playing as Annie #${me.id.slice(0, 4)}`);
   await ctx.close();
 });
 
