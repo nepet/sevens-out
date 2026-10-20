@@ -401,6 +401,59 @@ test.describe('between rounds', () => {
     await expect(page.locator('.race-badge')).toContainText('Ben cleared all six');
   });
 
+  // serve engine.js changed by `edit`, as a phone with an older copy in its cache would load it
+  async function patchEngine(page, edit) {
+    const done = { changed: false };
+    await page.route('**/engine.js', async route => {
+      const res = await route.fetch(), src = await res.text(), body = edit(src);
+      done.changed = body !== src;
+      await route.fulfill({ response: res, body });
+    });
+    return done;
+  }
+  // after round 1 (Anna 10, Ben 20) the page shows round 2 at once, without a race, and play goes on
+  async function movesOnWithoutRace(page) {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await idle(page);
+    await expect(page.locator('.race')).toHaveCount(0);
+    await expect(page.locator('#app')).not.toHaveClass(/racing/);
+    await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
+    const s = await saved(page);
+    expect([s.phase, s.game.round, s.game.starter]).toEqual(['play', 2, 1]);
+    await enterScore(page, 5, 1);
+    expect((await saved(page)).game.players.map(p => p.score)).toEqual([10, 25]);
+  }
+
+  test('with an engine.js from before the race (an old copy in the cache) the next round starts without a race', async ({ page }) => {
+    // the old engine waited in 'roundEnd' for a "Next round" tap and had no roundRecap
+    const old = await patchEngine(page, src => src
+      .replace('} else startNextRound(s, ev);', "} else { g.next = nextStarter(g); s.phase = 'roundEnd'; ev.push({ type: 'roundEnd', next: g.next }); }")
+      .replace('highestLater, roundRecap', 'highestLater'));
+    await movesOnWithoutRace(page);
+    expect(old.changed).toBe(true);
+    expect(await page.evaluate(() => typeof window.SevensEngine.roundRecap)).toBe('undefined');
+  });
+
+  test('a round recap or a race that fails shows the next round without a race', async ({ page }) => {
+    const fail = await patchEngine(page, src => src.replace('highestLater, roundRecap', "highestLater, roundRecap: () => { throw new Error('test: no recap'); }"));
+    await movesOnWithoutRace(page);
+    expect(fail.changed).toBe(true);
+    await page.unroute('**/engine.js');
+    // a recap the race can't draw: it fails once the race is already on screen
+    const half = await patchEngine(page, src => src.replace('highestLater, roundRecap', 'highestLater, roundRecap: g => { const r = roundRecap(g); return r && { ...r, after: null }; }'));
+    await page.evaluate(() => localStorage.removeItem('sevens-out-v1'));
+    await movesOnWithoutRace(page);
+    expect(half.changed).toBe(true);
+    // the failed race left no key listener behind: Anna's score goes in on the keyboard (and ends round 2)
+    await page.evaluate(() => document.activeElement.blur());
+    await page.keyboard.type('7'); await page.keyboard.press('Enter');
+    await idle(page);
+    const s = await saved(page);
+    expect([s.game.round, s.game.players.map(p => p.score)]).toEqual([3, [17, 25]]);
+    await expect(page.locator('.race')).toHaveCount(0);
+  });
+
   test('the developer menu plays the round change', async ({ page }) => {
     await startLocal(page, { mode: 'score' });
     await enterScore(page, 10, 1);

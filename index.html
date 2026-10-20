@@ -1178,23 +1178,33 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // whose curtain covers the switch to the new round
   async function presentRound(next, events){
     stopTumble(); ui.rolling = false; ui.race = true;
-    if (!online()) write(next); // saved at once, so a reload during the race can't lose the last turn
     // leaving the room (or being removed) before the swap drops this change: the phone's own game stays
     const ses = net.session, left = () => ses !== net.session;
-    const g = next.game, so = events.find(e => e.type === 'sevensOut'), miss = events.find(e => e.type === 'missed');
-    if (so){ celebrate(g.players[so.player].name); await wait(2900); }
-    if (miss){ showMissed({ name:g.players[miss.player].name, me:isMe(miss.player), how:miss.how, pairs:miss.pairs }); await wait(3200); }
-    if (left()){ ui.race = false; return; }
-    const rest = events.filter(e => e !== so && e !== miss);
+    const so = events.find(e => e.type === 'sevensOut'), miss = events.find(e => e.type === 'missed');
+    let rest = events.filter(e => e !== so && e !== miss), swapped = false;
     const swap = () => {
-      if (left()) return;
+      if (swapped || left()) return;
+      swapped = true;
+      // an engine.js from before rounds moved on by themselves (an old copy in the cache) waits in 'roundEnd': move on here
+      if (next.phase === 'roundEnd' && !online()){
+        const r = E.apply(next, { type:'nextround' });
+        if (!r.error){ next = r.state; rest = rest.concat(r.events); }
+      }
       state = next; afterEvents(rest); render();
       const list = $app.querySelector('.board');
-      if (list && list.getBoundingClientRect().top < 0) scrollTo(0, 0); // the curtain lifts on the new round's list
+      if (list && list.getBoundingClientRect().top < 0) scrollTo(0, 0); // the curtain slides away from the new round's list
     };
-    const recap = E.roundRecap(g);
-    if (recap) await playRace(recap, swap, g);
-    else { swap(); ui.race = false; }
+    // without a recap (an old engine.js) or when anything here fails, the new state shows at once, without a race
+    try {
+      if (!online()) write(next); // saved at once, so a reload during the race can't lose the last turn
+      const g = next.game;
+      if (so){ celebrate(g.players[so.player].name); await wait(2900); }
+      if (miss){ showMissed({ name:g.players[miss.player].name, me:isMe(miss.player), how:miss.how, pairs:miss.pairs }); await wait(3200); }
+      if (left()) return;
+      const recap = typeof E.roundRecap === 'function' ? E.roundRecap(g) : null;
+      if (recap) await playRace(recap, swap, g);
+    } catch (err){ console.error(err); }
+    finally { ui.race = false; swap(); }
   }
   function afterEvents(events){
     const g = state.game, nm = i => (g && g.players[i] ? g.players[i].name : '');
@@ -1758,75 +1768,18 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   }
   // recap: E.roundRecap(); g gives the names (the developer menu may pass made-up players).
   // The score list lifts and grows, the bars move from `before` to `after`, the lines reorder by total, the round's
-  // best moment pops up, then a curtain drops, swap() switches the screen under it and the curtain lifts.
-  // A tap (or Escape, Enter, Space) skips to the end; swap() is called exactly once either way.
+  // best moment pops up, then a curtain drops, swap() switches the screen under it and the curtain slides away.
+  // A tap (or Escape, Enter, Space) skips to the end, and so does a step that fails; swap() is called exactly once either way.
   async function playRace(recap, swap, g = state.game){
     if (document.hidden){ swap(); ui.race = false; return; } // nobody is looking
     ui.race = true; dropMissed();
     await listInView();
     return new Promise(resolve => {
-      const nm = i => g.players[i].name, timers = [], later = (ms, fn) => timers.push(setTimeout(fn, ms));
-      let raf = 0, swapped = false, done = false;
-      // start exactly where the list is; a centred card only when there is no list (the developer menu on setup)
-      const list = $app.querySelector('.board'), from = list && list.getBoundingClientRect();
-      const box = $app.getBoundingClientRect(), { minTop, maxBottom } = edges();
-      const best = recap.best && BADGE[recap.best.kind] ? BADGE[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
-      const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = WHY[recap.reason.kind](recap.reason.score);
-      const foot = list && list.querySelector('.bfoot');
-      const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
-      const el = document.createElement('div');
-      el.className = 'race';
-      el.innerHTML = `<div class="race-card${best ? ' badged' : ''}" aria-hidden="true">
-          <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
-          <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
-          ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
-          ${best ? `<p class="race-badge"><b>${esc(best[0])}</b> <span>${esc(best[1])}</span></p>` : ''}</div>
-        <div class="race-curtain" aria-hidden="true"><p class="race-round">${slam(`Round ${recap.round + 1}`)}</p>
-          <p class="race-starter">${esc(starts)}</p><p class="race-why">${esc(why)}</p></div>
-        <p class="sr" role="status"></p>`;
-      const card = el.firstElementChild, curtain = el.querySelector('.race-curtain'), badge = el.querySelector('.race-badge');
-      const lines = [...card.querySelectorAll('.pl')];
-      card.style.cssText = `left:${from ? from.left : box.left + 16}px;top:${from ? from.top : 0}px;width:${from ? from.width : box.width - 32}px;transition:none`;
-      // grown, the lines share the screen's height less about 120 px for the heading and the badge: 34 to 54 px each
-      card.style.setProperty('--row', `${Math.max(34, Math.min(54, Math.floor((maxBottom - minTop - 120) / lines.length) - 3))}px`);
-      document.body.appendChild(el);
-      if (badge) card.style.setProperty('--room', `${badge.offsetHeight + 26}px`);
-      // measure the grown card on a copy, so it can grow in place and still fit on the screen
-      const probe = card.cloneNode(true);
-      probe.classList.add('grow'); probe.style.visibility = 'hidden';
-      el.appendChild(probe);
-      const h0 = card.offsetHeight, h1 = probe.offsetHeight;
-      probe.remove();
-      if (!from) card.style.top = `${(innerHeight - h0) / 2}px`;
-      void card.offsetHeight; card.style.removeProperty('transition'); // placed without moving; from here on it moves
-      const top1 = Math.max(minTop, Math.min(from ? from.top : (innerHeight - h1) / 2, maxBottom - h1));
-      $app.classList.add(from ? 'racing' : 'racing-all');
-
-      const grow = () => {
-        card.classList.add('grow'); card.style.top = `${top1}px`;
-        card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>Race to ${LIMIT}</b></span>`;
-      };
-      const bars = () => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.fill').style.width = barWidth(recap.after[i]); li.classList.toggle('over', recap.after[i] >= LIMIT); });
-      const count = k => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.num').textContent = Math.round(recap.before[i] + recap.pts[i] * k); });
-      const countUp = () => {
-        const t0 = performance.now();
-        const step = now => { const k = Math.min(1, (now - t0) / 900); count(1 - (1 - k) ** 3); if (k < 1) raf = requestAnimationFrame(step); };
-        raf = requestAnimationFrame(step);
-      };
-      // highest total on top; equal totals keep the finished round's order (the sort is stable)
-      const sort = flip => {
-        const ol = card.querySelector('.lines'), at = new Map(lines.map(li => [li, li.getBoundingClientRect().top]));
-        lines.slice().sort((a, b) => recap.after[+b.dataset.id] - recap.after[+a.dataset.id]).forEach(li => ol.appendChild(li));
-        if (flip) lines.forEach(li => {
-          const dy = at.get(li) - li.getBoundingClientRect().top;
-          if (dy) li.animate([{ transform:`translateY(${dy}px)` }, { transform:'none' }], { duration:550, easing:'cubic-bezier(.3,1.25,.5,1)' });
-        });
-      };
-      const pop = () => { if (badge) badge.classList.add('on'); };
-      const drop = () => { curtain.classList.add('in'); sound.round(); };
+      const nm = i => g.players[i].name, timers = [];
+      let raf = 0, swapped = false, done = false, el = null, card = null;
       const doSwap = () => {
         if (swapped) return;
-        swapped = true; $app.classList.remove('racing', 'racing-all'); card.remove();
+        swapped = true; $app.classList.remove('racing', 'racing-all'); if (card) card.remove();
         try { swap(); } catch (e) { console.error(e); }
       };
       const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' '){ e.preventDefault(); e.stopImmediatePropagation(); finish(); } };
@@ -1834,27 +1787,89 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         if (done) return;
         done = true; timers.forEach(clearTimeout); cancelAnimationFrame(raf);
         document.removeEventListener('keydown', onKey, true);
-        doSwap(); el.remove(); ui.race = false; resolve();
+        doSwap(); if (el) el.remove(); ui.race = false; resolve();
       }
-      el.addEventListener('click', finish);
-      document.addEventListener('keydown', onKey, true);
-      later(60, () => { el.querySelector('[role=status]').textContent = `${best ? `${best[0]}: ${best[1]}. ` : ''}Round ${recap.round + 1}. ${starts}. ${why}.`; });
+      // a step that fails ends the race at once: the new state shows as after a skip
+      const later = (ms, fn) => timers.push(setTimeout(() => { try { fn(); } catch (err){ console.error(err); finish(); } }, ms));
+      try {
+        // start exactly where the list is; a centred card only when there is no list (the developer menu on setup)
+        const list = $app.querySelector('.board'), from = list && list.getBoundingClientRect();
+        const box = $app.getBoundingClientRect(), { minTop, maxBottom } = edges();
+        const best = recap.best && BADGE[recap.best.kind] ? BADGE[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
+        const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = WHY[recap.reason.kind](recap.reason.score);
+        const foot = list && list.querySelector('.bfoot');
+        const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
+        el = document.createElement('div');
+        el.className = 'race';
+        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}" aria-hidden="true">
+            <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
+            <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
+            ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
+            ${best ? `<p class="race-badge"><b>${esc(best[0])}</b> <span>${esc(best[1])}</span></p>` : ''}</div>
+          <div class="race-curtain" aria-hidden="true"><p class="race-round">${slam(`Round ${recap.round + 1}`)}</p>
+            <p class="race-starter">${esc(starts)}</p><p class="race-why">${esc(why)}</p></div>
+          <p class="sr" role="status"></p>`;
+        card = el.firstElementChild;
+        const curtain = el.querySelector('.race-curtain'), badge = el.querySelector('.race-badge');
+        const lines = [...card.querySelectorAll('.pl')];
+        card.style.cssText = `left:${from ? from.left : box.left + 16}px;top:${from ? from.top : 0}px;width:${from ? from.width : box.width - 32}px;transition:none`;
+        // grown, the lines share the screen's height less about 120 px for the heading and the badge: 34 to 54 px each
+        card.style.setProperty('--row', `${Math.max(34, Math.min(54, Math.floor((maxBottom - minTop - 120) / lines.length) - 3))}px`);
+        document.body.appendChild(el);
+        if (badge) card.style.setProperty('--room', `${badge.offsetHeight + 26}px`);
+        // measure the grown card on a copy, so it can grow in place and still fit on the screen
+        const probe = card.cloneNode(true);
+        probe.classList.add('grow'); probe.style.visibility = 'hidden';
+        el.appendChild(probe);
+        const h0 = card.offsetHeight, h1 = probe.offsetHeight;
+        probe.remove();
+        if (!from) card.style.top = `${(innerHeight - h0) / 2}px`;
+        void card.offsetHeight; card.style.removeProperty('transition'); // placed without moving; from here on it moves
+        const top1 = Math.max(minTop, Math.min(from ? from.top : (innerHeight - h1) / 2, maxBottom - h1));
+        $app.classList.add(from ? 'racing' : 'racing-all');
 
-      if (reduceMotion){
-        grow(); bars(); count(1); sort(false); pop();
-        later(1600, () => { drop(); doSwap(); });
-        later(2500, finish);
-        return;
-      }
-      if (!from) card.animate([{ opacity:0, transform:'scale(.96)' }, { opacity:1, transform:'none' }], { duration:250, easing:'ease-out' });
-      raf = requestAnimationFrame(() => { raf = requestAnimationFrame(grow); }); // the first frame is the list, exactly where it was
-      later(700, () => { bars(); countUp(); });
-      later(1700, () => sort(true));
-      later(2400, pop);
-      later(3400, drop);
-      later(3950, doSwap);           // the curtain covers the screen; who starts and why are fully shown at 4.05 s
-      later(5000, () => curtain.classList.add('gone'));
-      later(5550, finish);
+        const grow = () => {
+          card.classList.add('grow'); card.style.top = `${top1}px`;
+          card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>Race to ${LIMIT}</b></span>`;
+        };
+        const bars = () => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.fill').style.width = barWidth(recap.after[i]); li.classList.toggle('over', recap.after[i] >= LIMIT); });
+        const count = k => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.num').textContent = Math.round(recap.before[i] + recap.pts[i] * k); });
+        const countUp = () => {
+          const t0 = performance.now();
+          const step = now => { const k = Math.min(1, (now - t0) / 900); count(1 - (1 - k) ** 3); if (k < 1) raf = requestAnimationFrame(step); };
+          raf = requestAnimationFrame(step);
+        };
+        // highest total on top; equal totals keep the finished round's order (the sort is stable)
+        const sort = flip => {
+          const ol = card.querySelector('.lines'), at = new Map(lines.map(li => [li, li.getBoundingClientRect().top]));
+          lines.slice().sort((a, b) => recap.after[+b.dataset.id] - recap.after[+a.dataset.id]).forEach(li => ol.appendChild(li));
+          if (flip) lines.forEach(li => {
+            const dy = at.get(li) - li.getBoundingClientRect().top;
+            if (dy) li.animate([{ transform:`translateY(${dy}px)` }, { transform:'none' }], { duration:550, easing:'cubic-bezier(.3,1.25,.5,1)' });
+          });
+        };
+        const pop = () => { if (badge) badge.classList.add('on'); };
+        const drop = () => { curtain.classList.add('in'); sound.round(); };
+        el.addEventListener('click', finish);
+        document.addEventListener('keydown', onKey, true);
+        later(60, () => { el.querySelector('[role=status]').textContent = `${best ? `${best[0]}: ${best[1]}. ` : ''}Round ${recap.round + 1}. ${starts}. ${why}.`; });
+
+        if (reduceMotion){
+          grow(); bars(); count(1); sort(false); pop();
+          later(1600, () => { drop(); doSwap(); });
+          later(2500, finish);
+          return;
+        }
+        if (!from) card.animate([{ opacity:0, transform:'scale(.96)' }, { opacity:1, transform:'none' }], { duration:250, easing:'ease-out' });
+        raf = requestAnimationFrame(() => { raf = requestAnimationFrame(grow); }); // the first frame is the list, exactly where it was
+        later(700, () => { bars(); countUp(); });
+        later(1700, () => sort(true));
+        later(2400, pop);
+        later(3400, drop);
+        later(3950, doSwap);           // the curtain covers the screen; who starts and why are fully shown at 4.05 s
+        later(5000, () => curtain.classList.add('gone'));
+        later(5550, finish);
+      } catch (err){ console.error(err); finish(); }
     });
   }
   // the developer menu's round change: the race for the round just finished, or made-up points before there is one
