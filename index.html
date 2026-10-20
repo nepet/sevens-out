@@ -393,6 +393,7 @@ td.st::before{margin-right:6px}
 .acct-acts .btn:first-child,.acct-acts .btn:last-child:nth-child(2){grid-column:1/-1}
 .acct .confirm{margin-top:10px}
 .acct-del{color:var(--danger)}
+.acct .btn[aria-disabled="true"]{opacity:.5;cursor:default}
 .acct-hint{font-size:.88rem}
 .acct-hint:empty{display:none}
 html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
@@ -514,6 +515,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   const LAYOUT = {1:[4],2:[2,6],3:[2,4,6],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
   const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
   const $app = document.getElementById('app');
+  const $acctLive = document.createElement('p');
+  $acctLive.className = 'sr'; $acctLive.id = 'acct-live'; $acctLive.setAttribute('aria-live', 'polite');
+  document.body.appendChild($acctLive);
 
   // visual look: 'pub' (stitched leather) or 'vegas' (slot-machine cabinet); kept on this phone
   const LOOK_KEY = 'sevens-out-look', LOOK_OPTS = [['pub', 'Pub table'], ['vegas', 'Vegas']];
@@ -1061,8 +1065,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // ---------- your player: a passkey account kept by the room server at /auth (server/core/accounts.js) ----------
   // Optional: guests never see a prompt. The panel shows only when passkeys can work here and the server answers /auth/config.
   const ACCOUNT_KEY = 'sevens-out-account', NAME_KEY = 'sevens-out-name';
-  const authProbe = { done:false, ok:false };
-  let account = null; // { token, id, name, server } from localStorage, or null
+  // the /auth/config probe; `retry`: it failed for a reason that may pass (offline, a server error), so try again later
+  const authProbe = { done:false, ok:false, busy:false, retry:false };
+  let account = null; // { token, id, name, server }: the account saved for this server, or null
   ui.account = { busy:false, hint:null, name:null, rename:false, renameVal:'', confirmDelete:false };
   function authBase(){ const b = serverBase(); return b ? b.replace(/^ws(s?):/, 'http$1:') : ''; }
   // WebAuthn refuses IP addresses as the relying party ID; localhost works
@@ -1084,20 +1089,30 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   const myLine = names => account ? names.findIndex(n => sameName(n, account.name)) : -1;
   function storedName(){ try { return JSON.parse(localStorage.getItem(NAME_KEY) || 'null') || ''; } catch (e) { return ''; } }
   function storeName(n){ try { localStorage.setItem(NAME_KEY, JSON.stringify(n)); } catch (e) {} }
-  // an account saved for another server (a ?server= override, a moved Worker) is left alone, not used
-  function readAccount(){
+  // accounts are kept per server ({ [authBase]: { token, id, name } }), so a ?server= override never touches the real one;
+  // a value from before that ({ token, id, name, server }) reads as one entry
+  function readAccounts(){
     try {
-      const a = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || 'null');
-      if (a && typeof a.token === 'string' && typeof a.id === 'string' && typeof a.name === 'string' && a.server === authBase()) return a;
-    } catch (e) {}
-    return null;
+      const v = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || 'null');
+      if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+      if (typeof v.token === 'string') return typeof v.server === 'string' ? { [v.server]:v } : {};
+      return v;
+    } catch (e) { return {}; }
+  }
+  function readAccount(){
+    const base = authBase(), a = readAccounts()[base];
+    return a && typeof a.token === 'string' && typeof a.id === 'string' && typeof a.name === 'string' ? { token:a.token, id:a.id, name:a.name, server:base } : null;
   }
   function setAccount(a){
+    const key = a ? a.server : account ? account.server : authBase();
     account = a;
-    try { if (a) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(a)); else localStorage.removeItem(ACCOUNT_KEY); } catch (e) {}
+    const all = readAccounts();
+    if (a) all[key] = { token:a.token, id:a.id, name:a.name }; else delete all[key];
+    try { if (Object.keys(all).length) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(all)); else localStorage.removeItem(ACCOUNT_KEY); } catch (e) {}
   }
   const b64u = x => {
-    const b = x instanceof ArrayBuffer ? new Uint8Array(x) : new Uint8Array(x.buffer, x.byteOffset, x.byteLength);
+    // ArrayBuffer.isView, not instanceof: a buffer from another realm (some password-manager extensions) must still read
+    const b = ArrayBuffer.isView(x) ? new Uint8Array(x.buffer, x.byteOffset, x.byteLength) : new Uint8Array(x);
     let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
     return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   };
@@ -1119,12 +1134,25 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // only the home screen (the panel, the setup rows) and the online entry ("Playing as") show the account,
   // so answers that arrive later redraw only those
   function refreshHome(){ if (!online() && (ui.screen === 'online' || state.phase === 'setup') && !ui.busy && !ui.race) render(); }
+  // the feature probe; offline or a server error tries again when the page comes back or the phone is online (a 404: no accounts there)
+  function probeAuth(){
+    if (authProbe.ok || authProbe.busy || !accountsSupported()) return;
+    authProbe.busy = true;
+    fetch(authBase() + '/auth/config', { cache:'no-store' })
+      .then(r => r.ok ? r.json().then(d => ({ ok:!!(d && d.ok === true), retry:false }), () => ({ ok:false, retry:false })) : { ok:false, retry:r.status >= 500 },
+        () => ({ ok:false, retry:true }))
+      .then(({ ok, retry }) => {
+        Object.assign(authProbe, { busy:false, done:true, ok, retry });
+        if (ok) refreshHome();
+      });
+  }
+  const reprobe = () => { if (authProbe.retry && !authProbe.ok) probeAuth(); };
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reprobe(); });
+  addEventListener('online', reprobe);
   function startAccounts(){
     if (!accountsSupported()) return;
     account = readAccount();
-    fetch(authBase() + '/auth/config', { cache:'no-store' })
-      .then(r => r.ok ? r.json() : null).then(d => !!(d && d.ok === true), () => false)
-      .then(ok => { authProbe.done = true; authProbe.ok = ok; if (ok) refreshHome(); });
+    probeAuth();
     const a = account;
     if (a) authFetch('/auth/me', { token:a.token }).then(d => {
       if (account !== a || !d || !d.player) return;
@@ -1132,6 +1160,35 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     }, err => {
       if (account === a && err.status === 401){ setAccount(null); refreshHome(); } // the session ended; network trouble keeps it
     });
+  }
+  // Passkey options fetched ahead, so a tap can open the passkey prompt at once: Safari only allows the prompt within
+  // a short time of the tap, which a fetch over mobile data can use up. 'signin' and 'create' while the signed-out panel
+  // shows, 'add' once its fold is open. A set is used once; challenges live 5 minutes, so a set is fresh for 4.
+  const PREP_FRESH_MS = 4 * 60 * 1000, PREP_RETRY_MS = 30 * 1000;
+  const prep = { sets:{}, loading:{}, failedAt:{}, timer:null };
+  const prepToken = purpose => purpose === 'add' ? (account ? account.token : null) : null;
+  const prepFresh = (p, purpose) => !!p && Date.now() - p.at < PREP_FRESH_MS && p.base === authBase() && p.token === prepToken(purpose);
+  function prefetchOptions(purpose){
+    if (prep.loading[purpose] || prepFresh(prep.sets[purpose], purpose) || Date.now() - (prep.failedAt[purpose] || 0) < PREP_RETRY_MS) return;
+    const token = prepToken(purpose), base = authBase();
+    prep.loading[purpose] = true;
+    authFetch('/auth/options', { method:'POST', body:{ purpose }, token:token || undefined })
+      .then(o => { prep.sets[purpose] = { o, at:Date.now(), base, token }; prep.failedAt[purpose] = 0; },
+        () => { delete prep.sets[purpose]; prep.failedAt[purpose] = Date.now(); })
+      .then(() => { prep.loading[purpose] = false; });
+  }
+  // after each render: get the sets the panel on screen may need (only on the home screen, never during a prompt)
+  function prepareAccount(){
+    if (!accountsAvailable() || ui.account.busy || !$app.querySelector('section.acct')) return;
+    if (!account){ prefetchOptions('signin'); prefetchOptions('create'); }
+    else if (ui.open.account) prefetchOptions('add');
+    clearTimeout(prep.timer);
+    prep.timer = setTimeout(prepareAccount, PREP_FRESH_MS + 1000); // a set that went stale is replaced in the background
+  }
+  function takeOptions(purpose){
+    const p = prep.sets[purpose];
+    delete prep.sets[purpose];
+    return prepFresh(p, purpose) ? p.o : null;
   }
   function signedIn(r){
     setAccount({ token:r.token, id:r.player.id, name:r.player.name, server:authBase() });
@@ -1145,11 +1202,13 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return { id:cred.id, clientDataJSON:b64u(r.clientDataJSON), authenticatorData:b64u(r.getAuthenticatorData()), publicKey:b64u(pk),
       publicKeyAlgorithm:r.getPublicKeyAlgorithm(), transports:typeof r.getTransports === 'function' ? r.getTransports() : [] };
   }
-  function createOptions(o){
+  // options fetched ahead carry no name: the page names the passkey "<name> #<tag>"
+  function createOptions(o, name){
+    const tag = o.user.tag || '';
     return {
       challenge:unb64u(o.challenge),
       rp:{ name:(o.rp && o.rp.name) || 'Sevens Out', id:location.hostname },
-      user:{ id:unb64u(o.user.id), name:o.user.name, displayName:o.user.displayName },
+      user:{ id:unb64u(o.user.id), name:o.user.name || (tag ? `${name} #${tag}` : name), displayName:o.user.displayName || name },
       pubKeyCredParams:[{ type:'public-key', alg:-7 }, { type:'public-key', alg:-257 }],
       authenticatorSelection:{ residentKey:'required', requireResidentKey:true, userVerification:'preferred' },
       attestation:'none', timeout:120000,
@@ -1170,6 +1229,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       case 'no_public_key': return "This passkey can't be used here. Try another browser or password manager.";
       case 'name': return 'Enter a name with at least one letter or digit.';
       case 'signed_out': return 'You were signed out. Sign in again.';
+      case 'challenge': return 'That took too long. Try again.';
+      case 'wrong_player': case 'passkey': return "That passkey didn't work here. Try again or use another one.";
     }
     return 'Something went wrong. Try again.';
   }
@@ -1183,13 +1244,23 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       name = cleanName(el ? el.value : A.name != null ? A.name : storedName());
       if (!name){ A.hint = 'Enter your name first, so the others know who you are.'; render(); return; }
     }
+    const purpose = kind === 'asignin' ? 'signin' : kind === 'aadd' ? 'add' : 'create';
+    const token = kind === 'aadd' ? account.token : undefined;
+    const ask = o => purpose === 'signin'
+      ? navigator.credentials.get({ publicKey:{ challenge:unb64u(o.challenge), rpId:location.hostname, userVerification:'preferred', timeout:120000 } })
+      : navigator.credentials.create({ publicKey:createOptions(o, name) });
+    let credentialId = null, o = takeOptions(purpose), prompt = null;
+    // with options fetched ahead, the prompt opens right here, inside the tap, before anything waits
+    try { if (o) prompt = ask(o); } catch (err) { prompt = Promise.reject(err); }
     A.busy = true; A.hint = 'Waiting for your passkey…'; A.confirmDelete = false; render();
-    let credentialId = null;
     try {
+      if (!o){
+        o = await authFetch('/auth/options', { method:'POST', body:purpose === 'create' ? { purpose, name } : { purpose }, token });
+        prompt = ask(o);
+      }
+      const cred = await prompt;
+      if (!cred) throw cancelled();
       if (kind === 'asignin'){
-        const o = await authFetch('/auth/options', { method:'POST', body:{ purpose:'signin' } });
-        const cred = await navigator.credentials.get({ publicKey:{ challenge:unb64u(o.challenge), rpId:location.hostname, userVerification:'preferred', timeout:120000 } });
-        if (!cred) throw cancelled();
         credentialId = cred.id;
         const r = cred.response, credential = { id:cred.id, clientDataJSON:b64u(r.clientDataJSON), authenticatorData:b64u(r.authenticatorData), signature:b64u(r.signature) };
         if (r.userHandle && r.userHandle.byteLength) credential.userHandle = b64u(r.userHandle);
@@ -1197,10 +1268,6 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         signedIn(res);
         A.hint = `Signed in as ${res.player.name}.`;
       } else {
-        const token = kind === 'aadd' ? account.token : undefined;
-        const o = await authFetch('/auth/options', { method:'POST', body:kind === 'aadd' ? { purpose:'add' } : { purpose:'create', name }, token });
-        const cred = await navigator.credentials.create({ publicKey:createOptions(o) });
-        if (!cred) throw cancelled();
         const body = { challengeId:o.challengeId, credential:regCredential(cred) };
         if (kind === 'aadd'){
           await authFetch('/auth/passkeys', { method:'POST', body, token });
@@ -1269,8 +1336,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   }
   function accountBlock(){
     if (!accountsAvailable()) return '';
-    const A = ui.account, dis = A.busy ? ' disabled' : '';
-    const hint = `<p class="hint acct-hint" aria-live="polite">${esc(A.hint || '')}</p>`;
+    // aria-disabled, not disabled: the tapped button keeps focus during a prompt (handle() ignores taps while busy)
+    const A = ui.account, dis = A.busy ? ' aria-disabled="true"' : '';
+    const hint = `<p class="hint acct-hint">${esc(A.hint || '')}</p>`; // announced through #acct-live
     if (!account){
       const name = A.name != null ? A.name : storedName();
       return `<section class="acct" aria-labelledby="acct-h">
@@ -1836,7 +1904,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   // the signed-in player's line: "You", or "This is me" on the other lines (it swaps in the player name)
   const meSlot = (i, mine) => i === mine ? '<small class="you me-you">You</small>'
-    : `<button class="link me-link" data-act="me" data-id="${i}" aria-label="Line ${i + 1} is me">This is me</button>`;
+    : `<button class="link me-link" data-act="me" data-id="${i}" aria-label="This is me, line ${i + 1}">This is me</button>`;
   function syncMe(){
     const mine = myLine(state.setup.names);
     $app.querySelectorAll('[data-me]').forEach(el => { const i = +el.dataset.me, h = meSlot(i, mine); if (el.innerHTML !== h) el.innerHTML = h; });
@@ -2236,6 +2304,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   const ACCOUNT_ACTS = ['acreate', 'asignin', 'arename', 'arenamesave', 'arenamecancel', 'aadd', 'asignout', 'adelete', 'adeleteyes', 'adeleteno'];
   function handle(a, id, el){
+    if (ACCOUNT_ACTS.includes(a) && ui.account.busy) return; // a passkey prompt or a request is running
     const g = state.game;
     // while pairs are flying out or the race between rounds plays, only settings and the developer buttons respond
     if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno'].includes(a)) return;
@@ -2270,7 +2339,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         ui.open = {};
         state.stats = { id:randomId(), startedAt:Date.now() }; // for the owner's statistics (see queueReport)
         const mine = myLine(names);
-        if (mine >= 0) state.stats.owner = mine; // the signed-in player's line; the report credits it to them
+        if (mine >= 0){ state.stats.owner = mine; state.stats.ownerId = account.id; } // the signed-in player's line; the report credits it to them
         dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' });
         return;
       }
@@ -2449,6 +2518,10 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       state = blank(); resetUi(); html = viewSetup();
     }
     $app.innerHTML = html;
+    // the account hint is announced from one region that outlives the redraw
+    const said = ui.account.hint || '';
+    if ($acctLive.textContent !== said) $acctLive.textContent = said;
+    prepareAccount();
     if (typing){ const el = document.getElementById(typing); if (el){ el.focus({ preventScroll:true }); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } }
     else if (key){
       const el = $app.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
@@ -2513,7 +2586,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (r.sent[id] === sig || r.queue.some(q => q.id === id && q.sig === sig)) return;
     const body = { id, mode:g.mode, startedAt:state.stats.startedAt, finishedAt:Date.now(), sheet };
     if (Number.isInteger(state.stats.owner)) body.owner = state.stats.owner;
-    r.queue = r.queue.filter(q => q.id !== id).concat([{ id, sig, body }]).slice(-MAX_REPORTS);
+    // ownerId: whose session may go with it (a report can wait while another player signs in on this phone)
+    const ownerId = Number.isInteger(state.stats.owner) && typeof state.stats.ownerId === 'string' ? state.stats.ownerId : null;
+    r.queue = r.queue.filter(q => q.id !== id).concat([Object.assign({ id, sig, body }, ownerId ? { ownerId } : {})]).slice(-MAX_REPORTS);
     writeReports(r);
   }
   function flushReports(){
@@ -2522,9 +2597,10 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const item = readReports().queue[0];
     if (!item) return;
     reportSending = true;
-    // the owner's session lets the server credit their line; without one (signed out since) it's stored as a guest game
+    // the owner's session lets the server credit their line; without it (signed out, or someone else signed in since)
+    // the game is stored as a guest game
     const headers = { 'content-type':'application/json' };
-    if (account && account.server === authBase()) headers.authorization = `Bearer ${account.token}`;
+    if (item.ownerId && account && account.id === item.ownerId && account.server === authBase()) headers.authorization = `Bearer ${account.token}`;
     fetch(url, { method:'POST', headers, body:JSON.stringify(item.body) })
       .then(res => res.ok || (res.status >= 400 && res.status < 500 && res.status !== 408 && res.status !== 429), () => false)
       .then(done => {
@@ -2584,6 +2660,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   document.addEventListener('toggle', e => {
     const d = e.target;
     if (d && d.dataset && d.dataset.fold) ui.open[d.dataset.fold] = d.open;
+    if (d && d.dataset && d.dataset.fold === 'account' && d.open) prepareAccount();
   }, true);
 
   function start(data){

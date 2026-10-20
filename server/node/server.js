@@ -11,7 +11,7 @@
  *
  * Environment:
  *   PORT=8788  HOST=0.0.0.0  DATA_DIR=./data  ALLOWED_ORIGINS=https://example.com,https://other.org
- *   AUTH_LIMIT=60   account requests per minute per IP
+ *   AUTH_LIMIT=120  account requests per minute per IP
  */
 import http from 'node:http';
 import { readFile, writeFile, rename, unlink, readdir, stat, mkdir } from 'node:fs/promises';
@@ -29,7 +29,7 @@ const PORT = +(process.env.PORT || 8788);
 const HOST = process.env.HOST || '0.0.0.0';
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(ROOT, 'data'));
 const ALLOWED = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
-const AUTH_LIMIT = +(process.env.AUTH_LIMIT || 60);
+const AUTH_LIMIT = +(process.env.AUTH_LIMIT || 120);
 
 // the only files the page needs
 const STATIC = { '/': 'index.html', '/index.html': 'index.html', '/engine.js': 'engine.js' };

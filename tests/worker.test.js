@@ -278,6 +278,10 @@ test('auth: routed to the accounts handler on D1, limited per IP, off without a 
   assert.equal(last(ws, 'welcome').user, created.body.player.id);
   assert.equal((await call('GET', '/auth/me')).status, 429, 'the fourth counted request from this IP');
   assert.equal((await call('GET', '/auth/config')).status, 200, 'the probe is not counted');
+  env.AUTH_NO_LIMIT = '1';
+  assert.equal((await call('GET', '/auth/me')).status, 429, 'the test switch works on localhost only');
+  const local = await worker.fetch(new Request('http://127.0.0.1:8787/auth/me', { headers: { Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.5' } }), env);
+  assert.equal(local.status, 401);
   assert.equal((await call('GET', '/auth/config', null, { Origin: 'https://evil.example' })).status, 403);
   assert.equal((await worker.fetch(new Request('https://x/auth/config'), { ALLOWED_ORIGINS: ORIGIN })).status, 404, 'no database, no accounts');
 });

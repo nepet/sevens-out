@@ -84,7 +84,9 @@ async function report(request, env) {
 // /auth/*: accounts need the database; without it the page's probe (GET /auth/config) gets 404 and hides them
 function auth(request, env) {
   if (!env.STATS) return new Response(JSON.stringify({ error: 'accounts_off' }), { status: 404, headers: { 'content-type': 'application/json' } });
-  const free = new URL(request.url).pathname === '/auth/config'; // the probe on every page load isn't counted
+  const url = new URL(request.url);
+  // the probe on every page load isn't counted; AUTH_NO_LIMIT=1 switches the limit off for local browser tests only
+  const free = url.pathname === '/auth/config' || (env.AUTH_NO_LIMIT === '1' && (url.hostname === '127.0.0.1' || url.hostname === 'localhost'));
   const limit = env.AUTH_LIMIT && !free
     ? async req => (await env.AUTH_LIMIT.limit({ key: req.headers.get('CF-Connecting-IP') || 'unknown' })).success
     : null;

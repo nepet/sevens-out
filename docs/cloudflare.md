@@ -72,7 +72,7 @@ Then point the page at it in `index.html`, commit and push:
 
 Run `npm run worker:deploy` again whenever `server/` or `engine.js` changes. Pushing to GitHub only updates the page.
 
-The Worker also answers player accounts at `/auth/*` (see [accounts.md](accounts.md)). They live in the D1 database `sevens-out-stats` (binding `STATS`). Without that binding the page hides accounts and everyone plays as a guest. The rate limit `AUTH_LIMIT` (60 requests per minute per IP) is in `wrangler.jsonc`. A database created before accounts needs `npm run db:accounts` once, before the deploy.
+The Worker also answers player accounts at `/auth/*` (see [accounts.md](accounts.md)). They live in the D1 database `sevens-out-stats` (binding `STATS`). Without that binding the page hides accounts and everyone plays as a guest. The rate limit `AUTH_LIMIT` (120 requests per minute per IP) is in `wrangler.jsonc`. A database created before accounts needs `npm run db:accounts` once, before the deploy.
 
 ## 6. Where to look in the dashboard
 

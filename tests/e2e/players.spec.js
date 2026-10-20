@@ -1,10 +1,9 @@
 // Playing as your player: online seats carry the player (tags, the seat back from any phone, an ended session),
 // and a one-phone game credits the phone owner's line. Runs against the Node server, or `wrangler dev` with TARGET=worker.
 import { test, expect } from '@playwright/test';
-import { SERVER, LOCAL, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll } from './helpers.js';
+import { AUTH, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, reducedMotion: 'reduce' };
-const AUTH = SERVER ? SERVER.replace(/^ws/, 'http') : LOCAL;
 
 // a phone with a passkey authenticator; signed in as `name` when given
 async function newPhone(browser, name = null) {
@@ -111,7 +110,7 @@ test('one phone: the signed-in player\'s line says "You", "This is me" moves it,
   await expect(page.locator('[data-me="0"] .me-you')).toHaveText('You');
   await expect(page.locator('[data-me="1"] .me-link')).toBeVisible();
   await page.fill('#name-1', 'Ben');
-  await page.click('[data-me="1"] .me-link');
+  await page.getByRole('button', { name: 'This is me, line 2' }).click();
   await expect(page.locator('#name-1')).toHaveValue('Anna');
   await expect(page.locator('#name-0')).toHaveValue('Ben'); // swapped
   await expect(page.locator('[data-me="1"] .me-you')).toHaveText('You');
@@ -138,4 +137,49 @@ test('one phone: the signed-in player\'s line says "You", "This is me" moves it,
   await page.click('[data-act=asignout]');
   await expect(page.locator('[data-me]')).toHaveCount(0);
   await P.ctx.close();
+});
+
+test('a waiting report goes out with its owner\'s session only', async ({ browser }) => {
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await addAuthenticator(page);
+  await page.route('**/report', route => route.abort('internetdisconnected'));
+  await page.goto(localUrl('/'));
+  await page.fill('#aname', 'Anna');
+  await page.click('[data-act=acreate]');
+  await expect(page.locator('.acct-name')).toContainText('Anna');
+  const anna = await account(page);
+  await page.fill('#name-0', 'Anna');
+  await page.fill('#name-1', 'Ben');
+  await page.click('[data-act=mode][data-id="1"]');
+  await page.click('[data-act=start]');
+  expect((await live(page)).stats).toMatchObject({ owner: 0, ownerId: anna.id });
+  for (let round = 1; round <= 3; round++) {
+    await enterScore(page, 36, 1);
+    await enterScore(page, 5);
+    if (round < 3) await skipRace(page);
+  }
+  await expect(page.locator('.verdict')).toContainText('loses');
+  const queued = () => page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-reports')).queue);
+  await expect.poll(async () => (await queued()).length).toBe(1);
+  expect((await queued())[0].ownerId).toBe(anna.id);
+
+  // someone else signs in on this phone before the report goes out: it goes without a session
+  await page.click('[data-act=again]');
+  await page.locator('details[data-fold=account] summary').click();
+  await page.click('[data-act=asignout]');
+  await page.fill('#aname', 'Cleo');
+  await page.click('[data-act=acreate]');
+  await expect(page.locator('.acct-name')).toContainText('Cleo');
+  const sent = [];
+  await page.unroute('**/report');
+  await page.route('**/report', async route => {
+    sent.push({ body: route.request().postDataJSON(), auth: await route.request().headerValue('authorization') });
+    await route.fulfill({ status: 204 });
+  });
+  await page.reload();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0].body.owner).toBe(0);
+  expect(sent[0].auth).toBeNull();
+  await ctx.close();
 });

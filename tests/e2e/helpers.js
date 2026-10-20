@@ -80,7 +80,10 @@ export const noSideScroll = page => page.evaluate(() => document.documentElement
 export const LOCAL = 'http://localhost:8790';
 export const localUrl = (p = '/') => LOCAL + url(p);
 export const account = page => page.evaluate(() => window.SevensDebug.account);
-export const storedAccount = page => page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-account')));
+// where /auth answers: the page's own server, or wrangler dev with TARGET=worker
+export const AUTH = SERVER ? SERVER.replace(/^ws/, 'http') : LOCAL;
+// the account this phone keeps for AUTH ({ token, id, name }), or null; accounts are stored per server
+export const storedAccount = (page, server = AUTH) => page.evaluate(k => (JSON.parse(localStorage.getItem('sevens-out-account')) || {})[k] || null, server);
 
 // a virtual platform authenticator (like Face ID / a fingerprint) that says yes at once
 export async function addAuthenticator(page, options = {}) {

@@ -47,7 +47,7 @@ npm run test:unit                 # engine, room, node server, worker adapter (f
 npm run test:e2e                  # browser tests against the Node server
 npm test                          # both
 npm run worker:dev                # Worker locally on :8787 (wrangler dev)
-npm run test:worker               # online browser tests against wrangler dev
+npm run test:worker               # online, players and account browser tests against wrangler dev
 npm run worker:deploy             # deploy option 4
 npm run test:admin                # admin page browser tests (wrangler dev for both Workers, local D1)
 npm run admin:dev                 # admin Worker locally on :8789 (no sign-in on localhost)
@@ -146,7 +146,7 @@ state = {
     ending, crosser, next, loser, early, last,
     history: [..], drops, shots: [{ player, round }]
   },
-  stats: { id, startedAt, owner? }                                // one-phone games only, for the statistics; owner = the signed-in player's line
+  stats: { id, startedAt, owner?, ownerId? }                      // one-phone games only, for the statistics; owner = the signed-in player's line, ownerId = their player ID
 }
 ```
 
@@ -159,7 +159,7 @@ Other storage keys, all per device:
 - `sevens-out-name`: the name last used online
 - `sevens-out-online`: `{code, token, name, server}`, used to rejoin a room after a reload or a locked screen
 - `sevens-out-reports`: `{queue, sent}`, finished one-phone games waiting to be sent to `POST /report` until the server accepts or refuses them
-- `sevens-out-account`: `{token, id, name, server}`, the signed-in player (`server` is the `/auth` base at sign-in; an account saved for another server is ignored)
+- `sevens-out-account`: `{[authBase]: {token, id, name}}`, the signed-in player per server, so a `?server=` override never touches the real one (an old single `{token, id, name, server}` reads as one entry)
 
 ### The page (`index.html`)
 
@@ -221,7 +221,7 @@ One `Room` per room code holds the authoritative game.
 - `/auth/*` on both servers: `config` (probe), `options` → `create` | `signin` | `passkeys` (add), `me` (GET, PATCH name, DELETE), `passkeys/<id>` (DELETE; ends the player's other sessions), `signout[?everywhere=1]`. The route table is in the file header.
 - A passkey belongs to the page's hostname (RP ID). The server takes the allowed origins from `ALLOWED_ORIGINS` (empty or `*`: any, for development) and checks challenge, origin, RP ID hash, user presence, signature and the sign counter. Registration trusts the browser's `getPublicKey()` (attestation `none`).
 - Player IDs are 16 hex chars (8 random bytes, also the WebAuthn user handle), the tag is the first 4, the handle `<id>-<name>`. Sessions: 32 random bytes, only the SHA-256 is stored, 180 days sliding. Challenges: single use, 5 minutes.
-- Rooms get an `accounts` adapter (`{ resolve(session) }`); a failure counts as "unknown", never as signed out. Rate limit: 60 requests per minute per IP (`AUTH_LIMIT`), the probe excluded.
+- Rooms get an `accounts` adapter (`{ resolve(session) }`); a failure counts as "unknown", never as signed out. Rate limit: 120 requests per minute per IP (`AUTH_LIMIT`), the probe excluded; `AUTH_NO_LIMIT=1` switches it off on localhost for the browser tests.
 
 **What `hello` does:**
 - A connection says `hello` once; another one gets `bad_message`.
@@ -281,14 +281,15 @@ One `Room` per room code holds the authoritative game.
   - **Fallback:** without `E.roundRecap` (an old engine.js in the cache) or when anything in the race fails, the new state shows at once, without a race, and the page is never left busy. A one-phone game that such an old engine leaves in `roundEnd` moves on with `nextround`.
   - **DOM:** `.race` (fixed, outside `#app`) → `.race-card` (the list's `.bhead` and `li.pl` lines from `lineHtml`, plus `.race-badge`) and `.race-curtain` (`.race-round`, `.race-starter`, `.race-why`).
 - **Your player.** An optional account with a passkey, in a panel on the home screen above "Not at the same table?". Guests can ignore it.
-  - **When it shows:** the browser has `PublicKeyCredential`, a server is configured, the page is the top-level window on a hostname (WebAuthn refuses IP addresses; `localhost` works), and `GET /auth/config` answered `{ok: true}`. The probe runs once per page load and never holds up the first render.
+  - **When it shows:** the browser has `PublicKeyCredential`, a server is configured, the page is the top-level window on a hostname (WebAuthn refuses IP addresses; `localhost` works), and `GET /auth/config` answered `{ok: true}`. The probe runs once per page load and never holds up the first render. If it failed (offline, a 5xx), it runs again when the page becomes visible or the phone comes online; a 404 means no accounts there.
   - **Signed out:** a name field (from `sevens-out-name`) with "Create player", and "Sign in with a passkey" (a discoverable passkey, so no name to type).
   - **Signed in:** the name with its tag (`#` + the first 4 hex of the player ID), Rename, and a fold with "Add a passkey on this device", "Sign out" and "Delete player" (confirmed in the page).
   - **Session:** a bearer token from `/auth`, kept in `sevens-out-account`. On load the page checks it with `GET /auth/me`: a new name is taken over, a 401 signs the phone out quietly, and network trouble keeps it. Create, sign-in and rename also write `sevens-out-name`.
   - **Passkey hygiene:** after Delete the page calls `PublicKeyCredential.signalAllAcceptedCredentials` with no IDs, and a sign-in with a deleted player's passkey calls `signalUnknownCredential`, so password managers can hide them.
-  - While a passkey prompt is open (`ui.account.busy`), the panel's buttons are disabled.
+  - **Options fetched ahead:** Safari opens a passkey prompt only shortly after the tap, so the page keeps `/auth/options` sets ready: `signin` and `create` while the signed-out panel shows, `add` once its fold is open (home screen only, never during a prompt). A set is used once and is fresh for 4 minutes (challenges live 5); a fresh one is fetched in the background. A tap with a fresh set calls `navigator.credentials.*` before anything waits; without one it fetches first. A `create` set has no name: the page names the passkey `<name> #<tag>` and sends `name` to `/auth/create`.
+  - While a passkey prompt is open (`ui.account.busy`), the panel's buttons are `aria-disabled` (so focus stays) and `handle()` ignores account actions. The hint is announced from `#acct-live`, a visually hidden live region outside `#app` that survives redraws.
   - **Online:** the online entry says "Playing as <name> #tag" instead of the name field, and `hello` carries `session` (only when the account belongs to the room server). If the server answers `welcome.user === null` to a hello with a session, the session has ended: the phone drops the account quietly and plays on as a guest in that seat. The lobby seats and the score list show `#tag` for seats with `user`.
-  - **One phone:** when signed in, each setup row shows "You" (the first line whose name is the player name, case and spaces ignored) or "This is me", which puts the player name on that line (swapping names with the old "You" line). At start, `state.stats.owner` is that line; the report carries it as `owner` and goes out with the player's bearer token while the phone is signed in to the same server (signed out by then: a guest game).
+  - **One phone:** when signed in, each setup row shows "You" (the first line whose name is the player name, case and spaces ignored) or "This is me", which puts the player name on that line (swapping names with the old "You" line). At start, `state.stats.owner` is that line and `ownerId` the player ID; the report carries `owner`, and its queue item keeps `ownerId`. It goes out with the bearer token only while that same player is signed in to the same server (signed out or someone else by then: a guest game).
 - **Developer menu.** Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
 - **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving. The race between rounds shows the grown list with its final totals, order and badge at once. The curtain then appears without sliding, and the whole race takes about 2.5 s.
 
@@ -320,7 +321,7 @@ One `Room` per room code holds the authoritative game.
   - To load the page with a changed `engine.js` or CSS (an old cached engine, a browser without `color-mix()`), serve the changed file through `page.route`, as the tests in `local.spec.js` do.
   - After a round's last turn, the race plays for about 2.5 s even with reduced motion. Tests that act right after a round ends call `skipRace(page)` (helpers.js): it waits for a Sevens Out or missed-7 joke that plays first, taps the race away, then waits until the page is idle.
   - `TARGET=worker` points online play at `wrangler dev` through the `?server=` override.
-  - **Passkeys** (`account.spec.js`): `addAuthenticator(page)` adds a CDP virtual authenticator that says yes at once; `credentials` and `copyCredential` read a passkey and copy it to another phone (a synced passkey). WebAuthn refuses IP addresses, so these tests open `localUrl()` (`http://localhost:8790`), not the config's `127.0.0.1`. The virtual authenticator can't press Cancel; a cancelled prompt is a stubbed `navigator.credentials.create`.
+  - **Passkeys** (`account.spec.js`): `addAuthenticator(page)` adds a CDP virtual authenticator that says yes at once; `credentials` and `copyCredential` read a passkey and copy it to another phone (a synced passkey). WebAuthn refuses IP addresses, so these tests open `localUrl()` (`http://localhost:8790`), not the config's `127.0.0.1`. The virtual authenticator can't press Cancel; a cancelled prompt is a stubbed `navigator.credentials.create`. The page fetches passkey options ahead, so the test Node server runs with a high `AUTH_LIMIT` (every test phone is 127.0.0.1).
   - `tests/e2e/admin.spec.js` tests the admin page (`npm run test:admin`). Don't run it together with `test:worker`: both reset `.wrangler/e2e`.
 
 Invariants to keep after rule changes:

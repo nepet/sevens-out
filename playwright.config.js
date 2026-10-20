@@ -25,11 +25,12 @@ export default defineConfig({
     {
       command: 'node server/node/server.js',
       url: `http://127.0.0.1:${PORT}/health`,
-      env: { PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: mkdtempSync(path.join(tmpdir(), 'sevens-e2e-')) },
+      // every test phone comes from 127.0.0.1, so the per-IP limit on /auth is lifted (the page fetches passkey options ahead)
+      env: { PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: mkdtempSync(path.join(tmpdir(), 'sevens-e2e-')), AUTH_LIMIT: '100000' },
       reuseExistingServer: false
     },
     ...(WORKER ? [{
-      command: 'npx wrangler dev -c server/cloudflare/wrangler.jsonc --port 8787 --ip 127.0.0.1 --persist-to .wrangler/e2e --var ALLOWED_ORIGINS:*',
+      command: 'npx wrangler dev -c server/cloudflare/wrangler.jsonc --port 8787 --ip 127.0.0.1 --persist-to .wrangler/e2e --var ALLOWED_ORIGINS:* --var AUTH_NO_LIMIT:1',
       url: 'http://127.0.0.1:8787/health',
       timeout: 120_000,
       reuseExistingServer: false
