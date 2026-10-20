@@ -35,8 +35,13 @@ Signing in is optional. Guests play exactly as before.
   same D1 database as the statistics (`server/d1/schema.sql`). The Node server keeps the same tables in
   `DATA_DIR/sevens-out.db`.
 - **Limits:** 60 account requests per minute per IP: `AUTH_LIMIT` on the Worker, the `AUTH_LIMIT`
-  environment variable on Node. The page's `GET /auth/config` probe isn't counted. Challenges are single
-  use and expire after 5 minutes.
+  environment variable on Node. The page's `GET /auth/config` probe isn't counted. Behind a proxy, Node
+  takes the client's IP from `X-Forwarded-For`, but only when the proxy connects from the same machine or a
+  private network (as Caddy does in `deploy/`). Challenges are single use and expire after 5 minutes.
+- **Lost phone:** removing a passkey (`DELETE /auth/passkeys/<id>`) ends every other session of that player.
+  `POST /auth/signout?everywhere=1` ends all of them.
+- **Accounts unreachable:** if a room can't check a session (the database is down), the player plays as a
+  guest and `welcome` leaves out `user`, so the phone keeps its session.
 
 ## The domain matters
 

@@ -20,6 +20,7 @@ It needs Node 22.13 or newer and **no npm packages**: the WebSocket server is bu
 | `HOST` | `0.0.0.0` | Interface to listen on (use `127.0.0.1` behind a proxy) |
 | `DATA_DIR` | `./data` | Where room files and `sevens-out.db` are kept. Back up the whole folder: the database holds player accounts. Copy it with the server stopped, or `sevens-out.db-wal` may hold changes not yet in `sevens-out.db`. |
 | `ALLOWED_ORIGINS` | *(any)* | Comma-separated page origins allowed to connect, e.g. `https://game.example.com,https://<owner>.github.io` |
+| `AUTH_LIMIT` | `60` | Player-account requests per minute per client IP. The IP comes from `X-Forwarded-For` when the proxy connects from this machine or a private network. |
 
 Browsers need HTTPS (and therefore WSS) for shake-to-roll on iPhone and for mixed-content rules, so always put a TLS proxy in front.
 

@@ -131,6 +131,7 @@ async function common(credential, type, challenge, origins) {
   const auth = parseAuthData(authBytes);
   if (!same(auth.rpIdHash, await sha256(new TextEncoder().encode(rpId)))) fail('rp_id', 'RP ID hash does not match');
   if (!auth.flags.up) fail('user_presence', 'user not present');
+  if (auth.flags.bs && !auth.flags.be) fail('auth_data', 'backed up but not backup eligible');
   return { cdBytes, authBytes, auth, origin: cd.origin, rpId };
 }
 
@@ -158,7 +159,7 @@ export async function verifyAssertion({ credential, challenge, origins = null, p
   const signed = concat(authBytes, await sha256(cdBytes));
   if (!await crypto.subtle.verify(VERIFY[alg], key, sig, signed)) fail('signature', 'signature does not verify');
   const stored = signCount || 0;
-  if (stored && auth.signCount && auth.signCount <= stored) fail('counter', 'sign counter went backwards');
+  if (stored && auth.signCount <= stored) fail('counter', 'sign counter went backwards');
   return {
     signCount: Math.max(stored, auth.signCount), synced: auth.flags.bs, userVerified: auth.flags.uv,
     userHandle: userHandle && b64url.encode(userHandle), origin, rpId

@@ -110,8 +110,9 @@ export async function deleteSession(db, hash) {
   await db.batch([['DELETE FROM sessions WHERE hash = ?', [hash]]]);
 }
 
-export async function deleteSessions(db, userId) {
-  await db.batch([['DELETE FROM sessions WHERE user_id = ?', [userId]]]);
+// all of a player's sessions, or all but one (`keep`, a hash)
+export async function deleteSessions(db, userId, keep = null) {
+  await db.batch([['DELETE FROM sessions WHERE user_id = ? AND hash IS NOT ?', [userId, keep]]]);
 }
 
 export async function purgeExpired(db, now) {

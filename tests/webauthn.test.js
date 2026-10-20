@@ -60,9 +60,10 @@ test('the sign counter must go up once it is counting', async () => {
   assert.equal((await signIn(replay, { signCount: stored })).signCount, stored + 1);
   await assert.rejects(signIn(replay, { signCount: stored + 1 }), code('counter'), 'replayed');
   await assert.rejects(signIn(await a.get({ challenge: CH }), { signCount: 99 }), code('counter'));
-  // a synced passkey reports 0: no check, and the stored count never goes back
+  // a synced passkey reports 0 and is never checked; a passkey that counted and now says 0 may be a copy
   const s = await registered({ counter: false });
-  assert.equal((await s.signIn(await s.a.get({ challenge: CH }), { signCount: 7 })).signCount, 7);
+  assert.equal((await s.signIn(await s.a.get({ challenge: CH }), { signCount: 0 })).signCount, 0);
+  await assert.rejects(s.signIn(await s.a.get({ challenge: CH }), { signCount: 7 }), code('counter'));
 });
 
 test('DER signatures with padded, short and malformed integers', async () => {
@@ -127,6 +128,7 @@ test('registration is refused for every broken check', async () => {
     ['origin', await make({ clientData: { crossOrigin: true } })],
     ['rp_id', await make({ rpId: 'example.com' })],
     ['user_presence', await make({ flags: { up: false } })],
+    ['auth_data', await make({ flags: { be: false, bs: true } })],
     ['auth_data', await make({ flags: { at: false } })],
     ['credential_id', { ...await make(), id: b64url.encode(new Uint8Array(16)) }],
     ['algorithm', { ...await make(), publicKeyAlgorithm: -8 }],

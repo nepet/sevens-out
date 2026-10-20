@@ -67,11 +67,13 @@ function getRoom(code) {
 const serial = (r, fn) => (r.chain = r.chain.then(fn).catch(err => console.error('room error', err)));
 
 // ----- /auth: the shared handler speaks Request/Response -----
-// behind a proxy on this machine (deploy/Caddyfile), the client is the last X-Forwarded-For entry
+// behind a proxy on this machine or in a private network (deploy/: Caddy in its own container), the client
+// is the last X-Forwarded-For entry; a public peer's header is ignored, so it can't dodge the limit
+const PRIVATE = /^(::ffff:)?(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)|^::1$|^f[cd][0-9a-f]{2}:/i;
 function clientIp(req) {
   const peer = req.socket.remoteAddress || '';
   const fwd = String(req.headers['x-forwarded-for'] || '').split(',').map(s => s.trim()).filter(Boolean);
-  return fwd.length && /^(127\.|::1$|::ffff:127\.)/.test(peer) ? fwd[fwd.length - 1] : peer;
+  return fwd.length && PRIVATE.test(peer) ? fwd[fwd.length - 1] : peer;
 }
 const hits = new Map(); // ip -> { n, until }, a fixed one-minute window
 function authLimit(ip, pathname) {

@@ -368,6 +368,7 @@ test('players: without accounts, or when they fail, everyone plays as a guest', 
   const err = console.error; console.error = () => {};
   try { await send(broken.room, c, { t: 'hello', name: 'Cleo', session: 'sess-anna', create: true }); } finally { console.error = err; }
   assert.deepEqual(last(c, 'room').room.seats.map(s => [s.name, s.user]), [['Cleo', null]]);
+  assert.ok(!('user' in last(c, 'welcome')), 'the phone is not told its session ended when the accounts could not be asked');
   // a room saved before seats had players
   const old = makeRoom(null, accounts);
   old.setStored({ v: 1, code: 'K7QPM', created: 1, updated: Date.now(), rev: 3, phase: 'lobby', host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: [{ id: 's1', name: 'Old', token: 't'.repeat(32) }], state: null });
@@ -387,4 +388,14 @@ test('players: a finished game is recorded with the player ID of each signed-in 
   const rec = stats.records.at(-1);
   assert.equal(rec.game.status, 'over');
   assert.deepEqual(rec.players.map(p => [p.name, p.user_id]), [['Ben', 'bbbb000000000001'], ['Gus', null]]);
+});
+
+test('players: a connection says hello once, so it looks a session up at most once', async () => {
+  let asked = 0;
+  const r = makeRoom(null, { resolve: async s => { asked++; return PLAYERS[s] || null; } }), a = r.connect();
+  await send(r.room, a, { t: 'hello', session: 'sess-anna', create: true });
+  for (let i = 0; i < 5; i++) await send(r.room, a, { t: 'hello', session: 'fake' + i });
+  assert.equal(asked, 1);
+  assert.equal(last(a, 'error').code, 'bad_message');
+  assert.equal(last(a, 'room').room.seats.length, 1);
 });

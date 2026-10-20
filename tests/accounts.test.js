@@ -235,3 +235,36 @@ test('development: no allowlist accepts any origin, and passkeys belong to its h
   assert.equal(originsFrom('*'), null);
   assert.deepEqual(originsFrom(' https://a.io, https://b.io '), ['https://a.io', 'https://b.io']);
 });
+
+test('removing a passkey ends the player\'s other sessions; sign out everywhere ends all', async () => {
+  const s = server(), phone = await softAuthenticator({ origin: ORIGIN }), lost = await softAuthenticator({ origin: ORIGIN });
+  const { token } = await createPlayer(s, phone);
+  const o = await s.call('POST', '/auth/options', { body: { purpose: 'add' }, token });
+  await s.call('POST', '/auth/passkeys', { body: { challengeId: o.body.challengeId, credential: await lost.create({ challenge: o.body.challenge, userId: o.body.user.id }) }, token });
+  const lostToken = (await signIn(s, lost)).body.token;
+  const keep = (await signIn(s, phone)).body.token;
+  assert.equal((await s.call('DELETE', `/auth/passkeys/${lost.credentials[0].id}`, { token: keep })).status, 204);
+  assert.equal((await s.call('GET', '/auth/me', { token: lostToken })).status, 401, 'the lost phone is signed out');
+  assert.equal((await s.call('GET', '/auth/me', { token })).status, 401);
+  assert.equal((await s.call('GET', '/auth/me', { token: keep })).status, 200, 'this phone stays signed in');
+  const other = (await signIn(s, phone)).body.token;
+  assert.equal((await s.call('POST', '/auth/signout?everywhere=1', { token: keep })).status, 204);
+  assert.equal((await s.call('GET', '/auth/me', { token: other })).status, 401);
+  assert.equal((await s.call('GET', '/auth/me', { token: keep })).status, 401);
+});
+
+test('a game rewritten for a room that still remembers a deleted player drops the player ID', async () => {
+  const s = server(), auth = await softAuthenticator({ origin: ORIGIN });
+  const { token, player } = await createPlayer(s, auth);
+  const { writeRecord } = await import('../server/d1/write.js');
+  const rec = id => ({
+    game: { id: '0123456789abcdef', source: 'online', mode: 'dice', status: 'over', early: 0, player_count: 2 },
+    players: [0, 1].map(i => ({ game_id: '0123456789abcdef', idx: i, name: ['Anna', 'Ben'][i], name_key: ['anna', 'ben'][i], score: 0, lost: 0, sevens_outs: 0, shots: 0, turns: 0, user_id: i ? null : id })),
+    turns: []
+  });
+  await writeRecord(s.db, rec(player.id));
+  assert.equal(s.d1.raw.prepare('SELECT user_id FROM players WHERE idx = 0').get().user_id, player.id);
+  await s.call('DELETE', '/auth/me', { token });
+  await writeRecord(s.db, rec(player.id));
+  assert.equal(s.d1.raw.prepare('SELECT user_id FROM players WHERE idx = 0').get().user_id, null);
+});

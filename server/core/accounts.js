@@ -14,11 +14,11 @@
  *   POST   /auth/create              { challengeId, credential }    -> { token, player }
  *   POST   /auth/signin              { challengeId, credential }    -> { token, player }
  *   POST   /auth/passkeys            { challengeId, credential }    -> { passkey }   (session)
- *   DELETE /auth/passkeys/<id>                                      -> 204           (session; never the last one)
+ *   DELETE /auth/passkeys/<id>                                      -> 204           (session; never the last one; ends the player's other sessions)
  *   GET    /auth/me                                                 -> { player, passkeys }
  *   PATCH  /auth/me                  { name }                       -> { player }
  *   DELETE /auth/me                                                 -> 204           (deletes the player)
- *   POST   /auth/signout                                            -> 204
+ *   POST   /auth/signout[?everywhere=1]                             -> 204           (this phone, or every phone)
  * player = { id, name, tag, handle }: id is 16 hex chars, tag its first 4, handle `${id}-${name}`.
  * Errors answer { error: code }.
  */
@@ -80,12 +80,38 @@ export async function handleAuth(request, { db, origins = null, now = Date.now, 
 
 async function readJson(request) {
   if (+(request.headers.get('content-length') || 0) > MAX_AUTH_BODY) refuse(413, 'too_large');
-  const text = await request.text();
-  if (text.length > MAX_AUTH_BODY) refuse(413, 'too_large');
+  const text = await readCapped(request);
   let body;
   try { body = JSON.parse(text); } catch { refuse(400, 'not_json'); }
   if (!body || typeof body !== 'object' || Array.isArray(body)) refuse(400, 'not_json');
   return body;
+}
+
+// stops reading as soon as the body is too large, even without a Content-Length
+async function readCapped(request) {
+  if (!request.body || !request.body.getReader) {
+    const text = await request.text();
+    if (text.length > MAX_AUTH_BODY) refuse(413, 'too_large');
+    return text;
+  }
+  const reader = request.body.getReader(), parts = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > MAX_AUTH_BODY) { reader.cancel().catch(() => {}); refuse(413, 'too_large'); }
+    parts.push(value);
+  }
+  const all = new Uint8Array(size);
+  let at = 0;
+  for (const p of parts) { all.set(p, at); at += p.length; }
+  return new TextDecoder().decode(all);
+}
+
+// two phones registering the same passkey at once: the second insert hits the primary key
+async function storeNew(fn) {
+  try { await fn(); } catch (err) { if (/UNIQUE|constraint/i.test(String(err && err.message))) refuse(409, 'passkey_taken'); throw err; }
 }
 
 async function signedIn(request, db, now) {
@@ -141,7 +167,7 @@ async function route(request, { db, origins, now }) {
     const key = await verifyRegistration({ credential: body.credential, challenge: c.challenge, origins });
     if (await store.getPasskey(db, key.credentialId)) refuse(409, 'passkey_taken');
     const { token, session } = await newSession(c.userId, now);
-    await store.createUser(db, { id: c.userId, name: c.name, now, passkey: passkeyRow(key), session });
+    await storeNew(() => store.createUser(db, { id: c.userId, name: c.name, now, passkey: passkeyRow(key), session }));
     return { body: { token, player: playerOf({ id: c.userId, name: c.name }) } };
   }
 
@@ -168,14 +194,15 @@ async function route(request, { db, origins, now }) {
     if (c.userId !== user.id) refuse(400, 'challenge');
     const key = await verifyRegistration({ credential: body.credential, challenge: c.challenge, origins });
     if (await store.getPasskey(db, key.credentialId)) refuse(409, 'passkey_taken');
-    await store.addPasskey(db, user.id, passkeyRow(key), now);
+    await storeNew(() => store.addPasskey(db, user.id, passkeyRow(key), now));
     return { body: { passkey: passkeyView(await store.getPasskey(db, key.credentialId)) } };
   }
 
   const del = /^\/auth\/passkeys\/([A-Za-z0-9_-]{1,1400})$/.exec(path);
   if (method === 'DELETE' && del) {
-    const { user } = await signedIn(request, db, now);
-    if (await store.deletePasskey(db, user.id, del[1])) return { status: 204 };
+    const { user, hash } = await signedIn(request, db, now);
+    // a removed passkey may belong to a lost phone: its sessions end too (all but this one)
+    if (await store.deletePasskey(db, user.id, del[1])) { await store.deleteSessions(db, user.id, hash); return { status: 204 }; }
     const key = await store.getPasskey(db, del[1]);
     refuse(key && key.userId === user.id ? 409 : 404, key && key.userId === user.id ? 'last_passkey' : 'not_found');
   }
@@ -193,8 +220,10 @@ async function route(request, { db, origins, now }) {
   }
 
   if (at('POST', '/auth/signout')) {
-    const { hash } = await signedIn(request, db, now);
-    await store.deleteSession(db, hash);
+    const { user, hash } = await signedIn(request, db, now);
+    const everywhere = new URL(request.url).searchParams.get('everywhere') === '1';
+    if (everywhere) await store.deleteSessions(db, user.id);
+    else await store.deleteSession(db, hash);
     return { status: 204 };
   }
 

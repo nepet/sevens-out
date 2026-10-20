@@ -28,7 +28,9 @@ export async function writeRecord(db, { game, players, turns }) {
     ...clearChildren(game.id),
     [UPSERT_GAME, values(game, GAME_COLS)],
     ...insertRows('players', PLAYER_COLS, players),
-    ...insertRows('turns', TURN_COLS, turns)
+    ...insertRows('turns', TURN_COLS, turns),
+    // a room may still remember a player who has deleted their account since
+    ...(players.some(p => p.user_id) ? [['UPDATE players SET user_id = NULL WHERE game_id = ? AND user_id IS NOT NULL AND user_id NOT IN (SELECT id FROM users)', [game.id]]] : [])
   ]);
 }
 

@@ -35,6 +35,7 @@ export class Room {
   constructor({ engine, storage, net, stats = null, accounts = null, now = () => Date.now() }) {
     this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.accounts = accounts; this.now = now;
     this.data = undefined; // undefined = not loaded yet, null = no room
+    this.greeted = new WeakSet(); // connections that have said hello (each looks a session up at most once)
     this.loading = null;
   }
 
@@ -105,15 +106,19 @@ export class Room {
     if (this.data && this.net.seatOf(conn)) this.broadcast();
   }
 
-  // the signed-in player behind a session, or null (a guest); an account failure never keeps anyone out
+  // the signed-in player behind a session, null (a guest or an ended session), or undefined when the
+  // accounts can't be reached right now; that player plays as a guest, and their phone keeps its session
   async player(session) {
     if (!this.accounts || typeof session !== 'string' || !session) return null;
-    try { return await this.accounts.resolve(session); } catch (err) { console.error('accounts', err); return null; }
+    try { return await this.accounts.resolve(session); } catch (err) { console.error('accounts', err); return undefined; }
   }
 
   // ----- hello: create, join, rejoin or watch -----
   async hello(conn, m, code) {
-    const user = await this.player(m.session); // before reading the room: other messages may run meanwhile
+    if (this.greeted.has(conn)) return this.error(conn, 'bad_message', 'Already joined.');
+    this.greeted.add(conn);
+    const found = await this.player(m.session), user = found || null; // before reading the room: other messages may run meanwhile
+    this.unknown = found === undefined;
     let d = this.data;
     if (d && user) {
       // a player gets their seat back from any phone, even mid-game
@@ -155,7 +160,7 @@ export class Room {
     }
     // a game is running: watch it
     this.net.bind(conn, null);
-    this.net.send(conn, { t: 'welcome', seat: null, user: user ? user.id : null });
+    this.net.send(conn, { t: 'welcome', seat: null, ...this.whoami(user) });
     this.net.send(conn, this.roomMessage());
   }
   // a signed-in player sits under their player name
@@ -171,10 +176,12 @@ export class Room {
     while (d.seats.some(s => s !== self && s.name.toLowerCase() === nm.toLowerCase())) nm = `${base.slice(0, 13)} ${k++}`;
     return nm;
   }
-  // welcome.user is the signed-in player the server sees (null: a guest, or the session has ended)
+  // welcome.user is the signed-in player the server sees (null: a guest, or the session has ended);
+  // it is left out when the accounts couldn't be asked
+  whoami(user) { return this.unknown ? {} : { user: user ? user.id : null }; }
   seat(conn, seat, user = null) {
     this.net.bind(conn, seat.id);
-    this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token, user: user ? user.id : null });
+    this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token, ...this.whoami(user) });
     this.broadcast();
   }
 

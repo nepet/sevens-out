@@ -101,6 +101,7 @@ test('the leaderboard joins spellings of the same name', async () => {
 test('signed-in players count by player ID: two Annas stay apart, one renamed player stays one', async () => {
   const db = fromD1(fakeD1());
   const A1 = 'a1a1000000000000', A2 = 'a2a2000000000000';
+  for (const id of [A1, A2]) await db.batch([['INSERT INTO users (id, name, created_at, updated_at) VALUES (?, ?, 0, 0)', [id, 'Anna']]]);
   const game = (names, users) => writeRecord(db, summarize(quickGame(names), { id: nextId(), source: 'online', finishedAt: NOW - DAY, status: 'over', users }));
   await game(['Anna', 'Ben'], [A1]);
   await game(['Anna', 'Ben'], [A2]);
