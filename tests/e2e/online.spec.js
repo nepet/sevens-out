@@ -221,6 +221,40 @@ test('a move made while another phone plays the race shows when that race is ove
   await A.ctx.close(); await B.ctx.close();
 });
 
+test('leaving the room before the race keeps the game saved on this phone', async ({ browser }) => {
+  const own = { phase: 'setup', setup: { names: ['Zed', 'Yan'], starter: 1, mode: 'score', pairing: 'manual' }, game: null };
+  const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });
+  await ctx.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(own));
+  const page = await ctx.newPage();
+  await page.goto(url('/'));
+  await expect(page.locator('#name-0')).toHaveValue('Zed');
+  await page.click('[data-act=online]');
+  await page.fill('#oname', 'Anna');
+  await page.click('[data-act=ocreate]');
+  await expect(page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  const A = { ctx, page, code: await page.locator('.roomcode').innerText() };
+  const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+  await A.page.click('[data-act=omode][data-id="1"]');
+  await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await A.page.click('[data-act=ostart]');
+  await enterScore(A.page, 5, 1);
+  await expect(B.page.locator('.pad')).toBeVisible();
+  await enterScore(B.page, 0);                                   // Sevens Out ends round 1: the celebration plays first
+  await expect(A.page.locator('.fx-banner')).toBeVisible();
+  await A.page.click('[data-act=oleave]');
+  await A.page.click('[data-act=oleaveyes]');
+  await expect(A.page.locator('#name-0')).toHaveValue('Zed');     // back on this phone's own setup
+  await expect.poll(() => A.page.evaluate(() => window.SevensDebug.busy), { timeout: 6000 }).toBe(false);
+  await A.page.waitForTimeout(500);
+  await expect(A.page.locator('.race')).toHaveCount(0);
+  expect((await live(A.page)).phase).toBe('setup');
+  await A.page.click('[data-act=look][data-id="0"]');            // any render saves
+  expect(await A.page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-v1')))).toEqual(own);
+  await skipRace(B.page);
+  expect((await live(B.page)).game.round).toBe(2);               // the room goes on without Anna
+  await A.ctx.close(); await B.ctx.close();
+});
+
 test('lobby: wrong codes, leaving, kicking and a full room', async ({ browser }) => {
   const ctx = await browser.newContext(phone);
   const page = await ctx.newPage();

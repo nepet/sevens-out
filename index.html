@@ -990,7 +990,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // ---------- online play: one WebSocket per phone to the room server ----------
   const ONLINE_KEY = 'sevens-out-online';
   const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
-  const net = { ws:null, want:false, code:null, token:null, seat:null, name:'', server:'', room:null, status:'off', tries:0, timer:null, creating:false, rev:0, inGame:false };
+  // session: bumped when this phone leaves a room, so changes still queued from that room are dropped
+  const net = { ws:null, want:false, code:null, token:null, seat:null, name:'', server:'', room:null, status:'off', tries:0, timer:null, creating:false, rev:0, inGame:false, session:0 };
   const online = () => !!net.code;
 
   // where the room server lives: ?server=… beats <meta name="sevens-out-server">; "same-origin" = this host
@@ -1040,7 +1041,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       ws.send(JSON.stringify({ t:'hello', name:net.name, token:net.token, create:net.creating && !net.token }));
       render();
     };
-    ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (err) { return; } onNet(m); };
+    ws.onmessage = e => { if (net.ws !== ws) return; let m; try { m = JSON.parse(e.data); } catch (err) { return; } onNet(m); };
     ws.onclose = () => {
       if (net.ws !== ws) return;
       net.ws = null; net.status = 'closed';
@@ -1068,6 +1069,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     net.want = false; clearTimeout(net.timer);
     if (net.ws){ const w = net.ws; net.ws = null; try { w.onclose = null; setTimeout(() => w.close(), 50); } catch (e) {} }
     Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false });
+    net.session++;
     try { localStorage.removeItem(ONLINE_KEY); } catch (e) {}
     state = load() || blank(); resetUi(); ui.open = {};
   }
@@ -1106,11 +1108,13 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       const evs = net.inGame && m.rev === net.rev + 1 ? (m.events || []) : [];
       net.rev = m.rev;
       if (!net.inGame){ net.inGame = true; resetUi(); ui.open = {}; }
+      const ses = net.session;
       if (!animated(evs) && !pending){ net.room = m.room; show(m.state, evs); }
-      else enqueue(() => { net.room = m.room; return present(m.state, evs); });
+      else enqueue(() => { if (ses !== net.session) return; net.room = m.room; return present(m.state, evs); });
     } else {
       // back in the lobby: wait for any animation that is still playing
-      const toLobby = () => { net.room = m.room; net.rev = m.rev; net.inGame = false; ui.rolling = false; stopTumble(); render(); };
+      const ses = net.session;
+      const toLobby = () => { if (ses !== net.session) return; net.room = m.room; net.rev = m.rev; net.inGame = false; ui.rolling = false; stopTumble(); render(); };
       if (pending) enqueue(toLobby); else toLobby();
     }
   }
@@ -1148,6 +1152,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // a round's last turn plays the race between rounds instead (presentRound)
   async function present(next, events){
     if (events.some(e => e.type === 'roundEnd')) return presentRound(next, events);
+    const ses = net.session, left = () => ses !== net.session; // this phone left the room meanwhile
     const rolled = events.find(e => e.type === 'rolled');
     const paired = events.find(e => e.type === 'paired');
     if (rolled && !reduceMotion){
@@ -1155,14 +1160,16 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       await wait(Math.max(0, 520 - (Date.now() - ui.rollStart)));
     }
     stopTumble(); ui.rolling = false;
+    if (left()) return;
     state = next;
     const flying = reduceMotion ? [] : rolled ? rolled.auto : paired ? paired.pairs : [];
     if (flying.length && state.phase === 'play' && state.game && !E.isScore(state.game)){
       ui.reveal = { pairs:flying, idx:0 }; ui.busy = true; ui.selected = null; ui.hint = null;
       render();
       if (rolled) await wait(700); // let the dice lie on the table for a moment
-      while (ui.reveal && ui.reveal.idx < ui.reveal.pairs.length) await flyNext();
+      while (!left() && ui.reveal && ui.reveal.idx < ui.reveal.pairs.length) await flyNext();
       ui.reveal = null; ui.busy = false;
+      if (left()) return;
     }
     afterEvents(events);
     render();
@@ -1172,11 +1179,15 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   async function presentRound(next, events){
     stopTumble(); ui.rolling = false; ui.race = true;
     if (!online()) write(next); // saved at once, so a reload during the race can't lose the last turn
+    // leaving the room (or being removed) before the swap drops this change: the phone's own game stays
+    const ses = net.session, left = () => ses !== net.session;
     const g = next.game, so = events.find(e => e.type === 'sevensOut'), miss = events.find(e => e.type === 'missed');
     if (so){ celebrate(g.players[so.player].name); await wait(2900); }
     if (miss){ showMissed({ name:g.players[miss.player].name, me:isMe(miss.player), how:miss.how, pairs:miss.pairs }); await wait(3200); }
+    if (left()){ ui.race = false; return; }
     const rest = events.filter(e => e !== so && e !== miss);
     const swap = () => {
+      if (left()) return;
       state = next; afterEvents(rest); render();
       const list = $app.querySelector('.board');
       if (list && list.getBoundingClientRect().top < 0) scrollTo(0, 0); // the curtain lifts on the new round's list
@@ -1685,6 +1696,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const els = [a, b].map(id => $app.querySelector(`.dice .die[data-id="${id}"]`));
     els.forEach(el => { if (el) el.classList.add('pairing'); });
     await wait(240);
+    if (!ui.reveal) return; // the room was left meanwhile
     const from = els.map(el => el ? el.getBoundingClientRect() : null);
     ui.reveal.idx++; render();
     if (!from[0] || !from[1]) return;
@@ -1723,21 +1735,41 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     ouch: (n, v) => ['Ouch', `${n} took ${v}`]
   };
   const WHY = { highest:s => `Highest score: ${s}`, first:s => `Tied on ${s}, got there first`, turn:s => `Tied on ${s}, next in turn` };
+  // the screen's usable band, inside the 16 px gutter and the safe areas
+  function edges(){
+    const root = getComputedStyle(document.documentElement);
+    return { minTop:16 + (parseFloat(root.paddingTop) || 0), maxBottom:innerHeight - 16 - (parseFloat(root.paddingBottom) || 0) };
+  }
+  // the race grows out of the score list, so a list scrolled away (real-dice players scroll down to Save)
+  // comes back into view first; resolves when the scroll has ended
+  function listInView(){
+    const list = $app.querySelector('.board'); if (!list) return;
+    const r = list.getBoundingClientRect(), { minTop, maxBottom } = edges();
+    if (r.top >= minTop && r.bottom <= maxBottom) return;
+    const to = Math.max(0, Math.min(scrollY + r.top - minTop, document.documentElement.scrollHeight - innerHeight));
+    if (Math.abs(to - scrollY) < 1) return;
+    if (reduceMotion){ scrollTo(0, to); return; }
+    return new Promise(done => {
+      const end = () => { removeEventListener('scrollend', end); clearTimeout(timer); done(); };
+      const timer = setTimeout(end, 500); // browsers without scrollend
+      addEventListener('scrollend', end);
+      scrollTo({ top:to, behavior:'smooth' });
+    });
+  }
   // recap: E.roundRecap(); g gives the names (the developer menu may pass made-up players).
   // The score list lifts and grows, the bars move from `before` to `after`, the lines reorder by total, the round's
   // best moment pops up, then a curtain drops, swap() switches the screen under it and the curtain lifts.
   // A tap (or Escape, Enter, Space) skips to the end; swap() is called exactly once either way.
-  function playRace(recap, swap, g = state.game){
+  async function playRace(recap, swap, g = state.game){
+    if (document.hidden){ swap(); ui.race = false; return; } // nobody is looking
+    ui.race = true; dropMissed();
+    await listInView();
     return new Promise(resolve => {
-      if (document.hidden){ swap(); ui.race = false; resolve(); return; } // nobody is looking
-      ui.race = true; dropMissed();
       const nm = i => g.players[i].name, timers = [], later = (ms, fn) => timers.push(setTimeout(fn, ms));
       let raf = 0, swapped = false, done = false;
-      // start exactly where the list is, if any of it is on screen
-      const list = $app.querySelector('.board'), lr = list && list.getBoundingClientRect();
-      const from = lr && lr.bottom > 0 && lr.top < innerHeight ? lr : null;
-      const box = $app.getBoundingClientRect(), root = getComputedStyle(document.documentElement);
-      const minTop = 16 + (parseFloat(root.paddingTop) || 0), maxBottom = innerHeight - 16 - (parseFloat(root.paddingBottom) || 0);
+      // start exactly where the list is; a centred card only when there is no list (the developer menu on setup)
+      const list = $app.querySelector('.board'), from = list && list.getBoundingClientRect();
+      const box = $app.getBoundingClientRect(), { minTop, maxBottom } = edges();
       const best = recap.best && BADGE[recap.best.kind] ? BADGE[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
       const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = WHY[recap.reason.kind](recap.reason.score);
       const foot = list && list.querySelector('.bfoot');

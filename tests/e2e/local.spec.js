@@ -424,27 +424,47 @@ test.describe('between rounds', () => {
   });
 });
 
+// the race card's box (and the list's) at the moment the card is added to the page
+const recordRaceStart = page => page.evaluate(() => new MutationObserver((_, o) => {
+  const c = document.querySelector('.race-card'); if (!c) return;
+  o.disconnect();
+  const box = el => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  window.raceStart = { card: box(c), board: box(document.querySelector('#app .board')), scrollY };
+}).observe(document.body, { childList: true }));
+const raceStart = async page => { await expect.poll(() => page.evaluate(() => window.raceStart)).toBeTruthy(); return page.evaluate(() => window.raceStart); };
+const sameBox = (a, b) => { for (const k of ['x', 'y', 'width', 'height']) expect(Math.abs(a[k] - b[k]), k).toBeLessThanOrEqual(2); };
+
 test('with normal motion the race starts exactly over the score list', async ({ page }) => {
   await startLocal(page, { mode: 'score' });
   await enterScore(page, 10, 1);
-  await page.click('[data-act=key][data-id="2"]'); await page.click('[data-act=key][data-id="0"]');
-  // scroll from the top just far enough to reach Save, as a thumb would: the list is still (partly) on screen
-  await page.evaluate(() => { scrollTo(0, 0); scrollBy(0, document.querySelector('[data-act=commit]').getBoundingClientRect().bottom - innerHeight + 8); });
+  // the list in view at the top; Ben types and saves on the keyboard, so nothing scrolls
+  await page.evaluate(() => { document.activeElement.blur(); scrollTo(0, 0); });
   const board = await page.locator('.board').boundingBox();
-  expect(board.y + board.height).toBeGreaterThan(0);
-  // the race card's box at the moment it is added to the page
-  await page.evaluate(() => new MutationObserver((_, o) => {
-    const c = document.querySelector('.race-card'); if (!c) return;
-    o.disconnect(); const r = c.getBoundingClientRect();
-    window.raceStart = { x: r.x, y: r.y, width: r.width, height: r.height };
-  }).observe(document.body, { childList: true }));
-  await page.click('[data-act=commit]');
-  await expect.poll(() => page.evaluate(() => window.raceStart)).toBeTruthy();
-  const card = await page.evaluate(() => window.raceStart);
-  for (const k of ['x', 'y', 'width', 'height']) expect(Math.abs(card[k] - board[k]), k).toBeLessThanOrEqual(2);
+  await recordRaceStart(page);
+  await page.keyboard.type('20'); await page.keyboard.press('Enter');
+  const start = await raceStart(page);
+  sameBox(start.card, board);
+  expect(start.scrollY).toBe(0);
   await expect(page.locator('.race')).toHaveCount(0, { timeout: 7000 }); // it ends by itself
   await idle(page);
   expect((await live(page)).game.round).toBe(2);
+  await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
+});
+
+test('a score list scrolled away comes back into view, and the race starts from it', async ({ page }) => {
+  await startLocal(page, { mode: 'score' });
+  await enterScore(page, 10, 1);
+  await page.click('[data-act=key][data-id="2"]'); await page.click('[data-act=key][data-id="0"]');
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));   // down at the bottom of the page
+  const away = await page.locator('.board').boundingBox();
+  expect(away.y + away.height).toBeLessThan(0);                                     // the list is off screen
+  await recordRaceStart(page);
+  await page.click('[data-act=commit]');
+  const start = await raceStart(page);
+  sameBox(start.card, start.board);                                                 // it starts from the list...
+  expect(Math.abs(start.board.y - 16)).toBeLessThanOrEqual(2);                      // ...which is back in view
+  await expect(page.locator('.race')).toHaveCount(0, { timeout: 7000 });
+  await idle(page);
   await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
 });
 
