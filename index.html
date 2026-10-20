@@ -346,7 +346,7 @@ td.st::before{margin-right:6px}
 .race-curtain.in .race-round .ch{animation:slam .5s cubic-bezier(.2,1.7,.4,1) calc(.2s + var(--i) * 60ms) both}
 .race-starter{max-width:22ch;font-size:1.25rem;font-weight:700;overflow-wrap:anywhere;text-wrap:balance}
 .race-why{font-size:.9rem;opacity:.85}
-.race-curtain.in :is(.race-starter,.race-why){animation:rise .4s ease-out .6s both}
+.race-curtain.in :is(.race-starter,.race-why){animation:rise .4s ease-out .25s both}
 @media (prefers-reduced-motion:reduce){
   .race *,.race *::before,#app.racing .board~*,#app.racing-all>*{transition:none!important;animation:none!important}
   .race-curtain{transform:none;visibility:hidden}
@@ -1852,9 +1852,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       later(1700, () => sort(true));
       later(2400, pop);
       later(3400, drop);
-      later(3950, doSwap);           // the curtain covers the screen
-      later(4600, () => curtain.classList.add('gone'));
-      later(5150, finish);
+      later(3950, doSwap);           // the curtain covers the screen; who starts and why are fully shown at 4.05 s
+      later(5000, () => curtain.classList.add('gone'));
+      later(5550, finish);
     });
   }
   // the developer menu's round change: the race for the round just finished, or made-up points before there is one

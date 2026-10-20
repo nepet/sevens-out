@@ -433,14 +433,30 @@ const recordRaceStart = page => page.evaluate(() => new MutationObserver((_, o) 
 }).observe(document.body, { childList: true }));
 const raceStart = async page => { await expect.poll(() => page.evaluate(() => window.raceStart)).toBeTruthy(); return page.evaluate(() => window.raceStart); };
 const sameBox = (a, b) => { for (const k of ['x', 'y', 'width', 'height']) expect(Math.abs(a[k] - b[k]), k).toBeLessThanOrEqual(2); };
+// frame by frame: when the curtain drops, when its starter and reason are fully shown, and when it starts to leave
+const trackCurtain = page => page.evaluate(() => {
+  const t = window.curtain = {};
+  const tick = () => {
+    const c = document.querySelector('.race-curtain'), now = performance.now();
+    if (c && c.classList.contains('in')) {
+      if (t.in == null) t.in = now;
+      const shown = [...c.querySelectorAll('.race-starter,.race-why')].every(el => getComputedStyle(el).opacity === '1');
+      if (shown && t.shown == null) t.shown = now;
+      if (c.classList.contains('gone')) t.gone = now;
+    }
+    if (t.gone == null) requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+});
 
-test('with normal motion the race starts exactly over the score list', async ({ page }) => {
+test('with normal motion the race starts exactly over the score list, and the curtain gives time to read who starts', async ({ page }) => {
   await startLocal(page, { mode: 'score' });
   await enterScore(page, 10, 1);
   // the list in view at the top; Ben types and saves on the keyboard, so nothing scrolls
   await page.evaluate(() => { document.activeElement.blur(); scrollTo(0, 0); });
   const board = await page.locator('.board').boundingBox();
   await recordRaceStart(page);
+  await trackCurtain(page);
   await page.keyboard.type('20'); await page.keyboard.press('Enter');
   const start = await raceStart(page);
   sameBox(start.card, board);
@@ -449,6 +465,10 @@ test('with normal motion the race starts exactly over the score list', async ({ 
   await idle(page);
   expect((await live(page)).game.round).toBe(2);
   await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
+  // "Ben starts" and the reason stand still on the curtain for at least 0.8 s before it leaves
+  const c = await page.evaluate(() => window.curtain);
+  expect(c.shown - c.in).toBeLessThan(1000);
+  expect(c.gone - c.shown).toBeGreaterThanOrEqual(800);
 });
 
 test('a score list scrolled away comes back into view, and the race starts from it', async ({ page }) => {
