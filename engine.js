@@ -124,6 +124,27 @@
       ev.push({ type: 'sevensOut', player: current(g) });
     }
   }
+  // the round is complete and nobody is at 101: the next round starts at once, with the starter the
+  // score sheet gives; with `ev` (a turn finished the round) the change is announced as roundEnd + started
+  function startNextRound(s, ev) {
+    const g = s.game, done = g.round, next = nextStarter(g);
+    g.round++; g.starter = next; g.next = null;
+    g.order = orderFrom(next, g.players.length); g.pos = 0; g.mark = null; g.last = null;
+    g.rounds.push({ no: g.round, starter: next, results: {} });
+    g.turn = newTurn(MAX_ROLLS);
+    s.phase = 'play';
+    if (ev) ev.push({ type: 'roundEnd', round: done, next }, { type: 'started', starter: next });
+  }
+  // between rounds: a new round has started, but nobody has played in it yet (dropped dice don't count)
+  const betweenRounds = s => s.phase === 'play' && s.game.rounds.length > 1 && !Object.keys(s.game.rounds[s.game.rounds.length - 1].results).length;
+  // step back from the empty new round to the end of the finished round (corrections, ending early);
+  // shots paid in the empty round move to the finished one, so the sheet never points at a missing round
+  function dropEmptyRound(g) {
+    const gone = g.rounds.pop(), rd = g.rounds[g.rounds.length - 1];
+    g.round = rd.no; g.starter = rd.starter; g.order = orderFrom(rd.starter, g.players.length);
+    g.mark = rd.mark; g.pos = g.players.length;
+    g.shots = (g.shots || []).map(x => x.round === gone.no ? { player: x.player, round: rd.no } : x);
+  }
   // book a finished turn and move on (both modes)
   function recordTurn(s, pts, rolls, ev) {
     const g = s.game, p = current(g);
@@ -139,14 +160,13 @@
     if (g.ending) {
       g.loser = highestLater(g); s.phase = 'over';
       ev.push({ type: 'gameOver', loser: g.loser });
-    } else {
-      g.next = nextStarter(g); s.phase = 'roundEnd';
-      ev.push({ type: 'roundEnd', next: g.next });
-    }
+    } else startNextRound(s, ev);
   }
-  // rebuild totals from the score sheet and re-apply the round rules to wherever the game stands now
+  // rebuild totals from the score sheet and re-apply the round rules to wherever the game stands now;
+  // between rounds that is the end of the finished round, as if the new round hadn't started yet
   function recalc(s) {
-    const g = s.game, n = g.players.length;
+    const g = s.game, n = g.players.length, between = betweenRounds(s), shots = g.shots;
+    if (between) dropEmptyRound(g);
     g.players.forEach(pl => { pl.score = 0; });
     let crosser = null;
     for (const rd of g.rounds) for (const p of orderFrom(rd.starter, n)) {
@@ -155,14 +175,16 @@
       if (crosser === null && g.players[p].score >= LIMIT) crosser = p;
     }
     g.last = null;
-    if (s.phase === 'play') { g.ending = crosser !== null; g.crosser = crosser; return; }
+    if (s.phase === 'play' && !between) { g.ending = crosser !== null; g.crosser = crosser; return; }
     if (s.phase === 'over' && g.early) { g.loser = highestLater(g); return; }
     if (crosser !== null) {
       g.ending = true; g.crosser = crosser; g.loser = highestLater(g); g.next = null;
       s.phase = 'over';
     } else {
-      g.ending = false; g.crosser = null; g.loser = null; g.next = nextStarter(g);
-      s.phase = 'roundEnd';
+      // the next round (re)starts with the right starter; a restarted round keeps the shots paid in it
+      g.ending = false; g.crosser = null; g.loser = null;
+      if (between) g.shots = shots;
+      startNextRound(s);
     }
   }
   // scoreboard mode: every entry can be undone
@@ -182,6 +204,7 @@
    * apply(state, action, { rng }) -> { state, events } on success, { error, state } when the action isn't allowed.
    * Events describe what happened, so a screen can animate it: rolled, paired, unpaired, missed, sevensOut, turn,
    * roundEnd, gameOver, dropped, shots, undone, edited, started, ended.
+   * The turn that completes a round also starts the next one: roundEnd is always followed by started.
    */
   function apply(state, action, opts) {
     const rng = (opts && opts.rng) || rnd6;
@@ -304,18 +327,16 @@
       }
 
       // ----- flow -----
+      // only games saved between rounds by older versions wait in 'roundEnd'; rounds now move on by themselves
       case 'nextround': {
         if (s.phase !== 'roundEnd' || !g) return fail('phase');
-        g.round++; g.starter = g.next; g.next = null;
-        g.order = orderFrom(g.starter, g.players.length); g.pos = 0; g.mark = null; g.last = null;
-        g.rounds.push({ no: g.round, starter: g.starter, results: {} });
-        g.turn = newTurn(MAX_ROLLS);
-        s.phase = 'play';
+        startNextRound(s);
         ev.push({ type: 'started', starter: g.starter });
         break;
       }
       case 'endearly': {
         if (!g || (s.phase !== 'play' && s.phase !== 'roundEnd')) return fail('phase');
+        if (betweenRounds(s)) dropEmptyRound(g);   // the last round is the one just finished
         g.loser = highestLater(g); g.early = true; s.phase = 'over';
         ev.push({ type: 'ended', loser: g.loser });
         break;

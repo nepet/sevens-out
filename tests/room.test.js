@@ -105,7 +105,6 @@ test('a full online game reaches the end with both phones in sync', async () => 
   while (guard++ < 500) {
     const st = last(a, 'room').state;
     if (st.phase === 'over') break;
-    if (st.phase === 'roundEnd') { await send(room, b, { t: 'act', action: { type: 'nextround' } }); continue; }
     const g = st.game, who = g.seats[g.order[g.pos]] === seatA ? a : b;
     await send(room, who, { t: 'act', action: { type: 'score', pts: 20, rolls: g.pos === 0 ? 2 : undefined } });
   }
@@ -210,7 +209,6 @@ async function playToEnd(room, a, b) {
   for (let guard = 0; guard < 500; guard++) {
     const st = last(a, 'room').state;
     if (st.phase === 'over') return;
-    if (st.phase === 'roundEnd') { await send(room, b, { t: 'act', action: { type: 'nextround' } }); continue; }
     const g = st.game, who = g.seats[g.order[g.pos]] === seatA ? a : b;
     await send(room, who, { t: 'act', action: { type: 'score', pts: 20, rolls: g.pos === 0 ? 2 : undefined } });
   }

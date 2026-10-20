@@ -65,8 +65,8 @@ test.describe('dice in the app', () => {
     await expect(B.page.locator('[data-act=roll]')).toBeVisible();
     await B.page.click('[data-act=roll]');
     await B.page.click('[data-act=end]');                         // one roll is Ben's limit, so his turn always ends here
-    await expect(A.page.locator('.panel .who')).toContainText('starts round 2');
-    await expect(B.page.locator('.panel .who')).toContainText('starts round 2');
+    await expect.poll(async () => (await live(A.page)).game.round).toBe(2); // the next round starts by itself
+    await expect.poll(async () => (await live(B.page)).game.round).toBe(2);
     expect((await live(A.page)).game).toEqual((await live(B.page)).game);
     await A.ctx.close(); await B.ctx.close();
   });

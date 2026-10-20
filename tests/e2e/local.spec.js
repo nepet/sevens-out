@@ -16,7 +16,6 @@ test.describe('dice mode', () => {
     for (let step = 0; step < 4000; step++) {
       const s = await saved(page);
       if (s.phase === 'over') break;
-      if (s.phase === 'roundEnd') { await page.click('[data-act=nextround]'); continue; }
       const t = s.game.turn, canRoll = t.rolls < t.maxRolls && t.dice.some(d => d.held === null);
       if (t.rolls === 0 || (canRoll && coin())) await page.click('[data-act=roll]');
       else if (canRoll) { await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); }
@@ -126,7 +125,6 @@ test.describe('scoreboard mode', () => {
     for (let step = 0; step < 400; step++) {
       const s = await saved(page);
       if (s.phase === 'over') break;
-      if (s.phase === 'roundEnd') { await page.click('[data-act=nextround]'); continue; }
       await enterScore(page, rnd(25), s.game.pos === 0 ? 1 + rnd(3) : 0);
     }
     const s = await saved(page);
@@ -139,10 +137,9 @@ test.describe('scoreboard mode', () => {
   test('tie for the lead: whoever reached the score first starts', async ({ page }) => {
     await startLocal(page, { mode: 'score' });
     await enterScore(page, 10, 1); await enterScore(page, 20);
-    await page.click('[data-act=nextround]');
-    await enterScore(page, 0, 2); await enterScore(page, 10);
-    await expect(page.locator('.panel')).toContainText('Ben got there first');
-    expect((await saved(page)).game.next).toBe(1);
+    await enterScore(page, 0, 2); await enterScore(page, 10);       // Ben stays on 20, Anna climbs to 20
+    const s = await saved(page);
+    expect([s.phase, s.game.round, s.game.starter]).toEqual(['play', 3, 1]); // Ben got there first
   });
 
   test('corrections recompute totals, the starter and the 101 rule; undo takes them back', async ({ page }) => {
@@ -156,20 +153,19 @@ test.describe('scoreboard mode', () => {
     await page.click('[data-act=esave]');
     let s = await saved(page);
     expect(s.game.players.map(p => p.score)).toEqual([10, 5]);
-    expect(s.game.next).toBe(0);
-    await page.click('[data-act=nextround]');
+    expect([s.game.round, s.game.starter]).toEqual([2, 0]);          // round 2 starts again, now with Anna
     await enterScore(page, 36, 3); await enterScore(page, 0);
     await page.click('.pl[data-act=edit][data-id="0"]');
     await page.fill('#edit-1', '36');
     await page.click('[data-act=esave]');
-    await page.click('[data-act=nextround]');
+    expect((await saved(page)).game.players.map(p => p.score)).toEqual([72, 5]);
     await enterScore(page, 30, 1); await enterScore(page, 0);
     expect((await saved(page)).phase).toBe('over');
     await page.click('.pl[data-act=edit][data-id="0"]');
     await page.fill('#edit-3', '10');
     await page.click('[data-act=esave]');
     s = await saved(page);
-    expect(s.phase).toBe('roundEnd');
+    expect([s.phase, s.game.round]).toEqual(['play', 4]);           // below 101 again: the next round starts
     await page.click('[data-act=undo]');
     expect((await saved(page)).phase).toBe('over');
   });
@@ -225,7 +221,6 @@ test.describe('statistics', () => {
     for (let round = 1; round <= 3; round++) {
       await enterScore(page, 36, 1); // Anna starts every round and reaches 108 in round 3
       await enterScore(page, 5);
-      if (round < 3) await page.click('[data-act=nextround]');
     }
     await expect(page.locator('.verdict')).toContainText('loses');
   }

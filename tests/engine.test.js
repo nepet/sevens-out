@@ -2,6 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../engine.js';
+import { checkReport, sheetOf } from '../server/core/stats.js';
+import { legacyRoundEnd } from './games.js';
 
 const E = globalThis.SevensEngine;
 
@@ -51,7 +53,6 @@ test('random dice games follow every rule, with the 7s found by hand or by the a
     let s = start(n, seed % n, 'dice', pairing);
     let guard = 0;
     while (s.phase !== 'over' && guard++ < 5000) {
-      if (s.phase === 'roundEnd') { s = must(s, { type: 'nextround' }).state; continue; }
       const t = s.game.turn;
       // by hand, the player spots most pairs but now and then misses one
       const seen = pairing === 'manual' && t.rolls > 0 ? E.matchPairs(t).filter(() => rng() > 1) : [];
@@ -174,7 +175,6 @@ test('random scoreboard games follow every rule', () => {
     const rng = seeded(seed * 7), n = 2 + (seed % 5);
     let s = start(n, 0, 'score'), guard = 0;
     while (s.phase !== 'over' && guard++ < 3000) {
-      if (s.phase === 'roundEnd') { s = must(s, { type: 'nextround' }).state; continue; }
       const pts = (rng() - 1) * 5 + (rng() - 1); // 0..30
       s = score(s, pts, s.game.pos === 0 ? 1 + (rng() % 3) : undefined);
     }
@@ -185,26 +185,24 @@ test('random scoreboard games follow every rule', () => {
 test('tie for the lead: whoever reached the score first starts', () => {
   let s = start(2, 0, 'score');
   s = score(s, 10, 1); s = score(s, 20);
-  assert.equal(s.game.next, 1);
-  s = must(s, { type: 'nextround' }).state;
+  assert.deepEqual([s.game.round, s.game.starter], [2, 1]);
   s = score(s, 0, 2); s = score(s, 10);       // Ben stays on 20, Anna climbs to 20
   assert.deepEqual(s.game.players.map(p => p.score), [20, 20]);
-  assert.equal(s.game.next, 1, 'Ben got to 20 first');
-  s = must(s, { type: 'nextround' }).state;
+  assert.deepEqual([s.game.round, s.game.starter], [3, 1], 'Ben got to 20 first');
   s = score(s, 5, 1); s = score(s, 5);        // Ben 25 first, then Anna 25
-  assert.equal(s.game.next, 1);
+  assert.deepEqual([s.game.round, s.game.starter], [4, 1]);
 });
 
 test('a tie when nobody has scored passes the start to the next player', () => {
   let s = start(3, 1, 'score');
   s = score(s, 0, 1); s = score(s, 0); s = score(s, 0);
-  assert.equal(s.game.next, 2);
+  assert.deepEqual([s.game.round, s.game.starter], [2, 2]);
 });
 
 test('reaching 101 finishes the round, and a tie at the top goes against the later player', () => {
   let s = start(2, 0, 'score');
   s.game.players = [{ name: 'A', score: 0 }, { name: 'B', score: 0 }];
-  for (let i = 0; i < 2; i++) { s = score(s, 36, 3); s = score(s, 36); s = must(s, { type: 'nextround' }).state; }
+  for (let i = 0; i < 2; i++) { s = score(s, 36, 3); s = score(s, 36); }
   s = score(s, 30, 1);                         // A 102: round continues
   assert.equal(s.phase, 'play');
   assert.ok(s.game.ending);
@@ -232,19 +230,131 @@ test('corrections recompute totals, the next starter and the 101 rule', () => {
   s = score(s, 10, 1); s = score(s, 20);
   s = must(s, { type: 'edit', player: 1, values: { 1: 5 } }).state;
   assert.deepEqual(s.game.players.map(p => p.score), [10, 5]);
-  assert.equal(s.game.next, 0);
+  assert.deepEqual([s.game.round, s.game.starter], [2, 0]);
   assert.equal(E.apply(s, { type: 'edit', player: 1, values: { 1: 40 } }).error, 'pts');
   assert.equal(E.apply(s, { type: 'edit', player: 1, values: { 1: 5 } }).error, 'no_change');
-  s = must(s, { type: 'nextround' }).state;
   s = score(s, 30, 1); s = score(s, 0);
   s = must(s, { type: 'edit', player: 0, values: { 1: 36, 2: 36 } }).state; // A 72 between rounds
-  s = must(s, { type: 'nextround' }).state;
+  assert.deepEqual([s.game.round, s.game.starter], [3, 0]);
   s = score(s, 30, 1); s = score(s, 0);       // A 102 -> over
   assert.equal(s.phase, 'over');
-  s = must(s, { type: 'edit', player: 0, values: { 3: 10 } }).state;        // back to 82 -> reopens
-  assert.equal(s.phase, 'roundEnd');
+  s = must(s, { type: 'edit', player: 0, values: { 3: 10 } }).state;        // back to 82 -> the next round starts
+  assert.deepEqual([s.phase, s.game.round], ['play', 4]);
   s = must(s, { type: 'undo' }).state;
   assert.equal(s.phase, 'over');
+});
+
+// ---------- rounds move on by themselves ----------
+test('the next round starts by itself when the last player of a round finishes', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 12, 2); s = score(s, 30);
+  const r = must(s, { type: 'score', pts: 4 });
+  assert.deepEqual(r.events.map(e => e.type), ['turn', 'roundEnd', 'started']);
+  assert.deepEqual(r.events[1], { type: 'roundEnd', round: 1, next: 1 });
+  const g = r.state.game;
+  assert.equal(r.state.phase, 'play');
+  assert.deepEqual([g.round, g.starter, g.pos, g.mark, g.next, g.last], [2, 1, 0, null, null, null]);
+  assert.deepEqual(g.order, [1, 2, 0]);
+  assert.deepEqual(g.rounds.at(-1), { no: 2, starter: 1, results: {} });
+  assert.equal(g.turn.maxRolls, 3);
+});
+
+test('a dice round that ends with a Sevens Out announces it before the round change', () => {
+  // the app finds the 7s, but P2 rolls without setting them aside, so all six come out when P2 stops
+  let s = start(2, 0, 'dice', 'auto');
+  s = must(s, { type: 'roll' }, { rng: faces([2]) }).state;
+  s = must(s, { type: 'stop' }).state;                                        // P1 leaves 12 after one roll
+  s = must(s, { type: 'roll', auto: false }, { rng: faces([1, 6, 2, 5, 3, 4]) }).state;
+  const r = must(s, { type: 'stop' });
+  assert.deepEqual(r.events.map(e => e.type), ['sevensOut', 'turn', 'roundEnd', 'started']);
+  assert.equal(r.events[0].player, 1);
+  assert.deepEqual(r.events.slice(-2), [{ type: 'roundEnd', round: 1, next: 0 }, { type: 'started', starter: 0 }]);
+  assert.deepEqual([r.state.phase, r.state.game.round, r.state.game.starter], ['play', 2, 0]);
+  assert.deepEqual(r.state.game.rounds[0].results, { 0: { pts: 12, rolls: 1 }, 1: { pts: 0, rolls: 1 } });
+});
+
+test('nextround only moves on a game saved between rounds', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);
+  assert.equal(E.apply(s, { type: 'nextround' }).error, 'phase');
+  const old = legacyRoundEnd(s);
+  assert.equal(old.phase, 'roundEnd');
+  const r = must(old, { type: 'nextround' });
+  assert.deepEqual(r.events.map(e => e.type), ['started']);
+  assert.deepEqual(r.state, s);
+});
+
+test('a correction in a game saved between rounds moves it on to the next round', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);
+  const r = must(legacyRoundEnd(s), { type: 'edit', player: 1, values: { 1: 5 } });
+  assert.deepEqual(r.events.map(e => e.type), ['edited']);
+  assert.deepEqual([r.state.phase, r.state.game.round, r.state.game.starter, r.state.game.next], ['play', 2, 0, null]);
+  assert.deepEqual(r.state.game.rounds[1], { no: 2, starter: 0, results: {} });
+});
+
+test('a correction before anyone plays the new round re-applies the starter rule', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);                 // B leads, B starts round 2
+  assert.equal(s.game.starter, 1);
+  const r = must(s, { type: 'edit', player: 1, values: { 1: 5 } });
+  assert.deepEqual(r.events.map(e => e.type), ['edited']);
+  const g = r.state.game;
+  assert.equal(r.state.phase, 'play');
+  assert.deepEqual([g.round, g.starter, g.rounds.length], [2, 0, 2]);
+  assert.deepEqual(g.order, [0, 1]);
+  assert.deepEqual(g.rounds[1], { no: 2, starter: 0, results: {} });
+});
+
+test('dropped dice before anyone plays the new round keep the correction window open, and a restarted round keeps them', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);                 // B starts round 2
+  for (let i = 0; i < 4; i++) s = must(s, { type: 'drop' }).state;   // B pays a round of shots, and one more die falls
+  const g = must(s, { type: 'edit', player: 1, values: { 1: 5 } }).state.game;
+  assert.deepEqual([g.round, g.starter, g.drops], [2, 0, 1]);
+  assert.deepEqual(g.shots, [{ player: 1, round: 2 }]);
+});
+
+test('a correction before anyone plays the new round can end the game, and shots move to the finished round', () => {
+  let s = start(2, 0, 'score');
+  for (let i = 0; i < 3; i++) { s = score(s, 30, 1); s = score(s, 20); }   // A 90, B 60, round 4 starts with A
+  s = must(s, { type: 'drop' }).state; s = must(s, { type: 'drop' }).state; s = must(s, { type: 'drop' }).state;
+  assert.deepEqual(s.game.shots, [{ player: 0, round: 4 }]);
+  const r = must(s, { type: 'edit', player: 0, values: { 1: 36, 2: 36, 3: 36 } });  // A 108
+  const g = r.state.game;
+  assert.equal(r.state.phase, 'over');
+  assert.deepEqual([g.round, g.rounds.length, g.loser, g.crosser, g.ending, !!g.early], [3, 3, 0, 0, true, false]);
+  assert.deepEqual(g.shots, [{ player: 0, round: 3 }]);
+});
+
+test('a correction at game over that takes everyone below 101 starts the next round', () => {
+  let s = start(2, 0, 'score');
+  for (let i = 0; i < 3; i++) { s = score(s, 36, 1); s = score(s, 0); }     // A 108 in round 3: over
+  assert.equal(s.phase, 'over');
+  const r = must(s, { type: 'edit', player: 0, values: { 3: 10 } });         // A 82
+  assert.equal(r.state.phase, 'play');
+  assert.deepEqual([r.state.game.round, r.state.game.starter], [4, 0]);
+  assert.equal(must(r.state, { type: 'undo' }).state.phase, 'over');
+});
+
+test('undo right after a round ends goes back into that round, and entering the score again moves on again', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);
+  const u = must(s, { type: 'undo' }).state;
+  assert.deepEqual([u.phase, u.game.round, u.game.pos], ['play', 1, 1]);
+  const again = must(u, { type: 'score', pts: 20 });
+  assert.deepEqual(again.events.map(e => e.type), ['turn', 'roundEnd', 'started']);
+});
+
+test('ending early before anyone plays the new round counts only the finished round', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 12, 1); s = score(s, 30); s = score(s, 4);                   // round 2 starts with B
+  s = must(s, { type: 'drop' }).state; s = must(s, { type: 'drop' }).state; s = must(s, { type: 'drop' }).state;
+  const r = must(s, { type: 'endearly' });
+  const g = r.state.game;
+  assert.deepEqual([r.state.phase, g.round, g.rounds.length, g.loser, g.early], ['over', 1, 1, 1, true]);
+  assert.deepEqual(g.shots, [{ player: 1, round: 1 }]);
+  assert.ok(checkReport({ id: '0123456789abcdef', mode: 'score', startedAt: 1, finishedAt: 2, sheet: sheetOf(g) }, E, 3).ok);
 });
 
 test('ending early: the highest score loses and the game is marked early', () => {

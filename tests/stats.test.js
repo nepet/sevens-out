@@ -53,7 +53,6 @@ test('a game ended early in the middle of a round', () => {
   s = must(s, { type: 'score', pts: 12, rolls: 2 });
   s = must(s, { type: 'score', pts: 30 });
   s = must(s, { type: 'score', pts: 4 });
-  s = must(s, { type: 'nextround' });
   s = must(s, { type: 'score', pts: 0, rolls: 1 }); // Ben starts round 2 and clears the table
   s = must(s, { type: 'endearly' });
   const { game, players, turns } = summarize(s, { id: ID, source: 'online', roomCode: 'K7QPM', status: 'over', finishedAt: 9 });
@@ -106,7 +105,6 @@ test('a dice game ended early in the middle of a round is accepted', () => {
   const rng = () => 3; // all threes: no 7-pairs, 18 points per turn
   let s = must(E.blank(), { type: 'start', names: ['Anna', 'Ben', 'Cleo'], starter: 0, mode: 'dice' });
   for (let i = 0; i < 3; i++) { s = must(s, { type: 'roll' }, { rng }); s = must(s, { type: 'stop' }); }
-  s = must(s, { type: 'nextround' });
   s = must(s, { type: 'roll' }, { rng }); s = must(s, { type: 'stop' });
   s = must(s, { type: 'endearly' });
   const r = checkReport(reportOf(s), E, NOW);
@@ -117,9 +115,7 @@ test('a dice game ended early in the middle of a round is accepted', () => {
 test('a corrected scoreboard game is accepted even though a past starter no longer fits', () => {
   let s = must(E.blank(), { type: 'start', names: ['Anna', 'Ben'], starter: 0, mode: 'score' });
   s = must(s, { type: 'score', pts: 30, rolls: 1 }); s = must(s, { type: 'score', pts: 20 });
-  s = must(s, { type: 'nextround' });
   s = must(s, { type: 'score', pts: 36, rolls: 1 }); s = must(s, { type: 'score', pts: 20 });
-  s = must(s, { type: 'nextround' });
   s = must(s, { type: 'score', pts: 36, rolls: 1 }); s = must(s, { type: 'score', pts: 20 });
   assert.equal(s.phase, 'over');
   s = must(s, { type: 'edit', player: 1, values: { 1: 36 } }); // Ben now led after round 1, yet Anna started round 2

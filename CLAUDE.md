@@ -86,6 +86,7 @@ These rules were agreed with the owner. Don't change them unless asked.
 - **Undo:** reverts the last entry, dropped die or correction, using snapshots in `game.history` (capped at 40).
 - **Dice on the floor:** one counter is shared by the table (`game.drops`), and each drop counts against the player whose turn it is. The third drop means that player pays a round of shots: it triggers the skull takeover, is recorded in `game.shots`, and resets the counter.
 - **Corrections:** tap a score card to edit any past round. The engine rebuilds the totals (`recalc`) and re-applies the starter and 101 rules wherever the game stands. A game ended early stays over.
+  - While nothing has been played in the new round, a correction re-applies the starter and 101 rules to the finished rounds (the round restarts with the right starter, or the game ends); dropped dice don't close that window; shots from a removed empty round move to the finished round.
 
 ### Dice mode extras
 
@@ -114,9 +115,11 @@ These rules were agreed with the owner. Don't change them unless asked.
 | Dice turn | `roll`, `pair {a, b}`, `unpair {index}`, `takeall`, `stop` (alias `end`) |
 | Scoreboard turn | `score {pts, rolls?}` |
 | Table | `drop`, `undo`, `edit {player, values: {roundNo: pts}}` |
-| Flow | `nextround`, `endearly` |
+| Flow | `nextround` (only for games saved between rounds, the old `roundEnd` phase), `endearly` |
 
-**Events** (for animations and messages): `started`, `rolled {auto, values}`, `paired {pairs}`, `unpaired`, `missed {player, how: 'roll'|'stop', pairs: [[a, b]..]}` (pip values), `sevensOut {player}`, `turn`, `roundEnd {next}`, `gameOver {loser}`, `dropped {drops}`, `shots {player}`, `undone {msg}`, `edited`, `ended`.
+**Rounds move on by themselves:** the action that books the last turn of a round (`stop`/`end`, `score`) also starts the next round, unless someone is at 101. Ending early before anyone has played in the new round drops that empty round first.
+
+**Events** (for animations and messages): `started`, `rolled {auto, values}`, `paired {pairs}`, `unpaired`, `missed {player, how: 'roll'|'stop', pairs: [[a, b]..]}` (pip values), `sevensOut {player}`, `turn`, `roundEnd {round, next}` (always followed by `started` in the same action), `gameOver {loser}`, `dropped {drops}`, `shots {player}`, `undone {msg}`, `edited`, `ended`.
 
 ### State
 

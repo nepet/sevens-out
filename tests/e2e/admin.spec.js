@@ -43,11 +43,8 @@ test('an online game played to the end shows up', async ({ browser, page }) => {
     const st = await live(a);
     if (st.phase === 'over') break;
     const rev = (await net(a)).rev;
-    if (st.phase === 'roundEnd') await a.click('[data-act=nextround]');
-    else {
-      const g = st.game, mine = g.seats[g.order[g.pos]] === seatA;
-      await enterScore(mine ? a : b, mine ? 36 : 5, g.pos === 0 ? 1 : undefined); // Anna starts every round with 36
-    }
+    const g = st.game, mine = g.seats[g.order[g.pos]] === seatA;
+    await enterScore(mine ? a : b, mine ? 36 : 5, g.pos === 0 ? 1 : undefined); // Anna starts every round with 36
     await expect.poll(async () => (await net(a)).rev).toBeGreaterThan(rev);
   }
   expect((await live(a)).phase).toBe('over');
@@ -72,7 +69,6 @@ test('a one-phone game finished while offline arrives after the next visit', asy
     await enterScore(p, 36, 1);
     if (round === 3) await ctx.setOffline(true);
     await enterScore(p, 7);
-    if (round < 3) await p.click('[data-act=nextround]');
   }
   await expect(p.locator('.verdict')).toContainText('loses');
   await expect.poll(() => p.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-reports')).queue.length)).toBe(1);
