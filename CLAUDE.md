@@ -14,15 +14,20 @@ index.html                 the page: markup, CSS, UI script (pass-and-play + onl
 engine.js                  the rules engine, shared by the page and both servers
 server/core/room.js        one game room: seats, host, turn authority, persistence, protocol (no runtime code)
 server/core/stats.js       game summaries for the statistics, and the rule check for one-phone reports
-server/d1/                 schema.sql (stats database), db.js (D1 adapter), write.js (store/replace/delete a game)
+server/core/accounts.js    player accounts: the /auth handler (Fetch API) and resolveSession for rooms (no runtime code)
+server/core/webauthn.js    passkey checks with WebCrypto only (registration, sign-in, DER, base64url)
+server/d1/                 schema.sql (stats + accounts), db.js (D1 adapter), write.js (store/replace/delete a game),
+                           accounts.js (account store), migrations/0001-accounts.sql (once, for the pre-accounts live database)
 server/admin/              the owner's admin page: worker.js, access.js (Access token check), queries.js, page.html, wrangler.jsonc
 server/cloudflare/         option 4: worker.js (Worker + Durable Object adapter), wrangler.jsonc
-server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files), ws.js (built-in WebSocket server)
-tests/                     node:test unit tests (engine, room, node server, worker adapter)
+server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files + /auth), ws.js (built-in WebSocket server),
+                           sqlite.js (DATA_DIR/sevens-out.db with the D1 interface)
+tests/                     node:test unit tests (engine, room, node server, worker adapter, stats, accounts)
 tests/e2e/                 Playwright browser tests (local modes, two-phone online play, passkey accounts)
 deploy/                    option 5: docker-compose.yml + Caddyfile, systemd unit
 docs/self-hosting.md       how to run option 5
 docs/admin.md              admin page: how it works, setup with Cloudflare Access
+docs/accounts.md           player accounts with passkeys: how they work, the domain caveat, what is stored, setup
 Dockerfile                 option 5 container
 .github/workflows/test.yml CI: unit + browser tests on every push
 ```
@@ -47,7 +52,8 @@ npm run worker:deploy             # deploy option 4
 npm run test:admin                # admin page browser tests (wrangler dev for both Workers, local D1)
 npm run admin:dev                 # admin Worker locally on :8789 (no sign-in on localhost)
 npm run admin:deploy              # deploy the admin Worker
-npm run db:schema                 # load server/d1/schema.sql into the remote D1 database
+npm run db:schema                 # load server/d1/schema.sql into the remote D1 database (fresh database)
+npm run db:accounts               # once: add the accounts tables and players.user_id to the live database
 ```
 
 ## Deploy
@@ -55,6 +61,7 @@ npm run db:schema                 # load server/d1/schema.sql into the remote D1
 - **The page** is served by GitHub Pages from `main`, at the repo root. A push deploys it within about a minute. Check it with `gh api repos/<owner>/sevens-out/pages/builds/latest --jq .status`.
 - **The room server (option 4)** deploys with `npm run worker:deploy`, which needs `npx wrangler login` once.
   - **Order:** when the page depends on a new engine behaviour, deploy the Worker (`npm run worker:deploy`) before pushing the page. A new page with an old Worker breaks online play; an old cached page with a new Worker is fine.
+  - **Database changes go first:** a migration (`npm run db:accounts`) runs before the Worker that needs it. The Worker writes `players.user_id`, so stats writes fail (and wait for a retry) until it exists. The page probes `GET /auth/config` and hides accounts on an old Worker.
   - `ALLOWED_ORIGINS` in `server/cloudflare/wrangler.jsonc` must list the page origin, for example `https://<owner>.github.io`.
   - The page finds the server through `<meta name="sevens-out-server" content="wss://sevens-out.<subdomain>.workers.dev">` in `index.html`.
   - An empty `content` hides online play; `same-origin` means "this host", which is what the Node server sets when it serves the page.
@@ -210,7 +217,14 @@ One `Room` per room code holds the authoritative game.
 - `POST /report` takes a finished one-phone game, with an optional `owner` (line index) and `Authorization: Bearer <token>`: the line counts for the signed-in player only when the session is valid and the line carries the player's name (case and spaces ignored). `checkReport` rebuilds it with the engine (dice games: full rules; scoreboard games skip the starter and 101-round checks because corrections can change past rounds). 10 per minute per IP, 16 KB max.
 - The admin page reads the same database. `/api/games?before=` takes the opaque cursor `<finishedAt>_<id>`.
 
+**Player accounts** (`server/core/accounts.js`, `server/core/webauthn.js`, store in `server/d1/accounts.js`; see `docs/accounts.md`):
+- `/auth/*` on both servers: `config` (probe), `options` → `create` | `signin` | `passkeys` (add), `me` (GET, PATCH name, DELETE), `passkeys/<id>` (DELETE; ends the player's other sessions), `signout[?everywhere=1]`. The route table is in the file header.
+- A passkey belongs to the page's hostname (RP ID). The server takes the allowed origins from `ALLOWED_ORIGINS` (empty or `*`: any, for development) and checks challenge, origin, RP ID hash, user presence, signature and the sign counter. Registration trusts the browser's `getPublicKey()` (attestation `none`).
+- Player IDs are 16 hex chars (8 random bytes, also the WebAuthn user handle), the tag is the first 4, the handle `<id>-<name>`. Sessions: 32 random bytes, only the SHA-256 is stored, 180 days sliding. Challenges: single use, 5 minutes.
+- Rooms get an `accounts` adapter (`{ resolve(session) }`); a failure counts as "unknown", never as signed out. Rate limit: 60 requests per minute per IP (`AUTH_LIMIT`), the probe excluded.
+
 **What `hello` does:**
+- A connection says `hello` once; another one gets `bad_message`.
 - With a matching token, the player gets their seat back.
 - With a valid `session`, the signed-in player gets the seat that is theirs (`seat.user`) back from any phone, in the lobby or mid-game, without a token. A new seat sits under the player name. A guest seat whose token comes with a session is linked to the player (and renamed in the lobby). A player never takes two seats. An invalid session plays as a guest.
 - With `create` and no room yet, the player creates the room and becomes host. If the room exists, the answer is `room_taken`, and the page tries a new code.
@@ -234,7 +248,9 @@ One `Room` per room code holds the authoritative game.
   - It uses the WebSocket Hibernation API, and each socket's seat lives in its attachment.
   - The room data is stored in the object's storage under `room`.
   - An origin allowlist comes from `ALLOWED_ORIGINS`.
+  - `/auth/*` uses the `STATS` D1 database; without it accounts are off (`/auth/config` answers 404).
 - **Node (`server/node/server.js`):**
+  - Accounts live in `DATA_DIR/sevens-out.db` (`node:sqlite`). Its rate limit takes the client IP from `X-Forwarded-For` only when the proxy connects from this machine or a private network.
   - Rooms are kept in memory while someone is connected, and messages for a room are handled one at a time.
   - Each room is a JSON file in `DATA_DIR`, written atomically.
   - The server pings sockets every 30 s and drops dead ones.
@@ -294,7 +310,8 @@ One `Room` per room code holds the authoritative game.
   - `node-server.test.js` starts the real server and talks to it over WebSockets.
   - `worker.test.js` runs the Durable Object adapter against a stand-in runtime, including hibernation.
   - `d1.test.js`, `stats.test.js`, `queries.test.js`, `access.test.js` and `admin.test.js` cover the statistics: the D1 adapter and writes, summaries and `checkReport`, the admin queries, the Access token check and the admin Worker.
-  - `tests/fake-d1.js` is a D1 stand-in on `node:sqlite`, and `tests/games.js` builds deterministic finished games.
+  - `webauthn.test.js`, `accounts-store.test.js`, `accounts.test.js` and `sqlite.test.js` cover accounts: passkey checks, the store and the migration, the `/auth` handler's ceremonies and refusals, and the Node database.
+  - `tests/fake-d1.js` is a D1 stand-in on `node:sqlite`, `tests/games.js` builds deterministic finished games, and `tests/authenticator.js` is a software passkey (real WebCrypto keys) for the account tests.
 - **Browser tests (`@playwright/test`):**
   - Separate browser contexts act as separate phones.
   - The tests read state through `window.SevensDebug` or `localStorage`.
