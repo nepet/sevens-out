@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu } from './helpers.js';
+import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openYou, toPlayers } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 
@@ -325,7 +325,8 @@ test('leaving the room before the race keeps the game saved on this phone', asyn
   await ctx.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(own));
   const page = await ctx.newPage();
   await page.goto(url('/'));
-  await expect(page.locator('#name-0')).toHaveValue('Zed');
+  await expect(page.locator('[data-act=play]')).toBeVisible();      // home, with this phone's own setup kept
+  expect((await live(page)).setup.names).toEqual(['Zed', 'Yan']);
   await page.click('[data-act=online]');
   await page.fill('#oname', 'Anna');
   await page.click('[data-act=ocreate]');
@@ -342,11 +343,13 @@ test('leaving the room before the race keeps the game saved on this phone', asyn
   await openMenu(A.page);
   await A.page.click('[data-act=oleave]');
   await A.page.click('[data-act=oleaveyes]');
-  await expect(A.page.locator('#name-0')).toHaveValue('Zed');     // back on this phone's own setup
+  await expect(A.page.locator('[data-act=play]')).toBeVisible();  // back home, with this phone's own setup
+  expect((await live(A.page)).setup.names).toEqual(['Zed', 'Yan']);
   await expect.poll(() => A.page.evaluate(() => window.SevensDebug.busy), { timeout: 6000 }).toBe(false);
   await A.page.waitForTimeout(500);
   await expect(A.page.locator('.race')).toHaveCount(0);
   expect((await live(A.page)).phase).toBe('setup');
+  await openYou(A.page);
   await A.page.click('[data-act=look][data-id="0"]');            // any render saves
   expect(await A.page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-v1')))).toEqual(own);
   await skipRace(B.page);
@@ -372,7 +375,7 @@ test('lobby: wrong codes, leaving, kicking and a full room', async ({ browser })
   await openMenu(B.page);
   await B.page.click('[data-act=oleave]');
   await B.page.click('[data-act=oleaveyes]');
-  await expect(B.page.locator('[data-act=online]')).toBeVisible(); // back on the setup screen
+  await expect(B.page.locator('[data-act=online]')).toBeVisible(); // back home, with the tab bar
   await expect(A.page.locator('.seat')).toHaveCount(2);
   const cleo = (await net(A.page)).room.seats.find(s => s.name === 'Cleo').id;
   await A.page.click(`[data-act=okick][data-seat="${cleo}"]`);
@@ -385,14 +388,47 @@ test('the pass-and-play game on this phone is kept while playing online', async 
   const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });
   const page = await ctx.newPage();
   await page.goto(url('/'));
+  await toPlayers(page);
   await page.fill('#name-0', 'Local');
   await page.click('[data-act=start]');
   await openMenu(page); await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
+  await expect(page.locator('#name-0')).toHaveValue('Local');   // New game: Who's playing with the same players
+  await page.click('[data-act=home]');
   await page.click('[data-act=online]');
   await page.fill('#oname', 'Anna');
   await page.click('[data-act=ocreate]');
   await expect(page.locator('.roomcode')).toBeVisible();
   await openMenu(page); await page.click('[data-act=oleave]'); await page.click('[data-act=oleaveyes]');
-  await expect(page.locator('#name-0')).toHaveValue('Local');
+  await expect(page.locator('[data-act=play]')).toBeVisible();
+  expect((await live(page)).setup.names[0]).toBe('Local');
+  await ctx.close();
+});
+
+test('Play sheet, own phones: a guest with no saved name names themselves, then Create room', async ({ browser }) => {
+  const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await page.goto(url('/'));
+  await page.click('[data-act=play]');
+  await page.click('[data-act=where][data-id="1"]');
+  await expect(page.locator('[data-act=where][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-act=players]')).toHaveCount(0);
+  const create = page.locator('.sheet-layer [data-act=ocreate]');
+  await expect(create).toHaveText('Create room');
+  await create.click();                                            // no name yet
+  await expect(page.locator('.sheet-layer .hint')).toContainText('Enter your name first');
+  await page.fill('.sheet-layer #oname', 'Nia');
+  await page.click('[data-act=mode][data-id="1"]');                // a redraw keeps what was typed
+  await expect(page.locator('.sheet-layer #oname')).toHaveValue('Nia');
+  await create.click();
+  await expect(page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  await expect(page.locator('.sheet-layer')).toBeHidden();
+  expect((await net(page)).room.seats.map(s => s.name)).toEqual(['Nia']);
+  expect((await page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-v1')))).setup).toMatchObject({ where: 'phones', mode: 'score' });
+
+  // back home: the name is saved now, so the sheet asks for none
+  await openMenu(page); await page.click('[data-act=oleave]'); await page.click('[data-act=oleaveyes]');
+  await page.click('[data-act=play]');
+  await expect(page.locator('[data-act=where][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.sheet-layer #oname')).toHaveCount(0);
   await ctx.close();
 });

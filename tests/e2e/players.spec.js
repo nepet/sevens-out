@@ -1,7 +1,7 @@
 // Playing as your player: online seats carry the player (tags, the seat back from any phone, an ended session),
 // and a one-phone game credits the phone owner's line. Runs against the Node server, or `wrangler dev` with TARGET=worker.
 import { test, expect } from '@playwright/test';
-import { AUTH, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll } from './helpers.js';
+import { AUTH, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll, openYou, toPlayers } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, reducedMotion: 'reduce' };
 
@@ -11,6 +11,7 @@ async function newPhone(browser, name = null) {
   const page = await ctx.newPage();
   const auth = await addAuthenticator(page);
   await page.goto(localUrl('/'));
+  await openYou(page);
   await expect(page.locator('[data-act=online]')).toBeVisible();
   if (name) {
     await expect(page.locator('[data-act=acreate]')).toBeVisible();
@@ -104,7 +105,9 @@ test('one phone: the signed-in player\'s line says "You", "This is me" moves it,
     await route.fulfill({ status: 204 });
   });
 
-  // no line is Anna yet: every line offers "This is me"
+  // Who's playing, real dice: no line is Anna yet, so every line offers "This is me"
+  await page.click('[data-act=home]');
+  await toPlayers(page, { mode: 'score' });
   await expect(page.locator('.me-link')).toHaveCount(2);
   await page.fill('#name-0', ' anna ');
   await expect(page.locator('[data-me="0"] .me-you')).toHaveText('You');
@@ -117,7 +120,6 @@ test('one phone: the signed-in player\'s line says "You", "This is me" moves it,
   expect(await noSideScroll(page)).toBe(true);
 
   // a short real-dice game: Ben starts and loses
-  await page.click('[data-act=mode][data-id="1"]');
   await page.click('[data-act=start]');
   expect((await live(page)).stats.owner).toBe(1);
   for (let round = 1; round <= 3; round++) {
@@ -133,8 +135,14 @@ test('one phone: the signed-in player\'s line says "You", "This is me" moves it,
 
   // signed out: no line is "you", and a new game has no owner
   await page.click('[data-act=again]');
+  await expect(page.locator('[data-me]')).toHaveCount(2);           // Play again: Who's playing, still signed in
+  await page.click('[data-act=home]');
+  await openYou(page);
   await page.locator('details[data-fold=account] summary').click();
   await page.click('[data-act=asignout]');
+  await page.click('[data-act=home]');
+  await toPlayers(page, { mode: 'score' });
+  await expect(page.locator('#name-1')).toHaveValue('Anna');
   await expect(page.locator('[data-me]')).toHaveCount(0);
   await P.ctx.close();
 });
@@ -145,13 +153,15 @@ test('a waiting report goes out with its owner\'s session only', async ({ browse
   await addAuthenticator(page);
   await page.route('**/report', route => route.abort('internetdisconnected'));
   await page.goto(localUrl('/'));
+  await openYou(page);
   await page.fill('#aname', 'Anna');
   await page.click('[data-act=acreate]');
   await expect(page.locator('.acct-name')).toContainText('Anna');
   const anna = await account(page);
+  await page.click('[data-act=home]');
+  await toPlayers(page, { mode: 'score' });
   await page.fill('#name-0', 'Anna');
   await page.fill('#name-1', 'Ben');
-  await page.click('[data-act=mode][data-id="1"]');
   await page.click('[data-act=start]');
   expect((await live(page)).stats).toMatchObject({ owner: 0, ownerId: anna.id });
   for (let round = 1; round <= 3; round++) {
@@ -166,6 +176,8 @@ test('a waiting report goes out with its owner\'s session only', async ({ browse
 
   // someone else signs in on this phone before the report goes out: it goes without a session
   await page.click('[data-act=again]');
+  await page.click('[data-act=home]');
+  await openYou(page);
   await page.locator('details[data-fold=account] summary').click();
   await page.click('[data-act=asignout]');
   await page.fill('#aname', 'Cleo');
@@ -178,6 +190,7 @@ test('a waiting report goes out with its owner\'s session only', async ({ browse
     await route.fulfill({ status: 204 });
   });
   await page.reload();
+  await openYou(page);
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0].body.owner).toBe(0);
   expect(sent[0].auth).toBeNull();

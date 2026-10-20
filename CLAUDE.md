@@ -81,7 +81,7 @@ These rules were agreed with the owner. Don't change them unless asked.
    - **The app finds them** (`game.pairing: 'auto'`): all remaining 7-pairs come out automatically first.
 4. **Turn order.** Players take turns in seating order, starting from the round's starter.
 5. **Who starts a round.**
-   - First round: chosen on the setup screen or in the lobby, or picked at random.
+   - First round: chosen on Who's playing or in the lobby, or picked at random.
    - After that: the player with the highest total starts.
    - **Tie:** whoever reached that score first, worked out by replaying the score sheet in playing order (`reachedAt`). A 0-point turn does not count as reaching the score again.
    - **Still tied** (for example everyone on 0): the next of the tied players after the last starter.
@@ -98,7 +98,7 @@ These rules were agreed with the owner. Don't change them unless asked.
 
 ### Dice mode extras
 
-- **Pairs of 7** is chosen on the setup screen or in the lobby.
+- **Pairs of 7** is chosen in the Play sheet ("The app finds the 7s" switch) or in the lobby.
   - **Find them yourself** (default): nothing is set aside after a roll. The player taps two dice that add up to 7. The page doesn't highlight pairs or offer "Set aside all 7s" (`takeall` is refused with `by_hand`), and "On the table" shows every pip on the table.
   - **Missed 7s:** rolling on or stopping with a 7-pair still on the table emits `missed` (before `rolled` on a roll). Every phone then shows the "Need glasses?" joke: the missed dice get a pair of glasses and a sad trombone plays. Taps go through it, the next roll clears it, and otherwise it goes after about 3 s.
   - **The app finds them:** rolling sets all 7-pairs aside. The page then shows the dice lying still for about 0.7 s and flies each pair into the rack.
@@ -136,7 +136,7 @@ The page saves the phone's own game to `localStorage['sevens-out-v1']`. Online g
 ```js
 state = {
   phase: 'setup' | 'play' | 'over',   // 'roundEnd' only in games saved before rounds moved on by themselves
-  setup: { names: [..], starter, mode: 'dice' | 'score', pairing: 'manual' | 'auto' },   // pass-and-play setup screen
+  setup: { names: [..], starter, mode: 'dice' | 'score', pairing: 'manual' | 'auto', where? },   // the Play sheet and Who's playing; where: 'table' | 'phones' (missing = table)
   game: {
     mode, pairing?, players: [{ name, score }], seats?: [seatId..],   // pairing missing = auto (old saves); seats only online
     round, starter, order: [playerIdx..], pos,                    // whose turn: order[pos]
@@ -165,6 +165,14 @@ Other storage keys, all per device:
 
 The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template strings.
 
+**The home screens** (only while no game is shown; `ui.screen`: `null`/`home` | `online` | `you`, plus `players` for Who's playing):
+- **Tab bar** (`tabBar(cur)`): `nav.tabbar` with Play (`data-act="home"`), Online (`online`, left out when `!onlineAvailable()`) and You (`you`), each a `button.tab` at least 48 px with an icon, `aria-current="page"` on the current one. It is the last child of `#app`, sticky at the bottom (`#app.has-bar`) and padded for the safe area. Hidden in a game, in the lobby and on Who's playing.
+- **Home** (`viewHome()`, the Play tab when `state.phase === 'setup'`): full-bleed leather-deep (`.felt-home`; `render()` sets `html.felt` and `html.felt-home`), the big title, two tilted dice, one line, and one Play button (`data-act="play"`) just above the tab bar. A saved one-phone game still opens straight into the game; the Play tab then shows the game.
+- **Play sheet** (sheet kind `play`, `playBody()`, title "New game"): "Where is everyone?" At this table / Own phones (`where` 0/1 → `state.setup.where`; left out without online), Dice: In the app / Real dice (`mode` 0/1), and for dice in the app the switch "The app finds the 7s" (`button.switch[role=switch][data-act=pairing]`: no `data-id` toggles, 0/1 sets manual/auto). Choices write to `state.setup` (saved at once). Pinned at its bottom (`.sheet-foot`, with `.hint`): "Next: who's playing" (`players` → `ui.screen = 'players'`) or, for own phones, "Create room" (`ocreate`), with a name field (`#oname`) above it only for a guest without a saved name (`sevens-out-name`); a signed-in player plays under the player name. The room is created with the server's default settings for now.
+- **Who's playing** (`viewPlayers()`, `ui.screen === 'players'`): a back button (`home`), the players rows (name, Starts, "You"/"This is me", remove), Add player, Random starter, and Start game pinned in the bar. Play again and New game (`toSetup()`) land here with the last players.
+- **Online tab** (`viewOnlineEntry()`): name or "Playing as", Create a room, room code and Join room. `?join=CODE` opens it with the code filled in.
+- **You tab** (`viewYou()`): the account panel (`accountBlock()`), Sound / Look / Shake (`settingsBlock()`), How to play and Developer.
+
 **The slim header** (`header(g)`) tops the play screens: the menu button, "Round N · M rolls max" (or "<Name> sets the limit (max 3)", "Game over" at the end; `.rnd`), the room chip online (`netChip()`), and when someone is at 101 a one-line `.alert` ("Anna is at 104. Last round: the highest score loses.").
 
 **The dice turn** (`viewPlay()`), top to bottom: header, score list, the player's line (`h2.who` with "Roll 1 of 2" and the roll slots in `.rolls`), the leather table (`.tray.table`: "On the table N" in `.tval`, the dice, and along its bottom edge `.rackrow` with the set-aside pairs in `.rack`; a pair from this roll is a `button.pair[data-act=unpair]`, and `takeall` sits there with automatic pairing), one `.hint` line, and the pinned leather bar:
@@ -190,7 +198,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - DOM, relied on by the tests and the race between rounds: `section.board` → `.bhead` → `ol.lines` → `li.pl[data-id]` (classes `now`, `wait`, `over`, `lost`, `editable`) with `.mk`, `.nm`, `.trk > .fill`, `.num`, `.dl` and an optional `.pl-sub`; then `p.bfoot`. `lineHtml` depends only on its arguments (and the room's connections), so the race can reuse it.
 
 **The game menu, the bottom sheet and the bottom bar:**
-- **Game menu:** the menu button (`menuButton()`, `data-act="menu"`) sits at the top left of the play screens (dice, real dice, corrections, game over) and the lobby. It opens a bottom sheet with the score sheet (`sheet(g)`, a fold open by default), How to play (`rules()`), Sound / Look / Shake (`settingsBlock()`), New game (one phone, during play) or Leave room (online) with their in-page confirmations (`quitBlock()`), and Developer (`devBlock()`, folded). Nothing sits under the play screens any more; home and the online entry keep `footer()` (the settings only).
+- **Game menu:** the menu button (`menuButton()`, `data-act="menu"`) sits at the top left of the play screens (dice, real dice, corrections, game over) and the lobby. It opens a bottom sheet with the score sheet (`sheet(g)`, a fold open by default), How to play (`rules()`), Sound / Look / Shake (`settingsBlock()`), New game (one phone, during play) or Leave room (online) with their in-page confirmations (`quitBlock()`), and Developer (`devBlock()`, folded). Nothing sits under the play screens any more; between games the settings, rules and Developer are in the You tab.
 - **Bottom sheet:** one layer outside `#app` (`.sheet-layer` → `.sheet-backdrop` + `section.sheet[role=dialog]` with `.sheet-grab`, `.sheet-head` (`#sheet-h`, `.sheet-close`) and `.sheet-body`). Kinds are registered in `SHEETS` as `{title, ok(), body()}`; `openSheet(kind, from)` shows one (`ui.sheet`), `closeSheet()` hides it and gives the focus back to the opener (`from` = its `[data-act, data-id]`, kept in `ui.sheetFrom`). Every `render()` rebuilds only the body (`renderSheet()`), keeping its scroll position and the focused control, and closes the sheet when `ok()` says it doesn't belong on the new screen. While it is open `#app` is `inert`, Escape, the close button and a backdrop tap (`data-act="sheetclose"`) close it, Tab stays inside, and the keypad keys and shake to roll are ignored. Reduced motion: no slide. `newyes`, `oleaveyes`, `endyes` and the `dev*` actions close it first.
 - **Bottom bar:** `bar(inner, {leather})` returns a `.bar` (`.bar.leather` for the turn screens), pinned to the bottom with `position: sticky` and padded by the safe area. Put it last in a view; `render()` then gives `#app` the class `has-bar`, so the bar reaches the bottom edge (nothing after `#app` may add height: the `#acct-live` region sits at the top). Every play screen uses it: the dice turn (Stop | Roll), real dice (Save), corrections (Cancel | Save changes) and game over (Play again).
 
@@ -205,14 +213,15 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
   - Other players see a "Waiting for …" note instead of the controls.
 
 **Data actions:**
-- **Setup:** `add`, `remove`, `randstart`, `mode`, `pairing`, `start`, `me` ("This is me")
+- **Home:** `home`, `online`, `you` (the tabs), `play` (opens the Play sheet), `where`, `mode`, `pairing`, `players` (Next: who's playing)
+- **Setup (Who's playing):** `add`, `remove`, `randstart`, `start`, `me` ("This is me")
 - **Dice:** `roll`, `die`, `unpair`, `takeall`, `stop`, `end`
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
 - **Flow:** `again`, `new`/`newyes`/`newno`, `menu`, `sheetclose`
 - **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`, `devround`
 - **Settings:** `sound`, `look`, `shake`
-- **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
+- **Online:** `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
 - **Account:** `acreate`, `asignin`, `arename`/`arenamesave`/`arenamecancel`, `aadd`, `asignout`, `adelete`/`adeleteyes`/`adeleteno`
 
 **Debugging:** `window.SevensDebug` gives read-only `state`, `net`, `busy` and `account` views (`busy` is also true during the race between rounds; `account` is `{available, signedIn, id, name}`, never the token). The tests use it.
@@ -304,17 +313,17 @@ One `Room` per room code holds the authoritative game.
   - **Saving:** a one-phone game saves the new state as soon as the race starts, so a reload mid-race keeps the last turn.
   - **Fallback:** without `E.roundRecap` (an old engine.js in the cache) or when anything in the race fails, the new state shows at once, without a race, and the page is never left busy. A one-phone game that such an old engine leaves in `roundEnd` moves on with `nextround`.
   - **DOM:** `.race` (fixed, outside `#app`) → `.race-card` (the list's `.bhead` and `li.pl` lines from `lineHtml`, plus `.race-badge`) and `.race-curtain` (`.race-round`, `.race-starter`, `.race-why`).
-- **Your player.** An optional account with a passkey, in a panel on the home screen above "Not at the same table?". Guests can ignore it.
+- **Your player.** An optional account with a passkey, in a panel in the You tab. Guests can ignore it.
   - **When it shows:** the browser has `PublicKeyCredential`, a server is configured, the page is the top-level window on a hostname (WebAuthn refuses IP addresses; `localhost` works), and `GET /auth/config` answered `{ok: true}`. The probe runs once per page load and never holds up the first render. If it failed (offline, a 5xx), it runs again when the page becomes visible or the phone comes online; a 404 means no accounts there.
   - **Signed out:** a name field (from `sevens-out-name`) with "Create player", and "Sign in with a passkey" (a discoverable passkey, so no name to type).
   - **Signed in:** the name with its tag (`#` + the first 4 hex of the player ID), Rename, and a fold with "Add a passkey on this device", "Sign out" and "Delete player" (confirmed in the page).
   - **Session:** a bearer token from `/auth`, kept in `sevens-out-account`. On load the page checks it with `GET /auth/me`: a new name is taken over, a 401 signs the phone out quietly, and network trouble keeps it. Create, sign-in and rename also write `sevens-out-name`.
   - **Passkey hygiene:** after Delete the page calls `PublicKeyCredential.signalAllAcceptedCredentials` with no IDs, and a sign-in with a deleted player's passkey calls `signalUnknownCredential`, so password managers can hide them.
-  - **Options fetched ahead:** Safari opens a passkey prompt only shortly after the tap, so the page keeps `/auth/options` sets ready: `signin` and `create` while the signed-out panel shows, `add` once its fold is open (home screen only, never during a prompt). A set is used once and is fresh for 4 minutes (challenges live 5); a fresh one is fetched in the background. A tap with a fresh set calls `navigator.credentials.*` before anything waits; without one it fetches first. A `create` set has no name: the page names the passkey `<name> #<tag>` and sends `name` to `/auth/create`.
+  - **Options fetched ahead:** Safari opens a passkey prompt only shortly after the tap, so the page keeps `/auth/options` sets ready: `signin` and `create` while the signed-out panel shows, `add` once its fold is open (only while the panel shows, never during a prompt). A set is used once and is fresh for 4 minutes (challenges live 5); a fresh one is fetched in the background. A tap with a fresh set calls `navigator.credentials.*` before anything waits; without one it fetches first. A `create` set has no name: the page names the passkey `<name> #<tag>` and sends `name` to `/auth/create`.
   - While a passkey prompt is open (`ui.account.busy`), the panel's buttons are `aria-disabled` (so focus stays) and `handle()` ignores account actions. The hint is announced from `#acct-live`, a visually hidden live region outside `#app` that survives redraws.
   - **Online:** the online entry says "Playing as <name> #tag" instead of the name field, and `hello` carries `session` (only when the account belongs to the room server). If the server answers `welcome.user === null` to a hello with a session, the session has ended: the phone drops the account quietly and plays on as a guest in that seat. The lobby seats and the score list show `#tag` for seats with `user`.
-  - **One phone:** when signed in, each setup row shows "You" (the first line whose name is the player name, case and spaces ignored) or "This is me", which puts the player name on that line (swapping names with the old "You" line). At start, `state.stats.owner` is that line and `ownerId` the player ID; the report carries `owner`, and its queue item keeps `ownerId`. It goes out with the bearer token only while that same player is signed in to the same server (signed out or someone else by then: a guest game).
-- **Developer menu** (in the game menu, and on home). Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
+  - **One phone:** when signed in, each Who's playing row shows "You" (the first line whose name is the player name, case and spaces ignored) or "This is me", which puts the player name on that line (swapping names with the old "You" line). At start, `state.stats.owner` is that line and `ownerId` the player ID; the report carries `owner`, and its queue item keeps `ownerId`. It goes out with the bearer token only while that same player is signed in to the same server (signed out or someone else by then: a guest game).
+- **Developer menu** (in the game menu, and in the You tab). Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
 - **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving. The race between rounds shows the grown list with its final totals, order and badge at once. The curtain then appears without sliding, and the whole race takes about 2.5 s.
 
 ## Conventions

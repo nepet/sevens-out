@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu } from './helpers.js';
+import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openYou, toPlayers } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -197,6 +197,7 @@ test.describe('on a phone', () => {
 
   test('shake to roll: one bump does nothing, a shake rolls', async ({ page }) => {
     await page.goto('/');
+    await openYou(page);
     await page.click('[data-act=shake][data-id="1"]');
     await startLocal(page);
     await expect(page.locator('.hint')).toContainText('shake the phone');
@@ -211,6 +212,7 @@ test.describe('on a phone', () => {
   test('shaking during the race between rounds does not roll', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
+    await openYou(page);
     await page.click('[data-act=shake][data-id="1"]');
     await startLocal(page);
     await page.click('[data-act=roll]'); await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
@@ -570,7 +572,13 @@ test('a score list scrolled away comes back into view, and the race starts from 
 test('no sideways scrolling at phone width, in both looks', async ({ page }) => {
   await page.goto('/');
   expect(await noSideScroll(page)).toBe(true);
+  await openYou(page);
+  expect(await noSideScroll(page)).toBe(true);
   await page.click('[data-act=look][data-id="1"]');
+  await page.click('[data-act=home]');
+  expect(await noSideScroll(page)).toBe(true);
+  await page.click('[data-act=play]');
+  expect(await noSideScroll(page)).toBe(true);
   await startLocal(page, { names: ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Finn'] });
   expect(await noSideScroll(page)).toBe(true);
 });
@@ -992,6 +1000,8 @@ test.describe('the real-dice turn, corrections and game over', () => {
     await save.click();
     await expect(page.locator('[data-act=rolls]')).toHaveCount(0);       // only the starter chooses the rolls
     await expect(page.locator('.turnhead .rolls')).toHaveText('Up to 2 rolls');
+    // scrolled to the end (Start used to leave the page there; it is pinned now): Undo is above the bar
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
     const undo = await page.locator('[data-act=undo]').boundingBox(), bar = await page.locator('#app > .bar').boundingBox();
     expect(undo.y + undo.height).toBeLessThanOrEqual(bar.y + 0.5);       // above the bar
     await page.click('[data-act=undo]');
@@ -1066,4 +1076,104 @@ test.describe('the real-dice turn, corrections and game over', () => {
       await expect(page.locator('[data-act=start]')).toBeVisible();
     });
   }
+});
+
+test.describe('home and the Play sheet', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
+  test('home asks one thing: Play, with the tab bar Play · Online · You at the bottom', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#app button.btn')).toHaveCount(1);
+    await expect(page.locator('#app [data-act=play]')).toHaveText('Play');
+    await expect(page.locator('.acct, [data-act=start], [data-act=mode], details.fold')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
+    const tabs = page.locator('.tabbar .tab');
+    await expect(tabs).toHaveText(['Play', 'Online', 'You']);
+    await expect(page.locator('.tabbar [aria-current=page]')).toHaveText('Play');
+    for (const box of await tabs.evaluateAll(els => els.map(el => el.getBoundingClientRect().height))) expect(box).toBeGreaterThanOrEqual(48);
+    const bar = await page.locator('.tabbar').boundingBox(), play = await page.locator('[data-act=play]').boundingBox();
+    expect(Math.abs(bar.y + bar.height - 844)).toBeLessThanOrEqual(1);   // on the bottom edge
+    expect(play.y + play.height).toBeLessThanOrEqual(bar.y);           // Play sits just above it, in the thumb zone
+    expect(play.y).toBeGreaterThan(844 / 2);
+    // the tabs switch screens; the tab bar goes away in a game
+    await page.click('[data-act=online]');
+    await expect(page.locator('.tabbar [aria-current=page]')).toHaveText('Online');
+    await expect(page.locator('#oname')).toBeVisible();
+    await openYou(page);
+    await expect(page.locator('[data-act=sound]')).toHaveCount(3);
+    await page.click('[data-act=home]');
+    await expect(page.locator('[data-act=play]')).toBeVisible();
+    await startLocal(page);
+    await expect(page.locator('.tabbar')).toHaveCount(0);
+  });
+
+  test('the Play sheet: choices are kept in state.setup, the switch sets the 7s, Next leads to Who\'s playing', async ({ page }) => {
+    await page.goto('/');
+    const play = page.locator('[data-act=play]');
+    await play.click();
+    const sheet = page.locator('.sheet-layer .sheet');
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toHaveAttribute('role', 'dialog');
+    await expect(play).toHaveAttribute('aria-expanded', 'true');
+    await expect(sheet.locator('legend')).toHaveText(['Where is everyone?', 'Dice']);
+    await expect(page.locator('[data-act=where][data-id="0"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-act=mode][data-id="0"]')).toHaveAttribute('aria-pressed', 'true');
+    const sw = page.locator('.sheet-layer [role=switch][data-act=pairing]');
+    await expect(sw).toHaveAttribute('aria-checked', 'false');
+    await expect(sheet).toContainText('Off: you spot them, and missed pairs count');
+    expect((await saved(page)).setup.pairing).toBe('manual');
+    await sw.click();
+    await expect(sw).toHaveAttribute('aria-checked', 'true');
+    expect((await saved(page)).setup.pairing).toBe('auto');
+    await sw.click();
+    expect((await saved(page)).setup.pairing).toBe('manual');
+    await sw.click();                                                   // auto again, for the game below
+    expect(await noSideScroll(page)).toBe(true);
+    for (const h of await sheet.locator('.opt, .switch, [data-act=players]').evaluateAll(els => els.map(el => el.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(32);
+
+    // real dice: no switch; the choice is saved and survives a reload
+    await page.click('[data-act=mode][data-id="1"]');
+    await expect(sw).toHaveCount(0);
+    expect((await saved(page)).setup).toMatchObject({ mode: 'score', pairing: 'auto' });
+    await page.keyboard.press('Escape');                               // Escape closes it, the focus goes back to Play
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await expect(play).toBeFocused();
+    await page.reload();
+    await play.click();
+    await expect(page.locator('[data-act=mode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    await page.click('[data-act=mode][data-id="0"]');
+    await expect(sw).toHaveAttribute('aria-checked', 'true');
+    await page.click('[data-act=players]');
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await expect(page.locator('[data-act=start]')).toBeVisible();
+    await page.fill('#name-0', 'Anna'); await page.fill('#name-1', 'Ben');
+    await page.click('[data-act=start]');
+    const g = (await saved(page)).game;
+    expect([g.mode, g.pairing]).toEqual(['dice', 'auto']);
+  });
+
+  test('without a server there is no Online tab and no "Where is everyone?"', async ({ page }) => {
+    await page.route(u => u.pathname === '/', async route => {
+      const res = await route.fetch();
+      await route.fulfill({ response: res, body: (await res.text()).replace(/(name="sevens-out-server" content=")[^"]*"/, '$1"') });
+    });
+    await page.goto('/');
+    await expect(page.locator('.tabbar .tab')).toHaveText(['Play', 'You']);
+    await page.click('[data-act=play]');
+    await expect(page.locator('.sheet-layer legend')).toHaveText(['Dice']);
+    await expect(page.locator('[data-act=where]')).toHaveCount(0);
+    await expect(page.locator('[data-act=players]')).toBeVisible();
+  });
+
+  test('an old saved setup without the new fields opens home and the sheet with its choices', async ({ page }) => {
+    const old = { phase: 'setup', setup: { names: ['Zed', 'Yan'], starter: 1, mode: 'score', pairing: 'manual' }, game: null };
+    await page.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(old));
+    await page.goto('/');
+    await page.click('[data-act=play]');
+    await expect(page.locator('[data-act=where][data-id="0"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-act=mode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    await page.click('[data-act=players]');
+    await expect(page.locator('#name-0')).toHaveValue('Zed');
+    await expect(page.locator('#starter-1')).toBeChecked();
+  });
 });

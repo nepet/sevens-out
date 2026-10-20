@@ -2,7 +2,9 @@
 // Chromium's virtual authenticator (CDP) stands in for Face ID. WebAuthn refuses IP addresses as the
 // relying party ID, so these tests open the page on localhost (LOCAL), not on the config's 127.0.0.1.
 import { test, expect } from '@playwright/test';
-import { AUTH, url, localUrl, account, storedAccount, addAuthenticator, credentials, copyCredential, noSideScroll } from './helpers.js';
+import { AUTH, url, localUrl, account, storedAccount, addAuthenticator, credentials, copyCredential, noSideScroll, openYou } from './helpers.js';
+
+// the account panel lives in the You tab
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 const panel = page => page.locator('section.acct');
@@ -13,6 +15,7 @@ async function newPhone(browser, opts = {}) {
   const page = await ctx.newPage();
   const auth = await addAuthenticator(page);
   await page.goto(localUrl('/'));
+  await openYou(page);
   await expect(page.locator('[data-act=asignin]')).toBeVisible();
   return { ctx, page, auth };
 }
@@ -48,6 +51,7 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
 
   // a reload keeps the player (the page checks the session in the background)
   await page.reload();
+  await openYou(page);
   await expect(page.locator('.acct-name')).toContainText('Anna');
   expect((await account(page)).id).toBe(me.id);
 
@@ -75,6 +79,7 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
   await expect(page.locator('.acct-name')).toContainText('Annie');
   await expect(hint(page)).toHaveText('Name saved.');
   await page.reload();
+  await openYou(page);
   await expect(page.locator('.acct-name')).toContainText('Annie');
   expect(await account(page)).toMatchObject({ id: me.id, name: 'Annie' });
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-name')))).toBe('Annie');
@@ -103,6 +108,7 @@ test('accounts are kept per server; an old saved account still works; a dead ses
   // the single account saved before accounts were kept per server
   await page.evaluate(([a, server]) => localStorage.setItem('sevens-out-account', JSON.stringify({ ...a, server })), [good, AUTH]);
   await page.reload();
+  await openYou(page);
   await expect(page.locator('.acct-name')).toContainText('Dora');
   expect((await account(page)).id).toBe(me.id);
 
@@ -110,6 +116,7 @@ test('accounts are kept per server; an old saved account still works; a dead ses
   const other = { token: 'f'.repeat(64), id: me.id, name: 'Dora' };
   await page.evaluate(([a, server, other]) => localStorage.setItem('sevens-out-account', JSON.stringify({ [server]: { ...a, token: '0'.repeat(64) }, 'https://elsewhere.example': other })), [good, AUTH, other]);
   await page.reload();
+  await openYou(page);
   await expect(page.locator('[data-act=asignin]')).toBeVisible();
   await expect.poll(() => storedAccount(page)).toBeNull();
   expect(await storedAccount(page, 'https://elsewhere.example')).toEqual(other);
@@ -191,6 +198,7 @@ test('a cancelled passkey prompt saves nothing', async ({ browser }) => {
   });
   const page = await ctx.newPage();
   await page.goto(localUrl('/'));
+  await openYou(page);
   await page.fill('#aname', 'Eve');
   await page.click('[data-act=acreate]');
   await expect(hint(page)).toHaveText('No passkey was saved.');
@@ -208,6 +216,7 @@ test('passkey options are fetched ahead, so the prompt opens right inside the ta
   const answered = [];
   page.on('requestfinished', r => { if (r.url().endsWith('/auth/options')) answered.push(r); });
   await page.goto(localUrl('/'));
+  await openYou(page);
   await expect(page.locator('[data-act=acreate]')).toBeVisible();
   await expect.poll(() => answered.length).toBe(2); // one set for sign-in, one for a new player
   expect(options.sort()).toEqual(['create', 'signin']);
@@ -237,6 +246,7 @@ test('without options fetched ahead, a tap fetches them first', async ({ browser
   let n = 0;
   await page.route('**/auth/options', route => (++n <= 2 ? route.abort('internetdisconnected') : route.continue()));
   await page.goto(localUrl('/'));
+  await openYou(page);
   await expect(page.locator('[data-act=acreate]')).toBeVisible();
   await expect.poll(() => n).toBe(2);
   await page.fill('#aname', 'Gus');
@@ -251,6 +261,7 @@ test('during a passkey prompt the buttons ignore taps and keep focus, and the hi
   await ctx.addInitScript(() => { navigator.credentials.create = () => new Promise(() => {}); }); // a prompt left open
   const page = await ctx.newPage();
   await page.goto(localUrl('/'));
+  await openYou(page);
   await page.fill('#aname', 'Hal');
   await page.click('[data-act=acreate]');
   await expect(page.locator('[data-act=acreate]')).toHaveAttribute('aria-disabled', 'true');
@@ -268,6 +279,7 @@ test('a probe that failed is tried again when the phone is back online; a 404 is
   let probes = 0, mode = 'offline';
   await page.route('**/auth/config', route => { probes++; return mode === 'offline' ? route.abort('internetdisconnected') : mode === '404' ? route.fulfill({ status: 404, body: '{}' }) : route.continue(); });
   await page.goto(localUrl('/'));
+  await openYou(page);
   await expect.poll(() => probes).toBe(1);
   await expect(panel(page)).toHaveCount(0);
   mode = '404';
@@ -284,6 +296,7 @@ test('a probe that failed is tried again when the phone is back online; a 404 is
   let n = 0;
   await page2.route('**/auth/config', route => (++n === 1 ? route.abort('internetdisconnected') : route.continue()));
   await page2.goto(localUrl('/'));
+  await openYou(page2);
   await expect.poll(() => n).toBe(1);
   await page2.evaluate(() => dispatchEvent(new Event('online')));
   await expect(panel(page2)).toBeVisible();
@@ -296,6 +309,7 @@ test('the panel stays hidden where passkeys cannot work', async ({ browser }) =>
   await ctx.addInitScript(() => { delete window.PublicKeyCredential; });
   const page = await ctx.newPage();
   await page.goto(localUrl('/'));
+  await openYou(page);
   await page.waitForLoadState('networkidle');
   await expect(page.locator('[data-act=online]')).toBeVisible();
   await expect(panel(page)).toHaveCount(0);
@@ -306,6 +320,7 @@ test('the panel stays hidden where passkeys cannot work', async ({ browser }) =>
   const ctx2 = await browser.newContext(phone);
   const page2 = await ctx2.newPage();
   await page2.goto(url('/'));
+  await openYou(page2);
   await page2.waitForLoadState('networkidle');
   await expect(page2.locator('[data-act=online]')).toBeVisible();
   await expect(panel(page2)).toHaveCount(0);

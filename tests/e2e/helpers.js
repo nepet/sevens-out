@@ -27,10 +27,25 @@ export async function fixDice(context, faces) {
     crypto.getRandomValues = a => { if (a.length === 1 && i < seq.length) { a[0] = seq[i++]; return a; } return orig(a); }; })();`);
 }
 
+// home → Play sheet (at this table, the dice and the 7s switch) → Who's playing
+export async function toPlayers(page, { mode = 'dice', pairing = 'manual' } = {}) {
+  await page.click('[data-act=play]');
+  await expect(page.locator('.sheet-layer .sheet')).toBeVisible();
+  if (await page.locator('[data-act=where][data-id="0"]').count()) await page.click('[data-act=where][data-id="0"]');
+  await page.click(`[data-act=mode][data-id="${mode === 'score' ? 1 : 0}"]`);
+  if (mode !== 'score' && (await page.locator('[data-act=pairing]').getAttribute('aria-checked')) !== String(pairing === 'auto')) await page.click('[data-act=pairing]');
+  await page.click('[data-act=players]');
+  await expect(page.locator('[data-act=start]')).toBeVisible();
+}
+// the You tab: your player, settings, how to play and the developer menu
+export async function openYou(page) {
+  await page.click('.tabbar [data-act=you]');
+  await expect(page.locator('.tabbar [data-act=you]')).toHaveAttribute('aria-current', 'page');
+}
+
 export async function startLocal(page, { names = ['Anna', 'Ben'], mode = 'dice', pairing = 'manual', starter = 0 } = {}) {
   await page.goto('/');
-  if (mode === 'score') await page.click('[data-act=mode][data-id="1"]');
-  else if (pairing === 'auto') await page.click('[data-act=pairing][data-id="1"]');
+  await toPlayers(page, { mode, pairing });
   for (let i = 2; i < names.length; i++) await page.click('[data-act=add]');
   for (let i = 0; i < names.length; i++) await page.fill(`#name-${i}`, names[i]);
   if (starter) await page.check(`#starter-${starter}`);

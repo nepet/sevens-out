@@ -242,11 +242,8 @@ html:root[data-look="vegas"] .rackrow{border-top-color:var(--reel-edge)}
 /* panels */
 .panel{display:flex;flex-direction:column;gap:12px}
 .h2{font:800 1.45rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em;margin:0}
-.hero{display:flex;flex-direction:column;gap:14px;padding-block:6px 4px}
 .brand-xl{font:800 clamp(3.4rem,18vw,5.2rem)/.86 var(--font-display);text-transform:uppercase;margin:0;letter-spacing:.01em}
 .brand-xl span{color:var(--brass)}
-.lede{margin:0;max-width:46ch;font-size:1rem}
-.demo{display:flex;flex-wrap:wrap;gap:8px}
 .plist{display:flex;flex-direction:column;gap:8px}
 .prow{display:flex;align-items:center;gap:8px}
 .prow input[type=text]{flex:1;min-width:0;height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem}
@@ -298,7 +295,7 @@ td.st::before{margin-right:6px}
 /* the game menu button (menuButton()) */
 .top-l{display:flex;align-items:center;gap:10px;min-width:0}
 .menubtn{width:44px;height:44px;display:grid;place-items:center;flex:none;padding:0;border-radius:12px;border:1.5px solid var(--line);background:var(--card);color:var(--ink)}
-.menubtn svg,.sheet-close svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.menubtn svg,.sheet-close svg{stroke-linejoin:round;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
 html:root[data-look="vegas"] .menubtn{background:var(--leather-deep);border-color:var(--chrome)}
 
 /* the bottom sheet (openSheet()): lives outside #app, so a redraw only replaces its title and body */
@@ -321,6 +318,57 @@ html.sheet-open{overflow:hidden}
 @keyframes sheet-up{from{transform:translateY(100%)}}
 @keyframes sheet-fade{from{opacity:0}}
 @media (prefers-reduced-motion:reduce){.sheet,.sheet-backdrop{animation:none}}
+
+/* home (viewHome(), html.felt.felt-home): full-bleed leather-deep, the title, two dice, one line and Play in the thumb zone */
+html.felt-home,html.felt-home body{background:var(--leather-deep)}
+html:root[data-look="vegas"].felt-home,html:root[data-look="vegas"].felt-home body{background-color:var(--leather-deep)}
+.felt-home{flex:1 0 auto;display:flex;flex-direction:column}
+.home-hero{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding-top:16px}
+.home-title{font-size:clamp(4.4rem,26vw,6.5rem);line-height:.85;letter-spacing:.01em}
+.home-dice{display:flex;gap:10px;--die:3.25rem}
+.home-dice .die:first-child{transform:rotate(-8deg)}
+.home-dice .die:last-child{transform:rotate(6deg)}
+.home-line{margin:0;max-width:19rem;font-size:1rem;line-height:1.45;opacity:.85}
+.home-go{padding-block:24px 18px}
+.btn.play{width:100%;min-height:68px;border-radius:20px;font:800 2rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.04em;box-shadow:0 6px 0 var(--shade)}
+html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
+@media (max-height:700px){.home-hero{gap:18px}.home-title{font-size:clamp(3.6rem,20vw,5rem)}.home-go{padding-block:16px 12px}}
+
+/* the tab bar (tabBar()): Play · Online · You, on the home screens only; pinned like the bar, padded for the safe area */
+.tabbar{position:sticky;bottom:0;z-index:20;margin:auto -16px calc(-1 * env(safe-area-inset-bottom,0px));padding:6px 8px calc(8px + env(safe-area-inset-bottom,0px));display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--card);border-top:1px solid var(--line)}
+html.felt-home .tabbar{background:var(--leather-deep)}
+.felt-home+.tabbar{margin-top:0}
+.tab{min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0;border:0;background:transparent;color:var(--ink-soft);font-size:.75rem;font-weight:500}
+.tab[aria-current="page"]{color:var(--ink);font-weight:700}
+.tab-ic{width:56px;height:28px;border-radius:14px;display:grid;place-items:center}
+.tab[aria-current="page"] .tab-ic{background:color-mix(in srgb,var(--brass) 25%,transparent)}
+.tab svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tab:focus-visible{outline-offset:-3px}
+@supports not (color:color-mix(in srgb,red 50%,blue)){.tab[aria-current="page"] .tab-ic{background:var(--line)}}
+
+/* the Play sheet (playBody()): where, dice, the 7s switch and the next step pinned to the sheet's bottom */
+.choice{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+.choice legend{padding:0 0 8px}
+.cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.opt{min-height:104px;padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--card);display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:10px;text-align:left}
+.opt[aria-pressed="true"]{border:2px solid var(--ink);padding:13px;background:color-mix(in srgb,var(--brass) 14%,var(--card))}
+.opt svg{width:28px;height:28px;fill:none;stroke:var(--brass);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.opt b{display:block;font-size:1rem}
+.opt small{display:block;font-size:.82rem;color:var(--ink-soft)}
+@supports not (color:color-mix(in srgb,red 50%,blue)){.opt[aria-pressed="true"]{background:var(--paper)}}
+.swrow{min-height:56px;display:flex;align-items:center;gap:12px;padding:0 4px}
+.swrow>span{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.swrow b{font-size:1rem;font-weight:600}
+.swrow small{font-size:.82rem;color:var(--ink-soft)}
+.switch{flex:none;position:relative;width:52px;height:32px;border-radius:16px;border:0;padding:0;background:var(--line)}
+.switch::before{content:"";position:absolute;inset:-6px -2px}
+.switch>span{position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:13px;background:var(--card);box-shadow:0 1px 3px var(--shade);transition:transform .15s ease}
+.switch[aria-checked="true"]{background:var(--brass)}
+.switch[aria-checked="true"]>span{transform:translateX(20px)}
+@media (prefers-reduced-motion:reduce){.switch>span{transition:none}}
+.sheet-foot{position:sticky;bottom:-20px;margin:0 -16px -20px;padding:10px 16px 16px;background:var(--paper);display:flex;flex-direction:column;gap:10px}
+.sheet-foot .btn{min-height:56px}
+.sheet-foot .hint:empty{display:none}
 
 /* scoreboard mode */
 .pick{display:flex;flex-direction:column;gap:6px}
@@ -477,9 +525,6 @@ html.sheet-open{overflow:hidden}
 .pulse{width:10px;height:10px;border-radius:50%;background:var(--brass);flex:none;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25;transform:scale(.7)}}
 @media (prefers-reduced-motion:reduce){.pulse{animation:none}}
-.online-cta{display:flex;align-items:center;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;padding:12px 14px;border:1.5px solid var(--brass);border-radius:14px}
-.online-cta>div{display:flex;flex-direction:column;gap:2px;flex:1 1 14rem;min-width:0}
-.online-cta .sub{font-size:.88rem}
 /* your player: an optional passkey account on the home screen */
 .acct{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
 .acct-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
@@ -1250,9 +1295,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (!res.ok) throw Object.assign(new Error('auth ' + res.status), { code:(data && data.error) || 'http', status:res.status, detail:data && data.detail });
     return data;
   }
-  // only the home screen (the panel, the setup rows) and the online entry ("Playing as") show the account,
+  // only the home screens (the You tab's panel, Who's playing, the Play sheet's name field) and the online entry ("Playing as") show the account,
   // so answers that arrive later redraw only those
-  function refreshHome(){ if (!online() && (ui.screen === 'online' || state.phase === 'setup') && !ui.busy && !ui.race) render(); }
+  function refreshHome(){ if (!online() && (ui.screen === 'online' || ui.screen === 'you' || state.phase === 'setup') && !ui.busy && !ui.race) render(); }
   // the feature probe; offline or a server error tries again when the page comes back or the phone is online (a 404: no accounts there)
   function probeAuth(){
     if (authProbe.ok || authProbe.busy || !accountsSupported()) return;
@@ -2012,7 +2057,58 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const mine = myLine(state.setup.names);
     $app.querySelectorAll('[data-me]').forEach(el => { const i = +el.dataset.me, h = meSlot(i, mine); if (el.innerHTML !== h) el.innerHTML = h; });
   }
-  function viewSetup(){
+  // ----- the home screens: the Play tab (home, then Who's playing), Online and You, with the tab bar -----
+  const ICONS = {
+    play:'M4 4h16v16H4zM9 9h.01M15 15h.01M12 12h.01', online:'M2 6h7v12H2zM15 6h7v12h-7zM9 12h6',
+    you:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c1.5-4 4.5-6 8-6s6.5 2 8 6',
+    table:'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2', real:'M4 6h16M4 12h16M4 18h10'
+  };
+  const icon = k => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[k]}"/></svg>`;
+  // which home screen shows: ui.screen null means home (the Play tab)
+  const homeScreen = () => ui.screen || 'home';
+  // the bottom tab bar, on the home screens only; Online is left out where online play isn't available
+  function tabBar(cur){
+    const tabs = [['home', 'Play', 'play'], onlineAvailable() ? ['online', 'Online', 'online'] : null, ['you', 'You', 'you']].filter(Boolean);
+    return `<nav class="tabbar" aria-label="Main">${tabs.map(([act, label, ic]) =>
+      `<button class="tab" data-act="${act}"${act === cur ? ' aria-current="page"' : ''}><span class="tab-ic">${icon(ic)}</span>${label}</button>`).join('')}</nav>`;
+  }
+  // home asks one thing: Play (it opens the Play sheet)
+  function viewHome(){
+    return `<section class="felt-home">
+        <div class="home-hero">
+          <h1 class="brand-xl home-title marquee">Sevens<br><span>Out</span></h1>
+          <div class="home-dice" aria-hidden="true"><span class="die">${face(3)}</span><span class="die">${face(4)}</span></div>
+          <p class="home-line">Set aside every pair that makes 7. What's left counts against you.</p>
+        </div>
+        <div class="home-go"><button class="btn primary play" data-act="play" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'play'}">Play</button></div>
+      </section>` + tabBar('home');
+  }
+  // the Play sheet: where everyone is, the dice, the 7s switch, then the next step. Choices go to state.setup
+  // (where is optional: old saves have none and read as 'table')
+  const playWhere = () => onlineAvailable() && state.setup.where === 'phones' ? 'phones' : 'table';
+  function playBody(){
+    const s = state.setup, where = playWhere(), mode = s.mode === 'score' ? 'score' : 'dice', auto = s.pairing === 'auto';
+    const opt = (act, id, on, ic, title, sub) => `<button class="opt" data-act="${act}" data-id="${id}" aria-pressed="${on}">${icon(ic)}<span><b>${title}</b><small>${sub}</small></span></button>`;
+    const whereSet = onlineAvailable() ? `<fieldset class="choice"><legend class="h3">Where is everyone?</legend><div class="cards">
+        ${opt('where', 0, where === 'table', 'table', 'At this table', 'Pass one phone round')}${opt('where', 1, where === 'phones', 'online', 'Own phones', 'Online, with a code')}</div></fieldset>` : '';
+    const diceSet = `<fieldset class="choice"><legend class="h3">Dice</legend><div class="cards">
+        ${opt('mode', 0, mode === 'dice', 'play', 'In the app', 'Tap to roll')}${opt('mode', 1, mode === 'score', 'real', 'Real dice', 'Enter scores here')}</div></fieldset>`;
+    const sw = mode === 'dice' ? `<div class="swrow"><span><b id="autopair-l">The app finds the 7s</b>
+        <small id="autopair-d">${auto ? 'On: the app sets every pair of 7 aside' : 'Off: you spot them, and missed pairs count'}</small></span>
+        <button class="switch" role="switch" data-act="pairing" aria-checked="${auto}" aria-labelledby="autopair-l" aria-describedby="autopair-d"><span></span></button></div>` : '';
+    let next;
+    if (where === 'table') next = '<button class="btn primary" data-act="players">Next: who\'s playing</button>';
+    else {
+      // a guest with no saved name gives one here; a signed-in player plays under the player name
+      const me = accountFor(serverBase()), name = ui.online.name != null ? ui.online.name : storedName();
+      const field = !me && !storedName() ? `<label class="fld" for="oname"><span class="h3">Your name</span>
+          <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="go"></label>` : '';
+      next = field + '<button class="btn primary" data-act="ocreate">Create room</button>';
+    }
+    return whereSet + diceSet + sw + `<div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${next}</div>`;
+  }
+  // Who's playing (one phone): the players, who starts round 1, then Start game. P2.2 rebuilds this screen
+  function viewPlayers(){
     const s = state.setup, mine = myLine(s.names);
     const rows = s.names.map((nm, i) => `<div class="prow">
         <label class="sr" for="name-${i}">Name of player ${i + 1}</label>
@@ -2021,37 +2117,19 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <label class="startpick"><input type="radio" id="starter-${i}" name="starter" value="${i}"${s.starter === i ? ' checked' : ''}> Starts</label>
         ${s.names.length > 2 ? `<button class="iconbtn" data-act="remove" data-id="${i}" aria-label="Remove player ${i + 1}">×</button>` : ''}
       </div>`).join('');
-    const demo = [[1,6],[2,5],[3,4]].map(([a, b]) => `<span class="pair">${mini(a)}${mini(b)}<span class="seven">7</span></span>`).join('');
-    const mode = s.mode === 'score' ? 'score' : 'dice';
-    const modeBlock = `<section class="pick" aria-labelledby="mode-h">
-        <span class="h3" id="mode-h">How you play</span>
-        <div class="seg mode" role="group" aria-labelledby="mode-h">
-          <button class="segbtn${mode === 'dice' ? ' on' : ''}" data-act="mode" data-id="0" aria-pressed="${mode === 'dice'}">Dice on this phone</button>
-          <button class="segbtn${mode === 'score' ? ' on' : ''}" data-act="mode" data-id="1" aria-pressed="${mode === 'score'}">Real dice, scores here</button>
-        </div>
-        <p class="sub">${mode === 'dice' ? 'The app rolls the dice. Pass the phone around.' : 'Roll your own dice. After each turn, enter the pips left on the table.'}</p>
-        ${mode === 'dice' ? pairingBlock(s.pairing, 'pairing', true) : ''}
-      </section>`;
-    const onlineBlock = onlineAvailable() ? `<section class="online-cta">
-        <div><span class="h3">Not at the same table?</span><p class="sub">Play online. Everyone uses their own phone and joins with a room code.</p></div>
-        <button class="btn" data-act="online">Play online</button>
-      </section>` : '';
-    return `<header class="hero">
-        <h1 class="brand-xl marquee">Sevens<br><span>Out</span></h1>
-        <p class="lede">Roll six dice and set aside every pair that makes 7. Whatever stays on the table counts against you. Once someone reaches ${LIMIT}, the round is finished and the highest score loses.</p>
-        <div class="demo" role="img" aria-label="The three pairs that make 7: 1 and 6, 2 and 5, 3 and 4">${demo}</div>
-      </header>
-      ${accountBlock()}
-      ${onlineBlock}
-      ${modeBlock}
+    return `<header class="top slim"><div class="top-l"><button class="menubtn" data-act="home" aria-label="Back">${ICON_BACK}</button><h1 class="h2" id="players-h">Who's playing</h1></div></header>
       <section class="panel" aria-labelledby="players-h">
-        <h2 class="h2" id="players-h">Players</h2>
         <p class="sub">Choose who starts the first round. After that, the player with the highest score starts.</p>
         <div class="plist">${rows}</div>
         <div class="row">${s.names.length < MAX_PLAYERS ? '<button class="btn ghost" data-act="add">Add player</button>' : ''}<button class="btn ghost" data-act="randstart">Random starter</button></div>
         <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
-        <button class="btn primary" data-act="start">Start game</button>
-      </section>` + rules() + devBlock() + footer();
+      </section>` + bar('<button class="btn primary" data-act="start">Start game</button>');
+  }
+  // the You tab: your player, then the settings, how to play and the developer menu. P2.4 rebuilds it
+  function viewYou(){
+    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">You</div></header>
+      ${accountBlock()}
+      <section class="foot" aria-label="Settings">${settingsBlock()}</section>` + rules() + devBlock() + tabBar('you');
   }
 
   // ----- online screens -----
@@ -2075,8 +2153,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
           <input type="text" id="ocode" class="text-in code-in" data-online="code" value="${esc(code || '')}" placeholder="ABCDE" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"></label>
         <button class="btn" data-act="ojoin">Join room</button>
         <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
-        <button class="link" data-act="oback">Back to playing on one phone</button>
-      </section>` + footer();
+      </section>` + tabBar('online');
   }
   function viewConnecting(){
     return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
@@ -2182,19 +2259,19 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return online() ? '<button class="btn ghost" data-act="oleave">Leave room</button>'
       : state.phase === 'play' ? '<button class="btn ghost" data-act="new">New game</button>' : '';
   }
-  // under the home and online-entry screens; play screens have the game menu instead
-  const footer = () => `<div class="foot">${settingsBlock()}</div>`;
 
   // ----- the bottom bar and the bottom sheet -----
   // bar(inner): the screen's main action, pinned to the bottom (put it last in the view). { leather:true } for the turn screens
   const bar = (inner, { leather = false } = {}) => `<div class="bar${leather ? ' leather' : ''}">${inner}</div>`;
   const ICON_MENU = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
+  const ICON_BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
   const menuButton = () => `<button class="menubtn" data-act="menu" aria-label="Game menu" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'menu'}">${ICON_MENU}</button>`;
 
   // Sheets by kind: { title, ok() (may it show on this screen?), body() (html, rebuilt on every render) }.
   // openSheet(kind, from) shows one; `from` is the opener's [data-act, data-id], which gets the focus back on close.
   const SHEETS = {
-    menu:{ title:'Game menu', ok:() => online() ? !!net.room : state.phase !== 'setup' && ui.screen !== 'online' && !!state.game, body:menuBody }
+    menu:{ title:'Game menu', ok:() => online() ? !!net.room : state.phase !== 'setup' && homeScreen() === 'home' && !!state.game, body:menuBody },
+    play:{ title:'New game', ok:() => !online() && state.phase === 'setup' && homeScreen() === 'home', body:playBody }
   };
   let sheetReturn = null; // the opener to focus after the next render
   function openSheet(kind, from){
@@ -2221,12 +2298,14 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     }
     const body = $sheet.querySelector('.sheet-body'), f = document.activeElement;
     const key = f && body.contains(f) && f.dataset && f.dataset.act ? [f.dataset.act, f.dataset.id] : null;
+    const typing = f && body.contains(f) && f.tagName === 'INPUT' && f.id ? f.id : null;
     const top = body.scrollTop, title = $sheet.querySelector('#sheet-h');
     if (title.textContent !== def.title) title.textContent = def.title;
     body.innerHTML = def.body();
     $sheet.hidden = false;
     body.scrollTop = top;
-    if (key){
+    if (typing){ const el = document.getElementById(typing); if (el){ el.focus({ preventScroll:true }); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } }
+    else if (key){
       const el = body.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
       (el || $sheet.querySelector('.sheet')).focus({ preventScroll:true });
     }
@@ -2465,13 +2544,14 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     dispatch({ type:'roll' }); // roll first, then show the tumbling dice until the result is revealed
     if (ui.rolling){ render(); startTumble(); }
   }
-  function toSetup(){ state.phase = 'setup'; state.game = null; delete state.stats; resetUi(); ui.open = {}; }
+  function toSetup(){ state.phase = 'setup'; state.game = null; delete state.stats; resetUi(); ui.open = {}; ui.screen = 'players'; }
   function readOnlineFields(){
     const n = document.getElementById('oname'), c = document.getElementById('ocode');
     if (n) ui.online.name = n.value;
     if (c) ui.online.code = c.value;
     const me = accountFor(serverBase());
-    const name = me ? me.name : (ui.online.name || '').replace(/\s+/g, ' ').trim().slice(0, 16);
+    const typed = n ? n.value : storedName(); // the Play sheet shows no name field when a name is saved
+    const name = me ? me.name : (typed || '').replace(/\s+/g, ' ').trim().slice(0, 16);
     const code = (ui.online.code || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     return { name, code };
   }
@@ -2513,7 +2593,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       case 'start': {
         const s = state.setup;
         const names = s.names.map((nm, i) => nm.trim() || `Player ${i + 1}`);
-        ui.open = {};
+        ui.open = {}; ui.screen = null;
         state.stats = { id:randomId(), startedAt:Date.now() }; // for the owner's statistics (see queueReport)
         const mine = myLine(names);
         if (mine >= 0){ state.stats.owner = mine; state.stats.ownerId = account.id; } // the signed-in player's line; the report credits it to them
@@ -2528,6 +2608,12 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         break;
       }
       case 'menu': openSheet('menu', ['menu', null]); return;
+      // ----- home: the tabs and the Play sheet -----
+      case 'home': ui.screen = null; ui.hint = null; break;
+      case 'you': ui.screen = 'you'; ui.hint = null; break;
+      case 'play': if (state.phase === 'setup' && !online()) openSheet('play', ['play', null]); return;
+      case 'where': state.setup.where = id === 1 && onlineAvailable() ? 'phones' : 'table'; break;
+      case 'players': closeSheet({ redraw:false }); ui.screen = 'players'; break;
       case 'roll': startRoll(); return;
       case 'die': tapDie(id); break;
       case 'unpair': if (canAct()) dispatch({ type:'unpair', index:id }); break;
@@ -2596,7 +2682,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         break;
       }
       case 'mode': state.setup.mode = id === 1 ? 'score' : 'dice'; break;
-      case 'pairing': state.setup.pairing = id === 1 ? 'auto' : 'manual'; break;
+      // the sheet's switch toggles; data-id 0/1 sets manual/auto
+      case 'pairing': state.setup.pairing = (id == null ? state.setup.pairing !== 'auto' : id === 1) ? 'auto' : 'manual'; break;
       case 'key': {
         if (state.phase !== 'play' || !E.isScore(g) || !canAct()) return;
         ui.hint = null;
@@ -2636,8 +2723,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       case 'adeleteno': ui.account.confirmDelete = false; break;
 
       // ----- online -----
-      case 'online': ui.screen = 'online'; ui.hint = null; ui.online = {}; break;
-      case 'oback': ui.screen = null; ui.hint = null; break;
+      case 'online': if (!onlineAvailable()) return; ui.screen = 'online'; ui.hint = null; ui.online = {}; break;
       case 'ocreate': case 'ojoin': {
         const { name, code } = readOnlineFields();
         if (!name){ ui.hint = 'Enter your name first, so the others know who you are.'; break; }
@@ -2688,17 +2774,20 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     try {
       html = online() ? (!net.room ? viewConnecting() : (net.room.phase !== 'game' || !state.game) ? viewLobby() : gameView())
         : ui.screen === 'online' ? viewOnlineEntry()
-        : state.phase === 'setup' ? viewSetup()
+        : ui.screen === 'you' ? viewYou()
+        : state.phase === 'setup' ? (ui.screen === 'players' ? viewPlayers() : viewHome())
         : gameView();
     } catch (err){
       console.error(err);
       if (online()) return;
-      state = blank(); resetUi(); html = viewSetup();
+      state = blank(); resetUi(); ui.screen = null; html = viewHome();
     }
     $app.innerHTML = html;
-    $app.classList.toggle('has-bar', !!$app.querySelector(':scope > .bar'));
-    // the dice turn is played on the leather: the whole page takes the table's colours (html.felt)
-    document.documentElement.classList.toggle('felt', !!$app.querySelector(':scope > .felt-turn'));
+    $app.classList.toggle('has-bar', !!$app.querySelector(':scope > :is(.bar,.tabbar)'));
+    // home and the dice turn are on the leather: the whole page takes the table's colours (html.felt; home is leather-deep)
+    const home = !!$app.querySelector(':scope > .felt-home');
+    document.documentElement.classList.toggle('felt', home || !!$app.querySelector(':scope > .felt-turn'));
+    document.documentElement.classList.toggle('felt-home', home);
     renderSheet();
     // the account hint is announced from one region that outlives the redraw
     const said = ui.account.hint || '';
@@ -2816,7 +2905,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       handle(el.dataset.act, el.dataset.id != null ? +el.dataset.id : null, el);
     }
   });
-  $app.addEventListener('input', e => {
+  const onInput = e => {
     const el = e.target;
     if (el.classList.contains('name-in')){ state.setup.names[+el.dataset.idx] = el.value; save(); if (account) syncMe(); }
     if (el.classList.contains('edit-in')){ ui.editVals[+el.dataset.round] = el.value; refreshEdit(); }
@@ -2824,7 +2913,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (el.dataset.online === 'name') ui.online.name = el.value;
     if (el.dataset.account === 'name') ui.account.name = el.value;
     if (el.dataset.account === 'rename') ui.account.renameVal = el.value;
-  });
+  };
+  $app.addEventListener('input', onInput);
+  $sheet.addEventListener('input', onInput);
   $app.addEventListener('change', e => {
     const el = e.target;
     if (el.name === 'starter'){ state.setup.starter = +el.value; save(); }
@@ -2832,7 +2923,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   document.addEventListener('keydown', e => {
     const tag = e.target && e.target.tagName;
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.online){
-      e.preventDefault(); handle(e.target.dataset.online === 'code' ? 'ojoin' : (ui.online.code ? 'ojoin' : 'ocreate'), null); return;
+      e.preventDefault(); handle(e.target.dataset.online === 'code' ? 'ojoin' : (ui.online.code && !$sheet.contains(e.target) ? 'ojoin' : 'ocreate'), null); return;
     }
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.account){
       e.preventDefault(); handle(e.target.dataset.account === 'rename' ? 'arenamesave' : 'acreate', null); return;
