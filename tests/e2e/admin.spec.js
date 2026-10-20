@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { sheetOf } from '../../server/core/stats.js';
 import { quickGame } from '../games.js';
-import { enterScore, skipRace, live, net, noSideScroll } from './helpers.js';
+import { enterScore, skipRace, toPlayers, live, net, noSideScroll } from './helpers.js';
 
 const GAME = 'http://127.0.0.1:8787', ADMIN = 'http://127.0.0.1:8789', PAGE = 'http://127.0.0.1:8790';
 const gameUrl = (p = '/') => `${PAGE}${p}${p.includes('?') ? '&' : '?'}server=${encodeURIComponent('ws://127.0.0.1:8787')}`;
@@ -63,7 +63,7 @@ test('an online game played to the end shows up', async ({ browser, page }) => {
 test('a one-phone game finished while offline arrives after the next visit', async ({ browser, page }) => {
   const ctx = await browser.newContext(phone), p = await ctx.newPage();
   await p.goto(gameUrl('/'));
-  await p.click('[data-act=mode][data-id="1"]');
+  await toPlayers(p, { mode: 'score' });
   await p.fill('#name-0', 'Cleo'); await p.fill('#name-1', 'Dan');
   await p.click('[data-act=start]');
   for (let round = 1; round <= 3; round++) {
