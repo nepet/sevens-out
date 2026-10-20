@@ -77,6 +77,7 @@ th[aria-sort="ascending"] button::after{content:" ↑"}
 .games li{border-bottom:1px solid var(--line)}
 .games li button{width:100%;border:0;background:none;text-align:left;padding:10px 0;cursor:pointer;display:grid;gap:2px}
 .meta{font-size:.8rem;color:var(--ink-soft)}
+.tag{font-size:.78em;color:var(--ink-soft);font-variant-numeric:tabular-nums}
 .who{overflow-wrap:anywhere}
 .lost{color:var(--danger);font-weight:700}
 dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);padding:16px;width:min(560px,calc(100vw - 32px));max-height:calc(100vh - 32px)}
@@ -255,6 +256,8 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
         <div><h3>Points per turn</h3>${spreadChart(f.spread)}</div>
       </div>`;
   }
+  // a signed-in player's name carries their tag; guests are just a name
+  const who = p => esc(p.name) + (p.tag ? ` <span class="tag">#${esc(p.tag)}</span>` : '');
   const COLUMNS = [['name', 'Player'], ['games', 'Games'], ['losses', 'Losses'], ['lossRate', 'Loss rate'], ['sevensOuts', 'Sevens Outs'], ['shots', 'Shots paid']];
   function renderBoard() {
     const everyone = view.stats.leaderboard;
@@ -265,7 +268,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     const hidden = everyone.length - rows.length;
     const table = rows.length ? `<div class="tablewrap"><table>
         <thead><tr>${COLUMNS.map(([k, l]) => `<th scope="col"${k === key ? ` aria-sort="${dir > 0 ? 'ascending' : 'descending'}"` : ''}><button data-sort="${k}">${l}</button></th>`).join('')}</tr></thead>
-        <tbody>${rows.map(p => `<tr><td>${esc(p.name)}</td><td>${num(p.games)}</td><td>${num(p.losses)}</td><td>${num(p.lossRate * 100)}%</td><td>${num(p.sevensOuts)}</td><td>${num(p.shots)}</td></tr>`).join('')}</tbody>
+        <tbody>${rows.map(p => `<tr><td>${who(p)}</td><td>${num(p.games)}</td><td>${num(p.losses)}</td><td>${num(p.lossRate * 100)}%</td><td>${num(p.sevensOuts)}</td><td>${num(p.shots)}</td></tr>`).join('')}</tbody>
       </table></div>` : '<p class="empty">Nobody has played 3 games in this period yet.</p>';
     body('leaderboard').innerHTML = table +
       `<label class="switch"><input type="checkbox" id="show-all"${view.all ? ' checked' : ''}> Show everyone${hidden ? ` (${hidden} with fewer than 3 games hidden)` : ''}</label>`;
@@ -274,7 +277,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     if (!view.games.length) { body('games').innerHTML = '<p class="empty">No finished games yet.</p>'; return; }
     body('games').innerHTML = `<ul class="games">${view.games.map(g => `<li data-id="${g.id}"><button data-game="${g.id}">
         <span class="meta">${esc(when(g.finishedAt))} · ${SOURCE[g.source]} · ${MODE[g.mode]}${g.early ? ' · ended early' : ''}</span>
-        <span class="who">${g.players.map(p => `<span${p.lost ? ' class="lost"' : ''}>${esc(p.name)} ${p.score}</span>`).join(', ')}</span>
+        <span class="who">${g.players.map(p => `<span${p.lost ? ' class="lost"' : ''}>${who(p)} ${p.score}</span>`).join(', ')}</span>
       </button></li>`).join('')}</ul>${view.next ? '<div class="row start"><button class="btn" data-more>Load more</button></div>' : ''}`;
   }
 
@@ -289,7 +292,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   }
   function renderSheet() {
     const g = view.open, sh = g.sheet;
-    const head = `<tr><th scope="col">Round</th>${sh.players.map((nm, i) => `<th scope="col"${g.players[i] && g.players[i].lost ? ' class="lost"' : ''}>${esc(nm)}</th>`).join('')}</tr>`;
+    const head = `<tr><th scope="col">Round</th>${sh.players.map((nm, i) => `<th scope="col"${g.players[i] && g.players[i].lost ? ' class="lost"' : ''}>${g.players[i] ? who({ name: nm, tag: g.players[i].tag }) : esc(nm)}</th>`).join('')}</tr>`;
     const rows = sh.rounds.filter(rd => Object.keys(rd.results).length).map(rd =>
       `<tr><th scope="row">${rd.no}${rd.mark ? ` <span class="meta">· limit ${rd.mark}</span>` : ''}</th>${sh.players.map((_, i) => {
         const t = rd.results[i];

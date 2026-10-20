@@ -30,6 +30,9 @@ function finished(f, since = f.since) {
 const one = async (db, sql, params) => (await db.all(sql, params))[0] || {};
 const orNull = v => (v === undefined ? null : v);
 const record = r => (r && r.gameId ? { ...r } : null);
+// one person: a signed-in player by player ID, a guest by name
+const WHO = "COALESCE('u:' || p.user_id, 'n:' || p.name_key)";
+const tagOf = userId => (userId ? userId.slice(0, 4) : null);
 
 export async function stats(db, f) {
   const w = finished(f);
@@ -43,7 +46,7 @@ export async function stats(db, f) {
              AVG(CASE WHEN g.started_at IS NOT NULL THEN (g.finished_at - g.started_at) / 60000.0 END) AS avgMinutes,
              COALESCE(SUM(g.early), 0) AS early
              FROM games g WHERE ${w.sql}`, w.params),
-    one(db, `SELECT COUNT(DISTINCT p.name_key) AS n ${joinPlayers} WHERE ${w.sql}`, w.params),
+    one(db, `SELECT COUNT(DISTINCT ${WHO}) AS n ${joinPlayers} WHERE ${w.sql}`, w.params),
     db.all(`SELECT ${bucketSql} AS bucket, SUM(g.source = 'online') AS online, SUM(g.source = 'phone') AS phone
             FROM games g WHERE ${w.sql} GROUP BY bucket ORDER BY bucket`, [f.tz, ...w.params]),
     f.source === 'phone' ? { n: 0 } : one(db,
@@ -60,9 +63,9 @@ export async function stats(db, f) {
     one(db, `SELECT g.rounds AS rounds, g.id AS gameId FROM games g WHERE ${w.sql} ORDER BY g.rounds DESC, g.finished_at DESC LIMIT 1`, w.params),
     one(db, `SELECT g.margin AS margin, g.id AS gameId, g.loser AS loser FROM games g WHERE ${w.sql} AND g.early = 0
              ORDER BY g.margin ASC, g.finished_at DESC LIMIT 1`, w.params),
-    db.all(`SELECT p.name_key AS nameKey, p.name AS name, COUNT(*) AS games, SUM(p.lost) AS losses,
+    db.all(`SELECT ${WHO} AS who, p.user_id AS userId, p.name AS name, COUNT(*) AS games, SUM(p.lost) AS losses,
             SUM(p.sevens_outs) AS sevensOuts, SUM(p.shots) AS shots
-            ${joinPlayers} WHERE ${w.sql} GROUP BY p.name_key, p.name`, w.params)
+            ${joinPlayers} WHERE ${w.sql} GROUP BY who, p.name`, w.params)
   ]);
   const limitCounts = { 1: 0, 2: 0, 3: 0 };
   for (const l of limits) if (l.rolls in limitCounts) limitCounts[l.rolls] = l.n;
@@ -84,19 +87,19 @@ export async function stats(db, f) {
   };
 }
 
-// one row per name_key, shown with its most used spelling
+// one row per person (player ID, else name), shown with its most used spelling; players carry their tag
 function leaderboard(rows) {
   const byKey = new Map();
   for (const r of rows) {
-    const e = byKey.get(r.nameKey) || { spellings: [], games: 0, losses: 0, sevensOuts: 0, shots: 0 };
+    const e = byKey.get(r.who) || { tag: tagOf(r.userId), spellings: [], games: 0, losses: 0, sevensOuts: 0, shots: 0 };
     e.spellings.push([r.name, r.games]);
     e.games += r.games; e.losses += r.losses; e.sevensOuts += r.sevensOuts; e.shots += r.shots;
-    byKey.set(r.nameKey, e);
+    byKey.set(r.who, e);
   }
   return [...byKey.values()].map(e => ({
-    name: e.spellings.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0],
+    name: e.spellings.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0], tag: e.tag,
     games: e.games, losses: e.losses, lossRate: e.losses / e.games, sevensOuts: e.sevensOuts, shots: e.shots
-  })).sort((a, b) => b.games - a.games || (a.name < b.name ? -1 : 1));
+  })).sort((a, b) => b.games - a.games || (a.name < b.name ? -1 : 1) || ((a.tag || '') < (b.tag || '') ? -1 : 1));
 }
 
 export async function recentGames(db, f) {
@@ -108,12 +111,12 @@ export async function recentGames(db, f) {
     [...w.params, ...(f.before ? [f.before.at, f.before.at, f.before.id] : []), PAGE_SIZE + 1]);
   const games = rows.slice(0, PAGE_SIZE);
   const players = games.length
-    ? await db.all(`SELECT game_id AS gameId, idx, name, score, lost FROM players WHERE game_id IN (${games.map(() => '?').join(', ')}) ORDER BY idx`, games.map(g => g.id))
+    ? await db.all(`SELECT game_id AS gameId, idx, name, score, lost, user_id AS userId FROM players WHERE game_id IN (${games.map(() => '?').join(', ')}) ORDER BY idx`, games.map(g => g.id))
     : [];
   return {
     games: games.map(g => ({
       id: g.id, source: g.source, mode: g.mode, finishedAt: g.finishedAt, loser: g.loser, early: !!g.early, rounds: g.rounds,
-      players: players.filter(p => p.gameId === g.id).map(p => ({ idx: p.idx, name: p.name, score: p.score, lost: !!p.lost }))
+      players: players.filter(p => p.gameId === g.id).map(p => ({ idx: p.idx, name: p.name, tag: tagOf(p.userId), score: p.score, lost: !!p.lost }))
     })),
     next: rows.length > PAGE_SIZE ? `${games[games.length - 1].finishedAt}_${games[games.length - 1].id}` : null
   };
@@ -122,11 +125,11 @@ export async function recentGames(db, f) {
 export async function gameDetail(db, id) {
   const [g] = await db.all('SELECT * FROM games WHERE id = ?', [id]);
   if (!g) return null;
-  const players = await db.all('SELECT idx, name, score, lost, sevens_outs AS sevensOuts, shots FROM players WHERE game_id = ? ORDER BY idx', [id]);
+  const players = await db.all('SELECT idx, name, score, lost, sevens_outs AS sevensOuts, shots, user_id AS userId FROM players WHERE game_id = ? ORDER BY idx', [id]);
   return {
     id: g.id, source: g.source, mode: g.mode, status: g.status, roomCode: g.room_code, early: !!g.early,
     startedAt: g.started_at, finishedAt: g.finished_at, rounds: g.rounds, loser: g.loser,
     sheet: g.sheet ? JSON.parse(g.sheet) : null,
-    players: players.map(p => ({ idx: p.idx, name: p.name, score: p.score, lost: !!p.lost, sevensOuts: p.sevensOuts, shots: p.shots }))
+    players: players.map(p => ({ idx: p.idx, name: p.name, tag: tagOf(p.userId), score: p.score, lost: !!p.lost, sevensOuts: p.sevensOuts, shots: p.shots }))
   };
 }

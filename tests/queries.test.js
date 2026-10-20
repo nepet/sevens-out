@@ -93,9 +93,26 @@ test('the leaderboard joins spellings of the same name', async () => {
   await put(db, quickGame(['Anna', 'Cleo']), { finishedAt: NOW - DAY });
   await put(db, quickGame(['ANNA   ', 'Ben'], 0), { finishedAt: NOW - DAY });
   const s = await stats(db, q('period=30d'));
-  assert.deepEqual(s.leaderboard[0], { name: 'Anna', games: 3, losses: 3, lossRate: 1, sevensOuts: 0, shots: 0 });
+  assert.deepEqual(s.leaderboard[0], { name: 'Anna', tag: null, games: 3, losses: 3, lossRate: 1, sevensOuts: 0, shots: 0 });
   const ben = s.leaderboard.find(p => p.name === 'Ben');
   assert.deepEqual([ben.games, ben.losses, ben.sevensOuts], [2, 0, 3]);
+});
+
+test('signed-in players count by player ID: two Annas stay apart, one renamed player stays one', async () => {
+  const db = fromD1(fakeD1());
+  const A1 = 'a1a1000000000000', A2 = 'a2a2000000000000';
+  const game = (names, users) => writeRecord(db, summarize(quickGame(names), { id: nextId(), source: 'online', finishedAt: NOW - DAY, status: 'over', users }));
+  await game(['Anna', 'Ben'], [A1]);
+  await game(['Anna', 'Ben'], [A2]);
+  await game(['Annie', 'Ben'], [A1]);
+  await game(['Anna', 'Ben'], []); // a guest Anna
+  const s = await stats(db, q('period=30d'));
+  assert.equal(s.activity.players, 4, 'Anna #a1a1, Anna #a2a2, guest Anna, guest Ben');
+  const annas = s.leaderboard.filter(p => /^Ann/.test(p.name)).map(p => [p.name, p.tag, p.games]);
+  assert.deepEqual(annas, [['Anna', 'a1a1', 2], ['Anna', null, 1], ['Anna', 'a2a2', 1]]);
+  const recent = await recentGames(db, q(''));
+  assert.ok(recent.games.some(g => g.players[0].tag === 'a2a2'));
+  assert.equal((await gameDetail(db, recent.games[0].id)).players[1].tag, null);
 });
 
 test('recent games come newest first, 20 per page, and one game opens with its sheet', async () => {
@@ -105,7 +122,7 @@ test('recent games come newest first, 20 per page, and one game opens with its s
   const p1 = await recentGames(db, q(''));
   assert.equal(p1.games.length, PAGE_SIZE);
   assert.deepEqual(p1.games.map(g => g.id), ids.slice(0, 20));
-  assert.deepEqual(p1.games[0].players, [{ idx: 0, name: 'Anna', score: 108, lost: true }, { idx: 1, name: 'Ben', score: 15, lost: false }]);
+  assert.deepEqual(p1.games[0].players, [{ idx: 0, name: 'Anna', tag: null, score: 108, lost: true }, { idx: 1, name: 'Ben', tag: null, score: 15, lost: false }]);
   const p2 = await recentGames(db, q(`before=${p1.next}`));
   assert.deepEqual(p2.games.map(g => g.id), ids.slice(20));
   assert.equal(p2.next, null);
