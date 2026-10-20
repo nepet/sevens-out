@@ -62,7 +62,6 @@ button{cursor:pointer}
 .brand{font:800 1.55rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em}
 .brand span{color:var(--brass)}
 .meta{font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);font-weight:600}
-.chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.8rem;color:var(--ink-soft)}
 .chip b{color:var(--ink);font-weight:700}
 .alert{border:1.5px solid var(--danger);border-radius:10px;padding:6px 10px;font-size:.86rem;line-height:1.3;margin:0}
@@ -580,8 +579,6 @@ html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
 .text-in{height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem;width:100%}
 .text-in:focus-visible{border-color:var(--brass);outline:2px solid var(--brass);outline-offset:0}
 .code-in{font:800 1.6rem/1 var(--font-display);letter-spacing:.18em;text-transform:uppercase;text-align:center}
-.or{display:flex;align-items:center;gap:10px;color:var(--ink-soft);font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.1em}
-.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
 .roomcode{margin:0;font:800 clamp(3rem,16vw,4.2rem)/1 var(--font-display);letter-spacing:.14em;color:var(--brass);font-variant-numeric:tabular-nums;user-select:all}
 .link-box{margin:0;padding:10px 12px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:.85rem;overflow-wrap:anywhere;user-select:all}
 .seats{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
@@ -595,6 +592,38 @@ html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
 .pickbtn.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}
 .pickbtn:disabled{cursor:default}
 .pickbtn:disabled:not(.on){color:var(--ink-soft)}
+/* the Online tab (viewOnlineEntry) and the lobby (viewLobby) */
+.on-head{display:flex;flex-direction:column;gap:12px;padding-top:8px}
+.on-title{font-size:clamp(2.4rem,12vw,2.9rem);line-height:1}
+.playing-as{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:4px 14px 4px 4px;border-radius:20px;background:var(--card);border:1px solid var(--line);max-width:100%;overflow-wrap:anywhere}
+.ava{width:30px;height:30px;border-radius:50%;background:var(--brass);color:var(--brass-ink);display:grid;place-items:center;font-weight:700;font-size:.9rem;flex:none;margin-right:2px}
+.ava::before{content:attr(data-i)}
+.on-hint:empty{display:none}
+html:root[data-look="vegas"] .brand-xl.on-title{padding:4px 0;text-align:left;font-size:clamp(2rem,10vw,2.6rem)}
+.code-in::placeholder{color:var(--ink-soft);opacity:.45}
+.seat .tag{margin-right:10px}
+.oncard{display:flex;flex-direction:column;gap:12px;padding:18px 16px;border-radius:20px;background:var(--card);border:1px solid var(--line)}
+.oncard-h{margin:0;font-size:1.15rem;font-weight:700}
+.oncard .code-in{height:60px;font-size:2rem;background:var(--paper)}
+.oncard.host{flex-direction:row;align-items:center;gap:14px}
+.oncard.host>span{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.oncard.host small{font-size:.9rem;color:var(--ink-soft)}
+.oncard.host .btn{flex:none}
+.btn.dark{background:var(--ink);border-color:var(--ink);color:var(--paper);font-weight:700}
+.roomhead{gap:8px}
+.roomhead .sub{margin-bottom:4px}
+.sharebtn{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.sharebtn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.panel>.h3{margin:0}
+.seats.pcard .seat{padding:0 4px 0 14px;min-height:52px}
+.pcard>:last-child{border-bottom:0}
+.setcard .setrow{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px;padding:8px 14px;border-bottom:1px solid var(--line)}
+.setcard .setrow.col{flex-direction:column;align-items:stretch;gap:8px}
+.setcard .swrow{padding:8px 14px;border-bottom:1px solid var(--line)}
+.setlbl{font-weight:600}
+.setcard .seg.small .segbtn{min-height:44px}
+.setcard .pickbtn{min-height:44px}
+.switch:disabled{cursor:default;opacity:.6}
 .segbtn:disabled{cursor:default;opacity:1}
 .segbtn:disabled:not(.on){color:var(--ink-soft)}
 .die[role="img"]{cursor:default}
@@ -1221,7 +1250,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
-  Object.assign(ui, { reveal:null, rollStart:0, screen:null, confirmLeave:false, joinCode:'', online:{} });
+  Object.assign(ui, { reveal:null, rollStart:0, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false });
 
   // ---------- online play: one WebSocket per phone to the room server ----------
   const ONLINE_KEY = 'sevens-out-online';
@@ -1569,7 +1598,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     try { localStorage.setItem(ONLINE_KEY, JSON.stringify({ code:net.code, token:net.token, name:net.name, server:net.server })); } catch (e) {}
   }
   function netStart(opts){
-    Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, token:null, seat:null,
+    Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, createWith: opts.create ? opts.settings || null : null, token:null, seat:null,
       room:null, want:true, server: serverBase(), rev:0, inGame:false, tries:0 });
     resetUi(); ui.screen = null; ui.open = {};
     netConnect();
@@ -1624,7 +1653,14 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function onNet(m){
     switch (m.t){
       case 'welcome':
-        net.seat = m.seat || null; if (m.token) net.token = m.token; net.creating = false; saveOnline();
+        // welcome on a room this phone just created: send the chosen dice and 7s where they differ from the server's defaults
+        if (net.creating && net.createWith){
+          const w = net.createWith, set = { t:'lobby', op:'settings' };
+          if (w.mode !== 'dice') set.mode = w.mode;
+          if (w.pairing !== 'manual') set.pairing = w.pairing;
+          if (set.mode || set.pairing) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
+        }
+        net.seat = m.seat || null; if (m.token) net.token = m.token; net.creating = false; net.createWith = null; saveOnline();
         // hello carried a session and the server saw a guest: the session has ended, so this phone signs out quietly
         if (m.user === null && net.helloSession && account && account.token === net.helloSession) setAccount(null);
         net.helloSession = null;
@@ -2059,15 +2095,6 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       </section>` + board(g, -1) + shotsSummary(g) + (undo ? `<div class="hintrow end">${undo}</div>` : '') + bar(again);
   }
 
-  // who sets the 7-pairs aside in dice mode: the player (the default) or the app
-  function pairingBlock(pairing, act, enabled){
-    const hand = pairing !== 'auto';
-    return `<span class="h3" id="${act}-h">Pairs of 7</span>
-        <div class="seg mode" role="group" aria-labelledby="${act}-h">${[['manual', 'Find them yourself'], ['auto', 'The app finds them']].map(([v, l], i) =>
-          `<button class="segbtn${hand === (v === 'manual') ? ' on' : ''}" data-act="${act}" data-id="${i}" aria-pressed="${hand === (v === 'manual')}"${enabled ? '' : ' disabled'}>${l}</button>`).join('')}</div>
-        <p class="sub">${hand ? 'After each roll, tap the pairs that make 7. A pair you miss counts against you when you stop.' : 'The app sets every pair of 7 aside after each roll.'}</p>`;
-  }
-
   // the signed-in player's line: "You", or "This is me" on the other lines (it swaps in the player name)
   const meSlot = (i, mine) => i === mine ? '<small class="you me-you">You</small>'
     : `<button class="link me-link" data-act="me" data-id="${i}" aria-label="This is me, line ${i + 1}">This is me</button>`;
@@ -2119,9 +2146,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         ${opt('where', 0, where === 'table', 'table', 'At this table', 'Pass one phone round')}${opt('where', 1, where === 'phones', 'online', 'Own phones', 'Online, with a code')}</div></fieldset>` : '';
     const diceSet = `<fieldset class="choice"><legend class="h3">Dice</legend><div class="cards">
         ${opt('mode', 0, mode === 'dice', 'play', 'In the app', 'Tap to roll')}${opt('mode', 1, mode === 'score', 'real', 'Real dice', 'Enter scores here')}</div></fieldset>`;
-    const sw = mode === 'dice' ? `<div class="swrow"><span><b id="autopair-l">The app finds the 7s</b>
-        <small id="autopair-d">${auto ? 'On: the app sets every pair of 7 aside' : 'Off: you spot them, and missed pairs count'}</small></span>
-        <button class="switch" role="switch" data-act="pairing" aria-checked="${auto}" aria-labelledby="autopair-l" aria-describedby="autopair-d"><span></span></button></div>` : '';
+    const sw = mode === 'dice' ? pairSwitch(auto, 'pairing', 'autopair') : '';
     let next;
     if (where === 'table') next = `<button class="btn primary" data-act="players">${homeScreen() === 'players' ? 'Done' : 'Next: who\'s playing'}</button>`;
     else {
@@ -2165,25 +2190,34 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   // ----- online screens -----
   const hostName = () => { const s = net.room && seatInfo(net.room.host); return s ? s.name : 'the host'; };
+  const canShare = () => typeof navigator.share === 'function' && window.self === window.top;
+  const ICON_SHARE = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V3M7 8l5-5 5 5M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+  // the "The app finds the 7s" switch, the same in the Play sheet (pairing) and the lobby (opairing)
+  function pairSwitch(auto, act, idp, enabled = true){
+    return `<div class="swrow"><span><b id="${idp}-l">The app finds the 7s</b>
+        <small id="${idp}-d">${auto ? 'On: the app sets every pair of 7 aside' : 'Off: you spot them, and missed pairs count'}</small></span>
+        <button class="switch" role="switch" data-act="${act}" aria-checked="${auto}" aria-labelledby="${idp}-l" aria-describedby="${idp}-d"${enabled ? '' : ' disabled'}><span></span></button></div>`;
+  }
+  // the Online tab: who you are (the player, or a name field), join a friend's room by code, or host a game
   function viewOnlineEntry(){
-    let name = ui.online.name;
-    if (name == null){ try { name = (JSON.parse(localStorage.getItem('sevens-out-name') || 'null')) || ''; } catch (e) { name = ''; } }
+    const name = ui.online.name != null ? ui.online.name : storedName();
     const code = ui.online.code != null ? ui.online.code : ui.joinCode;
     const me = accountFor(serverBase());
-    const nameField = me ? `<p class="playing-as">Playing as <b>${esc(me.name)}</b> ${tagHtml(me.id)}</p>`
+    const who = me ? `<p class="playing-as"><span class="ava" data-i="${esc((me.name.trim()[0] || '?').toUpperCase())}" aria-hidden="true"></span>Playing as <b>${esc(me.name)}</b> ${tagHtml(me.id)}</p>`
       : `<label class="fld" for="oname"><span class="h3">Your name</span>
           <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="done"></label>`;
-    return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
-      <section class="panel" aria-labelledby="on-h">
-        <h2 class="h2" id="on-h">Play online</h2>
-        <p class="sub">Everyone uses their own phone. One person creates a room and shares the code; the others join with it.</p>
-        ${nameField}
-        <button class="btn primary" data-act="ocreate">Create a room</button>
-        <div class="or"><span>or join a room</span></div>
-        <label class="fld" for="ocode"><span class="h3">Room code</span>
-          <input type="text" id="ocode" class="text-in code-in" data-online="code" value="${esc(code || '')}" placeholder="ABCDE" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go"></label>
-        <button class="btn" data-act="ojoin">Join room</button>
-        <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
+    return `<header class="on-head"><h1 class="brand-xl on-title">Play online</h1>${who}</header>
+      <p class="hint on-hint" aria-live="polite">${esc(ui.hint || '')}</p>
+      <section class="oncard" aria-labelledby="join-h">
+        <h2 class="oncard-h" id="join-h">Join a friend's room</h2>
+        <label class="sr" for="ocode">Room code</label>
+        <input type="text" id="ocode" class="text-in code-in" data-online="code" value="${esc(code || '')}" placeholder="ABCDE" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go">
+        <button class="btn dark" data-act="ojoin">Join room</button>
+        <p class="sub">Got a link? Open it and the code is filled in.</p>
+      </section>
+      <section class="oncard host" aria-labelledby="host-h">
+        <span><h2 class="oncard-h" id="host-h">Host a game</h2><small>Get a code to share</small></span>
+        <button class="btn primary" data-act="ocreate">Create room</button>
       </section>` + tabBar('online');
   }
   function viewConnecting(){
@@ -2196,42 +2230,46 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <button class="link" data-act="oleaveyes">Stop and go back</button>
       </section>`;
   }
+  // the lobby: the room code and Share invite, the seats, the settings (only the host may change them),
+  // and Start pinned to the bottom for the host (the others see who they wait for). Leave room is in the menu
   function viewLobby(){
     const r = net.room, host = amHost(), seats = r.seats, mode = r.settings.mode === 'score' ? 'score' : 'dice';
-    const st = r.settings.starter;
+    const st = r.settings.starter, dis = host ? '' : ' disabled';
     const list = seats.map(s => `<li class="seat">
-        <span class="dot${s.connected ? ' on' : ''}" aria-label="${s.connected ? 'Online' : 'Offline'}"></span>
+        <span class="dot${s.connected ? ' on' : ''}" role="img" aria-label="${s.connected ? 'Online' : 'Offline'}"></span>
         <span class="nm">${esc(s.name)}${s.user ? ' ' + tagHtml(s.user) : ''}${s.id === net.seat ? ' <small class="you">you</small>' : ''}</span>
         ${s.id === r.host ? '<span class="tag">Host</span>' : ''}
-        ${host && s.id !== net.seat ? `<button class="iconbtn" data-act="okick" data-seat="${esc(s.id)}" aria-label="Remove ${esc(s.name)}">×</button>` : ''}
+        ${host && s.id !== net.seat ? `<button class="iconbtn" data-act="okick" data-seat="${esc(s.id)}" aria-label="Remove ${esc(s.name)}">${ICON_X}</button>` : ''}
       </li>`).join('');
-    const modeSeg = `<div class="seg mode" role="group" aria-labelledby="omode-h">${[['dice', 'Dice in the app'], ['score', 'Real dice, scores here']].map(([v, l]) =>
-      `<button class="segbtn${mode === v ? ' on' : ''}" data-act="omode" data-id="${v === 'score' ? 1 : 0}" aria-pressed="${mode === v}"${host ? '' : ' disabled'}>${l}</button>`).join('')}</div>`;
+    const modeSeg = `<div class="seg small" role="group" aria-labelledby="omode-h">${[['dice', 'In the app'], ['score', 'Real dice']].map(([v, l]) =>
+      `<button class="segbtn${mode === v ? ' on' : ''}" data-act="omode" data-id="${v === 'score' ? 1 : 0}" aria-pressed="${mode === v}"${dis}>${l}</button>`).join('')}</div>`;
     const starterSeg = `<div class="picks" role="group" aria-labelledby="ostart-h">${seats.map((s, i) =>
-      `<button class="pickbtn${st === i ? ' on' : ''}" data-act="ostarter" data-id="${i}" aria-pressed="${st === i}"${host ? '' : ' disabled'}>${esc(s.name)}</button>`).join('')}<button class="pickbtn${st === 'random' ? ' on' : ''}" data-act="ostarter" data-id="-1" aria-pressed="${st === 'random'}"${host ? '' : ' disabled'}>Random</button></div>`;
-    const canShare = typeof navigator.share === 'function' && window.self === window.top;
-    return `<header class="top marquee"><div class="top-l">${menuButton()}<div class="brand">Sevens <span>Out</span></div></div><div class="meta">Online</div></header>
-      <div class="chips">${netChip()}</div>
-      <section class="panel" aria-labelledby="room-h">
+      `<button class="pickbtn${st === i ? ' on' : ''}" data-act="ostarter" data-id="${i}" aria-pressed="${st === i}"${dis}>${esc(s.name)}</button>`).join('')}<button class="pickbtn${st === 'random' ? ' on' : ''}" data-act="ostarter" data-id="-1" aria-pressed="${st === 'random'}"${dis}>Random</button></div>`;
+    const share = canShare() ? 'oshare' : 'ocopy';
+    const n = seats.length;
+    const main = !host ? waiting(hostName(), 'start')
+      : `<button class="btn primary" data-act="ostart"${n < 2 ? ' disabled' : ''}>${n < 2 ? 'Waiting for one more player' : `Start · ${n} players`}</button>`;
+    return `<header class="top slim"><div class="top-l">${menuButton()}<h1 class="h2" id="lobby-h">Room</h1></div>${net.status === 'open' ? '' : netChip()}</header>
+      <section class="oncard roomhead" aria-labelledby="room-h">
         <p class="eyebrow" id="room-h">Room code</p>
         <p class="roomcode">${esc(net.code)}</p>
-        <p class="sub">Send the code or this link to the others. Everyone opens it on their own phone.</p>
-        <p class="link-box" id="olink">${esc(shareLink())}</p>
-        <div class="row"><button class="btn" data-act="ocopy">Copy link</button>${canShare ? '<button class="btn" data-act="oshare">Share…</button>' : ''}</div>
+        <p class="sub">The others join with this code, or straight from the invite link.</p>
+        <button class="btn dark sharebtn" data-act="${share}">${ICON_SHARE}Share invite</button>
+        ${ui.showLink ? `<p class="link-box" id="olink">${esc(shareLink())}</p>` : ''}
       </section>
       <section class="panel" aria-labelledby="seats-h">
-        <h2 class="h2" id="seats-h">Players · ${seats.length} of ${MAX_PLAYERS}</h2>
-        <ul class="seats">${list}</ul>
-        <span class="h3" id="omode-h">How you play</span>
-        ${modeSeg}
-        <p class="sub">${mode === 'dice' ? 'The app rolls the dice. Everyone sees every roll.' : 'Everyone rolls real dice at home and enters the pips left on the table.'}</p>
-        ${mode === 'dice' ? pairingBlock(r.settings.pairing, 'opairing', host) : ''}
-        <span class="h3" id="ostart-h">Who starts the first round</span>
-        ${starterSeg}
-        <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>
-        ${host ? `<button class="btn primary" data-act="ostart"${seats.length < 2 ? ' disabled' : ''}>${seats.length < 2 ? 'Waiting for at least one more player' : `Start the game · ${seats.length} players`}</button>`
-          : waiting(hostName(), 'start the game')}
-      </section>`;
+        <h2 class="h3" id="seats-h">Players · ${n} of ${MAX_PLAYERS}</h2>
+        <ul class="seats pcard">${list}</ul>
+      </section>
+      <section class="panel" aria-labelledby="set-h">
+        <h2 class="h3" id="set-h">Settings${host ? '' : ' · the host picks'}</h2>
+        <div class="pcard setcard">
+          <div class="setrow"><span class="setlbl" id="omode-h">Dice</span>${modeSeg}</div>
+          ${mode === 'dice' ? pairSwitch(r.settings.pairing === 'auto', 'opairing', 'opair', host) : ''}
+          <div class="setrow col"><span class="setlbl" id="ostart-h">Who starts</span>${starterSeg}</div>
+        </div>
+      </section>
+      <p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>` + bar(main);
   }
 
   function sheet(g){
@@ -2764,23 +2802,34 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         try { localStorage.setItem('sevens-out-name', JSON.stringify(name)); } catch (e) {}
         if (a === 'ojoin' && !CODE_RE.test(code)){ ui.hint = 'A room code has 5 letters and digits, like K7QPM.'; break; }
         ui.hint = null;
-        netStart(a === 'ocreate' ? { create:true, name } : { create:false, code, name });
+        // a new room starts with the server's defaults; the remembered dice and 7s follow right after welcome
+        const s = state.setup, settings = { mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' };
+        netStart(a === 'ocreate' ? { create:true, name, settings } : { create:false, code, name });
         return;
       }
       case 'omode': if (amHost()) netSend({ t:'lobby', op:'settings', mode:id === 1 ? 'score' : 'dice' }); break;
-      case 'opairing': if (amHost()) netSend({ t:'lobby', op:'settings', pairing:id === 1 ? 'auto' : 'manual' }); break;
+      case 'opairing': { // the switch toggles; data-id 0/1 sets
+        if (!amHost()) break;
+        const auto = id == null ? net.room.settings.pairing !== 'auto' : id === 1;
+        netSend({ t:'lobby', op:'settings', pairing:auto ? 'auto' : 'manual' }); break;
+      }
       case 'ostarter': if (amHost()) netSend({ t:'lobby', op:'settings', starter:id < 0 ? 'random' : id }); break;
       case 'ostart': if (amHost()) netSend({ t:'lobby', op:'start' }); break;
       case 'oreopen': if (amHost()) netSend({ t:'lobby', op:'reopen' }); break;
       case 'okick': if (amHost() && el) netSend({ t:'lobby', op:'kick', seat:el.dataset.seat }); break;
       case 'ocopy': {
         const link = shareLink();
-        const done = ok => { ui.hint = ok ? 'Link copied. Send it to the others.' : 'Copy the link above and send it to the others.'; render(); };
-        try { navigator.clipboard.writeText(link).then(() => done(true), () => { selectText('olink'); done(false); }); }
-        catch (e) { selectText('olink'); done(false); }
+        // copied: say so; no clipboard: show the link, selected, to copy by hand
+        const done = ok => { ui.hint = ok ? 'Link copied. Send it to the others.' : 'Copy the link and send it to the others.'; if (!ok) ui.showLink = true; render(); if (!ok) selectText('olink'); };
+        try { navigator.clipboard.writeText(link).then(() => done(true), () => done(false)); }
+        catch (e) { done(false); }
         return;
       }
-      case 'oshare': try { navigator.share({ title:'Sevens Out', text:`Join my Sevens Out game. Room code ${net.code}`, url:shareLink() }).catch(() => {}); } catch (e) {} return;
+      case 'oshare': { // the phone's share sheet; if it can't open (not a cancel), copy the link instead
+        const copy = err => { if (!err || err.name !== 'AbortError') handle('ocopy', null); };
+        try { navigator.share({ title:'Sevens Out', text:`Join my Sevens Out game. Room code ${net.code}`, url:shareLink() }).catch(copy); } catch (e) { copy(e); }
+        return;
+      }
       case 'oleave': ui.confirmLeave = true; break;
       case 'oleaveyes': netLeave(); break;
       case 'oleaveno': break;
@@ -2993,8 +3042,11 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       netConnect();
       return;
     }
-    if (join && CODE_RE.test(join) && onlineAvailable()){ ui.screen = 'online'; ui.joinCode = join; }
+    const joining = join && CODE_RE.test(join) && onlineAvailable();
+    if (joining){ ui.screen = 'online'; ui.joinCode = join; }
     render();
+    // a guest with no saved name types one first, then taps Join room
+    if (joining){ const n = document.getElementById('oname'); if (n && !n.value) n.focus(); }
   }
   // read-only view for tests and debugging in the console
   window.SevensDebug = Object.freeze({

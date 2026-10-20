@@ -35,8 +35,11 @@ test.describe('dice in the app', () => {
     await expect(A.page.locator('.seat')).toHaveCount(2);
     await expect(B.page.locator('.waiting')).toContainText('Anna to start');
     await expect(B.page.locator('[data-act=omode]').first()).toBeDisabled();
-    await expect(B.page.locator('[data-act=opairing][data-id="0"]')).toHaveAttribute('aria-pressed', 'true'); // find the 7s yourself
-    await expect(B.page.locator('[data-act=opairing]').first()).toBeDisabled();
+    await expect(B.page.locator('[data-act=opairing]')).toHaveAttribute('aria-checked', 'false'); // find the 7s yourself
+    await expect(B.page.locator('[data-act=opairing]')).toBeDisabled();
+    await expect(B.page.locator('[data-act=ostart]')).toHaveCount(0);
+    await expect(B.page.locator('#app > .bar .waiting')).toHaveText('Waiting for Anna to start.');
+    await expect(A.page.locator('#app > .bar [data-act=ostart]')).toHaveText('Start · 2 players');
     expect(await noSideScroll(A.page)).toBe(true);
 
     await A.page.click('[data-act=ostart]');
@@ -150,8 +153,8 @@ test.describe('dice in the app', () => {
 test('everyone sees the roll animation and the Sevens Out celebration', async ({ browser }) => {
   const A = await host(browser, 'Anna');
   const B = await join(browser, A.code, 'Ben');
-  await A.page.click('[data-act=opairing][data-id="1"]');
-  await expect(B.page.locator('[data-act=opairing][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await A.page.click('[data-act=opairing]');                       // the switch: the app finds the 7s
+  await expect(B.page.locator('[data-act=opairing]')).toHaveAttribute('aria-checked', 'true');
   await A.page.click('[data-act=ostart]');
   await A.page.click('[data-act=roll]');
   // Ben's phone tumbles and reveals the same dice, then the pairs fly into the rack
@@ -431,4 +434,137 @@ test('Play sheet, own phones: a guest with no saved name names themselves, then 
   await expect(page.locator('[data-act=where][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.sheet-layer #oname')).toHaveCount(0);
   await ctx.close();
+});
+
+test('Play sheet, own phones with real dice: the new room is real dice on every phone', async ({ browser }) => {
+  const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await page.goto(url('/'));
+  await page.click('[data-act=play]');
+  await page.click('[data-act=where][data-id="1"]');
+  await page.click('[data-act=mode][data-id="1"]');                // real dice
+  await page.fill('.sheet-layer #oname', 'Nia');
+  await page.click('.sheet-layer [data-act=ocreate]');
+  await expect(page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  const A = { ctx, page, code: await page.locator('.roomcode').innerText() };
+  await expect(A.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+  await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(B.page.locator('[data-act=opairing]')).toHaveCount(0);  // no 7s switch with real dice
+  expect((await net(B.page)).room.settings).toMatchObject({ mode: 'score', pairing: 'manual' });
+  await A.page.click('[data-act=ostart]');
+  await expect(A.page.locator('.pad')).toBeVisible();
+  await expect.poll(async () => (await live(B.page)).game.mode).toBe('score');
+  await A.ctx.close(); await B.ctx.close();
+});
+
+test('Online tab, Create room: the remembered dice and 7s go to the new room; the defaults send nothing', async ({ browser }) => {
+  const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });
+  const own = { phase: 'setup', setup: { names: ['Zed', 'Yan'], starter: 0, mode: 'dice', pairing: 'auto' }, game: null };
+  await ctx.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(own));
+  const page = await ctx.newPage();
+  await page.goto(url('/'));
+  await page.click('[data-act=online]');
+  await page.fill('#oname', 'Anna');
+  await page.click('[data-act=ocreate]');
+  await expect(page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  const A = { ctx, page, code: await page.locator('.roomcode').innerText() };
+  const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+  await expect(B.page.locator('[data-act=opairing]')).toHaveAttribute('aria-checked', 'true');
+  await expect(B.page.locator('[data-act=omode][data-id="0"]')).toHaveAttribute('aria-pressed', 'true');
+  // the host's switch turns it back off for everyone
+  await A.page.click('[data-act=opairing]');
+  await expect(B.page.locator('[data-act=opairing]')).toHaveAttribute('aria-checked', 'false');
+  await A.ctx.close(); await B.ctx.close();
+
+  // a room with the defaults (dice, find the 7s yourself) gets no settings message
+  const ctx2 = await browser.newContext(phone);
+  await ctx2.addInitScript(() => {
+    window.__sent = [];
+    const send = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (d) { window.__sent.push(JSON.parse(d)); return send.call(this, d); };
+  });
+  const p2 = await ctx2.newPage();
+  await p2.goto(url('/'));
+  await p2.click('[data-act=online]');
+  await p2.fill('#oname', 'Cleo');
+  await p2.click('[data-act=ocreate]');
+  await expect(p2.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  await p2.waitForTimeout(300);
+  expect(await p2.evaluate(() => window.__sent.filter(m => m.t === 'lobby').length)).toBe(0);
+  expect((await net(p2)).room.settings).toEqual({ mode: 'dice', pairing: 'manual', starter: 0 });
+  await ctx2.close();
+});
+
+test('a ?join link opened by a guest with no saved name: Online tab, code filled in, name field focused', async ({ browser }) => {
+  const A = await host(browser, 'Anna');
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await page.goto(url(`/?join=${A.code.toLowerCase()}`));
+  await expect(page.locator('[data-act=online]')).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('#ocode')).toHaveValue(A.code);
+  await expect(page.locator('#oname')).toBeFocused();
+  await expect(page.locator('.roomcode')).toHaveCount(0);           // no automatic join
+  await page.click('[data-act=ojoin]');                             // no name yet
+  await expect(page.locator('.hint')).toContainText('Enter your name first');
+  await page.locator('#oname').fill('Ben');
+  await page.click('[data-act=ojoin]');
+  await expect(page.locator('.roomcode')).toHaveText(A.code);
+  await expect(A.page.locator('.seat')).toHaveCount(2);
+  await ctx.close(); await A.ctx.close();
+});
+
+test('Online tab and lobby: the layout, Share invite, and Start pinned for the host', async ({ browser }) => {
+  const ctx = await browser.newContext({ ...phone, permissions: ['clipboard-read', 'clipboard-write'] });
+  await ctx.addInitScript(() => { Object.defineProperty(Navigator.prototype, 'share', { value: undefined, configurable: true }); });
+  const page = await ctx.newPage();
+  await page.goto(url('/'));
+  await page.click('[data-act=online]');
+  await expect(page.locator('h1')).toHaveText('Play online');
+  await expect(page.locator('#join-h')).toHaveText("Join a friend's room");
+  await expect(page.locator('#host-h')).toHaveText('Host a game');
+  for (const sel of ['[data-act=ojoin]', '[data-act=ocreate]', '#oname', '#ocode']) await expect(page.locator(sel)).toBeInViewport();
+  await expect(page.locator('#app > .tabbar')).toBeVisible();
+  expect(await noSideScroll(page)).toBe(true);
+  await page.fill('#ocode', 'k7q');
+  await page.click('[data-act=ojoin]');
+  await page.fill('#oname', 'Anna');
+  await page.click('[data-act=ojoin]');
+  await expect(page.locator('.hint')).toContainText('A room code has 5 letters');
+  await page.click('[data-act=ocreate]');
+  await expect(page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  const code = await page.locator('.roomcode').innerText();
+  // alone in the room: Start waits for one more player; no tab bar in the lobby
+  const start = page.locator('#app > .bar [data-act=ostart]');
+  await expect(start).toHaveText('Waiting for one more player');
+  await expect(start).toBeDisabled();
+  await expect(start).toBeInViewport();
+  await expect(page.locator('.tabbar')).toHaveCount(0);
+  await expect(page.locator('.seat .tag')).toHaveText('Host');
+  // Share invite without a share sheet copies the link
+  await page.click('[data-act=ocopy]');
+  await expect(page.locator('.hint')).toHaveText('Link copied. Send it to the others.');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(`join=${code}`);
+  // no clipboard either: the link shows, to copy by hand
+  await page.evaluate(() => { navigator.clipboard.writeText = () => Promise.reject(new Error('no')); });
+  await page.click('[data-act=ocopy]');
+  await expect(page.locator('#olink')).toContainText(`join=${code}`);
+  expect(await noSideScroll(page)).toBe(true);
+  // Leave room is in the menu
+  await openMenu(page);
+  await expect(page.locator('.sheet-layer [data-act=oleave]')).toBeVisible();
+  await ctx.close();
+});
+
+test('lobby on a small phone: Start stays on screen with six players', async ({ browser }) => {
+  const small = { viewport: { width: 375, height: 667 }, deviceScaleFactor: 2 };
+  const A = await host(browser, 'Anna', small);
+  const others = [];
+  for (const n of ['Ben', 'Cleo', 'Dev', 'Eli', 'Fay']) others.push(await join(browser, A.code, n));
+  await expect(A.page.locator('.seat')).toHaveCount(6);
+  await expect(A.page.locator('#app > .bar [data-act=ostart]')).toHaveText('Start · 6 players');
+  await expect(A.page.locator('#app > .bar [data-act=ostart]')).toBeInViewport();
+  expect(await noSideScroll(A.page)).toBe(true);
+  for (const o of others) await o.ctx.close();
+  await A.ctx.close();
 });
