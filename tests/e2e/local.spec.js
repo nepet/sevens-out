@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, idle, fixDice, startLocal, enterScore, checkSheet, noSideScroll } from './helpers.js';
+import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -19,8 +19,8 @@ test.describe('dice mode', () => {
       if (s.phase === 'over') break;
       const t = s.game.turn, canRoll = t.rolls < t.maxRolls && t.dice.some(d => d.held === null);
       if (t.rolls === 0 || (canRoll && coin())) await page.click('[data-act=roll]');
-      else if (canRoll) { await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); }
-      else await page.click('[data-act=end]');
+      else if (canRoll) { await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); await skipRace(page); }
+      else { await page.click('[data-act=end]'); await skipRace(page); }
     }
     const s = await saved(page);
     expect(s.phase).toBe('over');
@@ -127,6 +127,7 @@ test.describe('scoreboard mode', () => {
       const s = await saved(page);
       if (s.phase === 'over') break;
       await enterScore(page, rnd(25), s.game.pos === 0 ? 1 + rnd(3) : 0);
+      await skipRace(page);
     }
     const s = await saved(page);
     expect(s.phase).toBe('over');
@@ -137,7 +138,7 @@ test.describe('scoreboard mode', () => {
 
   test('tie for the lead: whoever reached the score first starts', async ({ page }) => {
     await startLocal(page, { mode: 'score' });
-    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await enterScore(page, 10, 1); await enterScore(page, 20); await skipRace(page);
     await enterScore(page, 0, 2); await enterScore(page, 10);       // Ben stays on 20, Anna climbs to 20
     const s = await saved(page);
     expect([s.phase, s.game.round, s.game.starter]).toEqual(['play', 3, 1]); // Ben got there first
@@ -145,7 +146,7 @@ test.describe('scoreboard mode', () => {
 
   test('corrections recompute totals, the starter and the 101 rule; undo takes them back', async ({ page }) => {
     await startLocal(page, { mode: 'score' });
-    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await enterScore(page, 10, 1); await enterScore(page, 20); await skipRace(page);
     await page.click('.pl[data-act=edit][data-id="1"]');
     await page.fill('#edit-1', '40');
     await expect(page.locator('[data-act=esave]')).toBeDisabled();
@@ -155,7 +156,7 @@ test.describe('scoreboard mode', () => {
     let s = await saved(page);
     expect(s.game.players.map(p => p.score)).toEqual([10, 5]);
     expect([s.game.round, s.game.starter]).toEqual([2, 0]);          // round 2 starts again, now with Anna
-    await enterScore(page, 36, 3); await enterScore(page, 0);
+    await enterScore(page, 36, 3); await enterScore(page, 0); await skipRace(page);
     await page.click('.pl[data-act=edit][data-id="0"]');
     await page.fill('#edit-1', '36');
     await page.click('[data-act=esave]');
@@ -204,6 +205,23 @@ test.describe('on a phone', () => {
     for (let k = 0; k < 4; k++) { await jolt(k % 2 ? -22 : 22); await page.waitForTimeout(110); }
     await expect.poll(async () => (await saved(page)).game.turn.rolls).toBe(1);
   });
+
+  test('shaking during the race between rounds does not roll', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto('/');
+    await page.click('[data-act=shake][data-id="1"]');
+    await startLocal(page);
+    await page.click('[data-act=roll]'); await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+    await idle(page);
+    await page.click('[data-act=roll]'); await page.click('[data-act=end]');  // Ben has Anna's one roll
+    await expect(page.locator('.race')).toBeVisible();
+    const jolt = x => page.evaluate(v => window.dispatchEvent(new DeviceMotionEvent('devicemotion', { acceleration: { x: v, y: 0, z: 0 } })), x);
+    for (let k = 0; k < 4; k++) { await jolt(k % 2 ? -22 : 22); await page.waitForTimeout(110); }
+    await expect(page.locator('.race')).toHaveCount(0);
+    await idle(page);
+    const s = await saved(page);
+    expect([s.game.round, s.game.turn.rolls]).toEqual([2, 0]);
+  });
 });
 
 // scoreboard mode, Anna starts every round with 36 and reaches 108 in round 3; Ben adds 5 a round
@@ -212,6 +230,7 @@ async function playShortGame(page) {
   for (let round = 1; round <= 3; round++) {
     await enterScore(page, 36, 1);
     await enterScore(page, 5);
+    if (round < 3) await skipRace(page);
   }
   await expect(page.locator('.verdict')).toContainText('loses');
 }
@@ -282,12 +301,151 @@ test.describe('the score list', () => {
     // the highest total goes on top, whatever the seating or playing order
     await page.evaluate(() => localStorage.removeItem('sevens-out-v1'));
     await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
-    for (const [pts, rolls] of [[36, 1], [0], [30], [0, 1], [0], [36], [0, 1], [36], [0], [0, 1], [0], [36]]) await enterScore(page, pts, rolls);
+    for (const [pts, rolls] of [[36, 1], [0], [30], [0, 1], [0], [36], [0, 1], [36], [0], [0, 1], [0], [36]]) { await enterScore(page, pts, rolls); await skipRace(page); }
     await expect(page.locator('.verdict')).toContainText('Cleo loses');
     expect((await saved(page)).game.order).toEqual([0, 1, 2]);
     expect(await names(page)).toEqual(['Cleo', 'Anna', 'Ben']);   // 102, 72, 0
     await expect(page.locator('.board .pl').first()).toHaveClass(/\blost\b/);
   });
+});
+
+test.describe('between rounds', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const names = (page, sel = '.board') => page.locator(`${sel} .pl .nm`).allTextContents();
+
+  test('between rounds the race shows the round and hands over to the next starter', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
+    await enterScore(page, 12, 2); await enterScore(page, 0); await enterScore(page, 26);
+    const race = page.locator('.race');
+    await expect(race).toBeVisible();
+    await expect(race.locator('.race-badge')).toContainText('Sevens Out');
+    await expect(race.locator('.race-badge')).toContainText('Ben cleared all six');
+    // reduced motion: the grown list shows the final totals in their final order at once
+    await expect(race.locator('.race-card .bhead')).toContainText('After round 1');
+    expect(await names(page, '.race-card')).toEqual(['Cleo', 'Anna', 'Ben']);
+    expect(await race.locator('.race-card .pl .num').allTextContents()).toEqual(['26', '12', '0']);
+    await expect(race.locator('.race-curtain .race-round')).toHaveText('Round 2');
+    await expect(race.locator('.race-curtain .race-starter')).toHaveText('Cleo starts');
+    await expect(race.locator('.race-curtain .race-why')).toHaveText('Highest score: 26');
+    await expect(race).toHaveCount(0);
+    await idle(page);
+    expect(await names(page)).toEqual(['Cleo', 'Anna', 'Ben']);
+    await expect(page.locator('.board .bhead')).toContainText('Round 2 · Cleo starts');
+  });
+
+  test('a tap skips the race', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await page.locator('.race').click();
+    await expect(page.locator('.race')).toHaveCount(0, { timeout: 1000 });
+    const s = await live(page);
+    expect([s.game.round, s.game.starter]).toEqual([2, 1]);
+    await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
+    await idle(page);
+  });
+
+  test('Escape skips the race too, and a reload during it keeps the last turn', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await expect(page.locator('.race')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.race')).toHaveCount(0);
+    await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
+    await enterScore(page, 5, 1); await enterScore(page, 30);       // Anna 40, Ben 25: Anna starts round 3
+    await expect(page.locator('.race')).toBeVisible();
+    await page.reload();
+    await expect(page.locator('.board .bhead')).toContainText('Round 3 · Anna starts');
+    await expect(page.locator('.race')).toHaveCount(0);
+    expect((await saved(page)).game.players.map(p => p.score)).toEqual([40, 25]);
+  });
+
+  test('no race when the game ends', async ({ page }) => {
+    await playShortGame(page);
+    await expect(page.locator('.verdict')).toBeVisible();
+    await expect(page.locator('.race')).toHaveCount(0);
+  });
+
+  test('a correction right after a round restarts it with the right starter, without a race', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await skipRace(page);
+    await page.click('.pl[data-act=edit][data-id="1"]');
+    await page.fill('#edit-1', '5');
+    await page.click('[data-act=esave]');
+    await expect(page.locator('.race')).toHaveCount(0);
+    await idle(page);
+    expect((await names(page))[0]).toBe('Anna');
+    await expect(page.locator('.board .bhead')).toContainText('Round 2 · Anna starts');
+  });
+
+  test('undo right after a round goes back into it, and the race plays again', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 20);
+    await skipRace(page);
+    await page.click('[data-act=undo]');
+    const s = await live(page);
+    expect([s.game.round, s.game.order[s.game.pos]]).toEqual([1, 1]);   // Ben to play
+    await expect(page.locator('.race')).toHaveCount(0);
+    await enterScore(page, 20);
+    await expect(page.locator('.race')).toBeVisible();
+    await expect(page.locator('.race-starter')).toHaveText('Ben starts');
+  });
+
+  test('the Sevens Out celebration plays before the race', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1); await enterScore(page, 0);
+    await expect(page.locator('.fx-banner')).toBeVisible();
+    await expect(page.locator('.race')).toHaveCount(0);
+    expect(await page.evaluate(() => window.SevensDebug.busy)).toBe(true); // nobody plays on meanwhile
+    await expect(page.locator('.race')).toBeVisible();
+    await expect(page.locator('.race-badge')).toContainText('Ben cleared all six');
+  });
+
+  test('the developer menu plays the round change', async ({ page }) => {
+    await startLocal(page, { mode: 'score' });
+    await enterScore(page, 10, 1);
+    let before = await saved(page);
+    await page.click('[data-fold=dev] summary');
+    await page.click('[data-act=devround]');                    // no round finished yet: made-up points
+    await expect(page.locator('.race')).toBeVisible();
+    await expect(page.locator('.race-card .pl')).toHaveCount(2);
+    await expect(page.locator('.race')).toHaveCount(0);
+    await idle(page);
+    expect(await saved(page)).toEqual(before);
+
+    await enterScore(page, 20); await skipRace(page);
+    before = await saved(page);
+    await page.click('[data-act=devround]');                    // the round just finished
+    await expect(page.locator('.race-round')).toHaveText('Round 2');
+    await expect(page.locator('.race-starter')).toHaveText('Ben starts');
+    await expect(page.locator('.race')).toHaveCount(0);
+    await idle(page);
+    expect(await saved(page)).toEqual(before);
+  });
+});
+
+test('with normal motion the race starts exactly over the score list', async ({ page }) => {
+  await startLocal(page, { mode: 'score' });
+  await enterScore(page, 10, 1);
+  await page.click('[data-act=key][data-id="2"]'); await page.click('[data-act=key][data-id="0"]');
+  // scroll from the top just far enough to reach Save, as a thumb would: the list is still (partly) on screen
+  await page.evaluate(() => { scrollTo(0, 0); scrollBy(0, document.querySelector('[data-act=commit]').getBoundingClientRect().bottom - innerHeight + 8); });
+  const board = await page.locator('.board').boundingBox();
+  expect(board.y + board.height).toBeGreaterThan(0);
+  // the race card's box at the moment it is added to the page
+  await page.evaluate(() => new MutationObserver((_, o) => {
+    const c = document.querySelector('.race-card'); if (!c) return;
+    o.disconnect(); const r = c.getBoundingClientRect();
+    window.raceStart = { x: r.x, y: r.y, width: r.width, height: r.height };
+  }).observe(document.body, { childList: true }));
+  await page.click('[data-act=commit]');
+  await expect.poll(() => page.evaluate(() => window.raceStart)).toBeTruthy();
+  const card = await page.evaluate(() => window.raceStart);
+  for (const k of ['x', 'y', 'width', 'height']) expect(Math.abs(card[k] - board[k]), k).toBeLessThanOrEqual(2);
+  await expect(page.locator('.race')).toHaveCount(0, { timeout: 7000 }); // it ends by itself
+  await idle(page);
+  expect((await live(page)).game.round).toBe(2);
+  await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
 });
 
 test('no sideways scrolling at phone width, in both looks', async ({ page }) => {

@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { url, live, net, idle, noSideScroll } from './helpers.js';
+import { url, live, net, idle, skipRace, enterScore, noSideScroll } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 
@@ -84,6 +84,7 @@ test.describe('dice in the app', () => {
     };
     let who = null, pairs = null;
     for (let i = 0; i < 20 && !who; i++) {
+      for (const Q of [A, B]) await skipRace(Q.page);
       const P = (await A.page.locator('.turn .actions [data-act]').count()) ? A : B; // only the player whose turn it is has buttons
       const t = (await live(P.page)).game.turn;
       const found = await P.page.evaluate(() => SevensEngine.matchPairs(SevensDebug.state.game.turn));
@@ -167,6 +168,57 @@ test.describe('real dice, scores here', () => {
     await expect(A.page.locator('.board .pl').first().locator('.num')).toHaveText('7');
     await A.ctx.close(); await B.ctx.close();
   });
+});
+
+test('every phone plays the race, and a phone that reloads during it just shows the new round', async ({ browser }) => {
+  const A = await host(browser, 'Anna');
+  const B = await join(browser, A.code, 'Ben');
+  await A.page.click('[data-act=omode][data-id="1"]');
+  await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await A.page.click('[data-act=ostart]');
+  await enterScore(A.page, 5, 1);
+  await expect(B.page.locator('.pad')).toBeVisible();
+  await enterScore(B.page, 20);                                   // Ben leads, so Ben starts round 2
+  for (const P of [A, B]) await expect(P.page.locator('.race')).toBeVisible();
+  await expect(B.page.locator('.race-starter')).toHaveText('You start');
+  await expect(A.page.locator('.race-starter')).toHaveText('Ben starts');
+  await expect(A.page.locator('.race-round')).toHaveText('Round 2');
+
+  await B.page.reload();                                          // while Anna's phone still plays the race
+  await expect(B.page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
+  await expect(B.page.locator('.race')).toHaveCount(0);
+  expect(await B.page.evaluate(() => window.SevensDebug.busy)).toBe(false);
+  await expect(B.page.locator('.pad')).toBeVisible();
+
+  await expect(A.page.locator('.race')).toHaveCount(0, { timeout: 7000 });
+  await idle(A.page);
+  expect((await live(A.page)).game).toEqual((await live(B.page)).game);
+  await A.ctx.close(); await B.ctx.close();
+});
+
+test('a move made while another phone plays the race shows when that race is over', async ({ browser }) => {
+  const A = await host(browser, 'Anna');                                  // normal motion: a 5 s race
+  const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+  await A.page.click('[data-act=omode][data-id="1"]');
+  await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await A.page.click('[data-act=ostart]');
+  await enterScore(A.page, 5, 1);
+  await expect(B.page.locator('.pad')).toBeVisible();
+  await enterScore(B.page, 20);
+  await expect(A.page.locator('.race')).toBeVisible();
+  await skipRace(B.page);
+  await enterScore(B.page, 10, 2);                                        // Ben starts round 2 right away
+  await expect.poll(async () => (await live(B.page)).game.pos).toBe(1);
+  const rev = (await net(B.page)).rev;
+  await expect.poll(async () => (await net(A.page)).rev).toBe(rev);     // Anna's phone has the move
+  await expect(A.page.locator('.race')).toBeVisible();                    // Anna's race isn't cut off
+  expect((await live(A.page)).game.round).toBe(1);
+  await expect(A.page.locator('.race')).toHaveCount(0, { timeout: 7000 });
+  await idle(A.page);
+  const g = (await live(A.page)).game;
+  expect([g.round, g.rounds[1].results[1].pts, g.order[g.pos]]).toEqual([2, 10, 0]);
+  await expect(A.page.locator('.pad')).toBeVisible();                     // Anna's turn
+  await A.ctx.close(); await B.ctx.close();
 });
 
 test('lobby: wrong codes, leaving, kicking and a full room', async ({ browser }) => {

@@ -66,27 +66,28 @@ button{cursor:pointer}
 .alert{border:1.5px solid var(--danger);border-radius:10px;padding:10px 12px;font-size:.9rem;margin:0}
 .alert strong{color:var(--danger)}
 
-/* score list: one line per player in this round's playing order (sorted by total at game over) */
-.board{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:7px 10px 8px;display:flex;flex-direction:column;gap:4px}
+/* score list: one line per player in this round's playing order (sorted by total at game over);
+   the race between rounds (.race-card) draws the same lines */
+:is(.board,.race-card){background:var(--card);border:1px solid var(--line);border-radius:14px;padding:7px 10px 8px;display:flex;flex-direction:column;gap:4px}
 .bhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-height:18px;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
 .bhead>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bhead>span:last-child{flex:none}
 .bhead b{color:var(--brass)}
 .lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
-.board .pl{display:grid;grid-template-columns:12px minmax(0,6.5rem) minmax(0,1fr) 2.4rem 2.6rem;grid-template-rows:minmax(28px,auto);align-items:center;column-gap:8px;padding-inline:4px 6px;border-radius:8px}
-.board .pl.now{background:color-mix(in srgb,var(--brass) 16%,transparent)}
-.board .mk{font-size:.7rem;line-height:1;color:var(--brass);visibility:hidden}
-.board .pl.now .mk{visibility:visible}
-.board .nm{display:flex;align-items:center;gap:5px;min-width:0;font-weight:600;font-size:.9rem;white-space:nowrap}
-.board .nt{min-width:0;overflow:hidden;text-overflow:ellipsis}
-.board .nm .you{flex:none;margin-left:0}
+:is(.board,.race-card) .pl{display:grid;grid-template-columns:12px minmax(0,6.5rem) minmax(0,1fr) 2.4rem 2.6rem;grid-template-rows:minmax(28px,auto);align-items:center;column-gap:8px;padding-inline:4px 6px;border-radius:8px}
+:is(.board,.race-card) .pl.now{background:color-mix(in srgb,var(--brass) 16%,transparent)}
+:is(.board,.race-card) .mk{font-size:.7rem;line-height:1;color:var(--brass);visibility:hidden}
+:is(.board,.race-card) .pl.now .mk{visibility:visible}
+:is(.board,.race-card) .nm{display:flex;align-items:center;gap:5px;min-width:0;font-weight:600;font-size:.9rem;white-space:nowrap}
+:is(.board,.race-card) .nt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+:is(.board,.race-card) .nm .you{flex:none;margin-left:0}
 .sd{flex:none;position:relative;width:11px;height:11px;border-radius:3px;background:var(--brass)}
 .sd::after{content:"";position:absolute;inset:3.5px;border-radius:50%;background:var(--brass-ink)}
-.board .pl.wait:not(.now) :is(.nm,.num){opacity:.55}
+:is(.board,.race-card) .pl.wait:not(.now) :is(.nm,.num){opacity:.55}
 .trk{position:relative;height:7px;border-radius:4px;background:var(--line)}
 .trk::after{content:"";position:absolute;right:0;top:0;bottom:0;width:15%;border-radius:0 4px 4px 0;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--danger) 40%,transparent) 0 3px,transparent 3px 6px)}
 .fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--brass);z-index:1}
-.board .num{font:800 1.2rem/1 var(--font-display);text-align:right;font-variant-numeric:tabular-nums}
+:is(.board,.race-card) .num{font:800 1.2rem/1 var(--font-display);text-align:right;font-variant-numeric:tabular-nums}
 .dl{font:800 .9rem/1 var(--font-display);color:var(--brass);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dl.off{font:600 .66rem/1 var(--font-body);color:var(--ink-soft)}
 .pl.over .fill{background:var(--danger)}
@@ -314,6 +315,44 @@ td.st::before{margin-right:6px}
 .miss-sub b{color:var(--stitch)}
 @media (prefers-reduced-motion:reduce){.miss,.miss *{animation-duration:.01s!important;animation-delay:0s!important;animation-iteration-count:1!important}}
 
+/* between rounds: the score list lifts and grows into the race to 101, then a leather curtain brings in the next round */
+.race{position:fixed;inset:0;z-index:44;cursor:pointer;touch-action:none;-webkit-user-select:none;user-select:none}
+#app.racing .board{opacity:0}
+#app.racing .board~*,#app.racing-all>*{opacity:0;translate:0 40px;transition:opacity .45s,translate .55s cubic-bezier(.4,0,.2,1)}
+.race-card{position:absolute;z-index:0;margin:0;transition:top .55s cubic-bezier(.4,0,.2,1),padding-bottom .55s cubic-bezier(.4,0,.2,1),box-shadow .4s}
+.race-card.grow{box-shadow:0 14px 40px var(--shade)}
+.race-card.grow.badged{padding-bottom:var(--room)}
+.race-card .pl{min-height:28px;transition:min-height .55s cubic-bezier(.4,0,.2,1),grid-template-columns .55s cubic-bezier(.4,0,.2,1)}
+.race-card :is(.nm,.num,.dl){transition:font-size .5s}
+.race-card .trk{transition:height .5s}
+.race-card .fill{transition:width .9s ease-out}
+.race-card .bfoot{transition:opacity .3s}
+.race-card.grow .pl{min-height:var(--row);grid-template-columns:12px minmax(0,7.5rem) minmax(0,1fr) 3rem 3rem}
+.race-card.grow .nm{font-size:1.05rem}
+.race-card.grow .trk{height:12px}
+.race-card.grow .num{font-size:1.65rem}
+.race-card.grow .dl{font-size:1.15rem}
+.race-card.grow .bfoot{opacity:0}
+.race-badge{position:absolute;left:12px;right:12px;bottom:12px;width:fit-content;max-width:calc(100% - 24px);margin:0 auto;display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:2px 8px;padding:7px 14px;border:1.5px solid var(--brass);border-radius:18px;background:var(--card);font-size:.88rem;font-weight:600;line-height:1.25;text-align:center;overflow-wrap:anywhere;opacity:0;scale:.6;transition:opacity .2s,scale .45s cubic-bezier(.2,1.6,.4,1)}
+.race-badge.on{opacity:1;scale:1}
+.race-badge b{font:800 1.05rem/1.1 var(--font-display);color:var(--brass);text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.race-curtain{position:absolute;z-index:1;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;color:var(--on-leather);background:radial-gradient(120% 90% at 50% 30%,var(--leather),var(--leather-deep));transform:translateY(-102%);transition:transform .5s cubic-bezier(.7,0,.3,1)}
+.race-curtain::before{content:"";position:absolute;inset:10px;border:1.5px dashed var(--stitch);border-radius:22px;opacity:.5;pointer-events:none}
+.race-curtain.in{transform:none;box-shadow:0 12px 34px var(--shade)}
+.race-curtain.in.gone{transform:translateY(102%)}
+.race-curtain>*{position:relative;margin:0}
+.race-round{font:800 clamp(3.4rem,18vw,4.6rem)/.9 var(--font-display);text-transform:uppercase;letter-spacing:.02em;color:var(--stitch);white-space:nowrap}
+.race-round .ch{display:inline-block}
+.race-curtain.in .race-round .ch{animation:slam .5s cubic-bezier(.2,1.7,.4,1) calc(.2s + var(--i) * 60ms) both}
+.race-starter{max-width:22ch;font-size:1.25rem;font-weight:700;overflow-wrap:anywhere;text-wrap:balance}
+.race-why{font-size:.9rem;opacity:.85}
+.race-curtain.in :is(.race-starter,.race-why){animation:rise .4s ease-out .6s both}
+@media (prefers-reduced-motion:reduce){
+  .race *,.race *::before,#app.racing .board~*,#app.racing-all>*{transition:none!important;animation:none!important}
+  .race-curtain{transform:none;visibility:hidden}
+  .race-curtain.in{visibility:visible}
+}
+
 /* online play */
 .you{font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--brass);margin-left:4px;vertical-align:middle}
 .who .you{font-family:var(--font-body);font-size:.8rem}
@@ -382,11 +421,23 @@ html:root[data-look="vegas"] .who{font-size:2rem;line-height:1.05}
 html:root[data-look="vegas"] .verdict{font-size:clamp(2.1rem,10.5vw,3.3rem);line-height:1}
 html:root[data-look="vegas"] .h2{font-size:1.2rem}
 /* the score list as an LED credit meter */
-html:root[data-look="vegas"] .board{background:var(--meter);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--chrome) 18%,transparent)}
-html:root[data-look="vegas"] .board .pl.now{background:color-mix(in srgb,var(--brass) 13%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brass) 55%,transparent),0 0 14px color-mix(in srgb,var(--brass) 25%,transparent)}
-html:root[data-look="vegas"] .board .num{font-size:.92rem;color:var(--led);text-shadow:0 0 10px color-mix(in srgb,var(--led) 60%,transparent)}
+html:root[data-look="vegas"] :is(.board,.race-card){background:var(--meter);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--chrome) 18%,transparent)}
+html:root[data-look="vegas"] :is(.board,.race-card) .pl.now{background:color-mix(in srgb,var(--brass) 13%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brass) 55%,transparent),0 0 14px color-mix(in srgb,var(--brass) 25%,transparent)}
+html:root[data-look="vegas"] :is(.board,.race-card) .num{font-size:.92rem;color:var(--led);text-shadow:0 0 10px color-mix(in srgb,var(--led) 60%,transparent)}
 html:root[data-look="vegas"] .dl:not(.off){font-size:.72rem}
 html:root[data-look="vegas"] .fill{box-shadow:0 0 8px color-mix(in srgb,var(--brass) 45%,transparent)}
+html:root[data-look="vegas"] .race-card.grow{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--chrome) 18%,transparent),0 14px 40px var(--shade),0 0 30px color-mix(in srgb,var(--brass) 18%,transparent)}
+html:root[data-look="vegas"] .race-card.grow .num{font-size:1.3rem}
+html:root[data-look="vegas"] .race-card.grow .dl:not(.off){font-size:.95rem}
+html:root[data-look="vegas"] .race-badge{background:var(--meter);box-shadow:0 0 16px color-mix(in srgb,var(--brass) 35%,transparent)}
+/* the curtain between rounds gets the marquee's chasing bulbs */
+html:root[data-look="vegas"] .race-curtain::before{border:0;opacity:1;border-radius:16px;
+  background:radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 0 0/14px 7px repeat-x,
+    radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 0 100%/14px 7px repeat-x,
+    radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 0 0/7px 14px repeat-y,
+    radial-gradient(circle,var(--bulb) 0 2.2px,transparent 2.8px) 100% 0/7px 14px repeat-y;
+  filter:drop-shadow(0 0 3px var(--bulb));animation:chase .8s steps(1) infinite}
+html:root[data-look="vegas"] .race-round{font-size:clamp(2.2rem,11.5vw,3.2rem);line-height:1.05;color:var(--brass);text-shadow:0 0 14px color-mix(in srgb,var(--brass) 60%,transparent)}
 /* reel window */
 html:root[data-look="vegas"] .tray{color:var(--reel-ink);background:linear-gradient(180deg,var(--reel-edge) 0%,var(--reel-mid) 18%,var(--reel) 50%,var(--reel-mid) 82%,var(--reel-edge) 100%);box-shadow:inset 0 0 0 4px var(--chrome),inset 0 0 0 7px var(--brass),inset 0 10px 14px rgba(0,0,0,.3),inset 0 -10px 14px rgba(0,0,0,.3),0 0 30px rgba(255,197,49,.22)}
 html:root[data-look="vegas"] .tray::before{inset:0;border:0;border-radius:20px;opacity:1;background:linear-gradient(90deg,rgba(0,0,0,.2),transparent 9%,transparent 91%,rgba(0,0,0,.2))}
@@ -425,7 +476,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   applyLook();
 
   let state = blank();
-  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, doom:null, missed:null, edit:null, editVals:{} };
+  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{} };
 
   function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice', pairing:'manual' }, game:null }; }
   const isScore = g => !!g && g.mode === 'score';
@@ -740,6 +791,28 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       const t0 = c.currentTime + 0.3;
       [[196, 0, 0.36], [185, 0.42, 0.36], [174.6, 0.84, 0.36], [164.8, 1.26, 1.3]].forEach(([f, d, dur], i) => wah(t0 + d, f, dur, i === 3));
     }
+    // ---- the curtain dropping between rounds: a swish, then a short sting in the table's sound ----
+    function swish(t, dur){
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = whiteBuf(); f.type = 'bandpass'; f.Q.value = 1.2;
+      f.frequency.setValueAtTime(350, t); f.frequency.exponentialRampToValueAtTime(2200, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t + dur * 0.75); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f); f.connect(g); g.connect(master); src.start(t); src.stop(t + dur + 0.02);
+    }
+    function sting(flavour){
+      const c = get(); if (!c) return;
+      const t0 = c.currentTime + 0.03, land = t0 + 0.45; // the curtain takes about half a second to come down
+      swish(t0, 0.45);
+      if (flavour === 'bandit'){
+        // a heavy reel thunk and two strokes of the payout bell
+        noiseHit(land, 0.09, 'lowpass', 700, 0.7, 0.6); tone(land, 92, 0.14, 'sine', 0.35);
+        bellRing(land + 0.08, 0.13);
+      } else {
+        // a clunk and a bright two-note "ta-da"
+        thud(land, 170);
+        [[783.99, 0.1], [1046.5, 0.24]].forEach(([f, d]) => { tone(land + d, f, 0.55, 'triangle', 0.16, 0.01); tone(land + d, f * 2, 0.32, 'sine', 0.04, 0.01); });
+      }
+    }
     function jackpot(){
       const c = get(); if (!c) return;
       const t0 = c.currentTime + 0.04;
@@ -767,7 +840,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       jackpot(){ try { jackpot(); } catch (e) {} },
       bandit(){ try { bandit(); } catch (e) {} },
       doom(){ try { doom(); } catch (e) {} },
-      trombone(){ try { trombone(); } catch (e) {} }
+      trombone(){ try { trombone(); } catch (e) {} },
+      round(){ if (soundMode !== 'off'){ try { sting(soundMode); } catch (e) {} } }
     };
   })();
   // browsers only allow audio after a tap; wake the audio engine on every interaction
@@ -809,7 +883,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function onShake(){
     const g = state.game;
     if (document.visibilityState !== 'visible' || document.querySelector('.doom')) return;
-    if (state.phase !== 'play' || !g || isScore(g) || ui.rolling || ui.busy || ui.edit != null || !canRoll(g.turn)) return;
+    if (state.phase !== 'play' || !g || isScore(g) || ui.rolling || ui.busy || ui.race || ui.edit != null || !canRoll(g.turn)) return;
     try { if (navigator.vibrate) navigator.vibrate(35); } catch (e) {}
     handle('roll', null);
   }
@@ -1058,8 +1132,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // ---------- applying changes: locally through the engine, or via the server ----------
   let queue = Promise.resolve(), pending = 0;
   const enqueue = fn => { pending++; return (queue = queue.then(fn).catch(err => console.error(err)).finally(() => { pending--; })); };
-  const animated = events => !reduceMotion && events.some(e => e.type === 'rolled' || e.type === 'paired');
-  // changes without an animation show at once; rolls and pairs play in order, one after another
+  const animated = events => events.some(e => e.type === 'roundEnd') || (!reduceMotion && events.some(e => e.type === 'rolled' || e.type === 'paired'));
+  // changes without an animation show at once; rolls, pairs and the race between rounds play in order, one after another
   function show(next, events){
     if (!animated(events) && !pending){ stopTumble(); ui.rolling = false; state = next; afterEvents(events); render(); return; }
     enqueue(() => present(next, events));
@@ -1070,8 +1144,10 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (r.error){ ui.rolling = false; stopTumble(); render(); return; }
     show(r.state, r.events);
   }
-  // show a new state; when dice were rolled or paired, animate it first (same for everyone watching)
+  // show a new state; when dice were rolled or paired, animate it first (same for everyone watching);
+  // a round's last turn plays the race between rounds instead (presentRound)
   async function present(next, events){
+    if (events.some(e => e.type === 'roundEnd')) return presentRound(next, events);
     const rolled = events.find(e => e.type === 'rolled');
     const paired = events.find(e => e.type === 'paired');
     if (rolled && !reduceMotion){
@@ -1090,6 +1166,24 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     }
     afterEvents(events);
     render();
+  }
+  // the last turn of a round: its Sevens Out celebration or missed-7 joke plays first, then the race to 101,
+  // whose curtain covers the switch to the new round
+  async function presentRound(next, events){
+    stopTumble(); ui.rolling = false; ui.race = true;
+    if (!online()) write(next); // saved at once, so a reload during the race can't lose the last turn
+    const g = next.game, so = events.find(e => e.type === 'sevensOut'), miss = events.find(e => e.type === 'missed');
+    if (so){ celebrate(g.players[so.player].name); await wait(2900); }
+    if (miss){ showMissed({ name:g.players[miss.player].name, me:isMe(miss.player), how:miss.how, pairs:miss.pairs }); await wait(3200); }
+    const rest = events.filter(e => e !== so && e !== miss);
+    const swap = () => {
+      state = next; afterEvents(rest); render();
+      const list = $app.querySelector('.board');
+      if (list && list.getBoundingClientRect().top < 0) scrollTo(0, 0); // the curtain lifts on the new round's list
+    };
+    const recap = E.roundRecap(g);
+    if (recap) await playRace(recap, swap, g);
+    else { swap(); ui.race = false; }
   }
   function afterEvents(events){
     const g = state.game, nm = i => (g && g.players[i] ? g.players[i].name : '');
@@ -1204,10 +1298,12 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return `<li class="pl${now ? ' now' : ''}${wait ? ' wait' : ''}${tot >= LIMIT ? ' over' : ''}${lost ? ' lost' : ''}${edit ? ' editable' : ''}" data-id="${i}"${attrs}>`
       + '<span class="mk" aria-hidden="true">▶</span>'
       + `<span class="nm">${starter ? '<i class="sd" role="img" aria-label="Starter"></i>' : ''}<span class="nt">${esc(pl.name)}</span>${me ? '<small class="you">you</small>' : ''}</span>`
-      + `<span class="trk" aria-hidden="true"><span class="fill" style="width:${(Math.min(tot / LIMIT, 1) * 100).toFixed(1)}%"></span></span>`
+      + `<span class="trk" aria-hidden="true"><span class="fill" style="width:${barWidth(tot)}"></span></span>`
       + `<span class="num">${tot}</span><span class="dl${played && tag == null ? '' : ' off'}">${dl}</span>`
       + (sub ? `<span class="pl-sub">${sub}</span>` : '') + '</li>';
   }
+
+  const barWidth = total => `${(Math.min(total / LIMIT, 1) * 100).toFixed(1)}%`;
 
   // the turn as it should look right now: pairs that haven't flown out yet are still on the table
   function displayTurn(t){
@@ -1554,9 +1650,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       ? `<div class="confirm"><span>End the game now? The highest score loses${state.phase === 'play' ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
     return `<details class="fold" data-fold="dev"${ui.open.dev ? ' open' : ''}><summary>Developer</summary>
-      <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button><button class="btn ghost" data-act="devmiss">Play missed 7</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
+      <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button><button class="btn ghost" data-act="devmiss">Play missed 7</button><button class="btn ghost" data-act="devround">Play round change</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
       ${confirm}
-      <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor. Play missed 7 shows what everyone sees when a player rolls on or stops with a 7-pair still on the table.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
+      <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor. Play missed 7 shows what everyone sees when a player rolls on or stops with a 7-pair still on the table. Play round change shows the race to ${LIMIT} that plays between rounds.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
   }
 
   function footer(){
@@ -1617,6 +1713,130 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     minis.forEach(m => { m.style.visibility = ''; });
   }
 
+  // ---------- between rounds: the race to 101 ----------
+  const BADGE = {
+    firstRoll: n => ['Sevens Out', `${n}, with the first roll`],
+    sevensOut: n => ['Sevens Out', `${n} cleared all six`],
+    shots: n => ['Shots', `${n} paid a round`],
+    newTop: n => ['New on top', n],
+    danger: (n, v) => ['Danger zone', `${n} is ${v} from ${LIMIT}`],
+    ouch: (n, v) => ['Ouch', `${n} took ${v}`]
+  };
+  const WHY = { highest:s => `Highest score: ${s}`, first:s => `Tied on ${s}, got there first`, turn:s => `Tied on ${s}, next in turn` };
+  // recap: E.roundRecap(); g gives the names (the developer menu may pass made-up players).
+  // The score list lifts and grows, the bars move from `before` to `after`, the lines reorder by total, the round's
+  // best moment pops up, then a curtain drops, swap() switches the screen under it and the curtain lifts.
+  // A tap (or Escape, Enter, Space) skips to the end; swap() is called exactly once either way.
+  function playRace(recap, swap, g = state.game){
+    return new Promise(resolve => {
+      if (document.hidden){ swap(); ui.race = false; resolve(); return; } // nobody is looking
+      ui.race = true; dropMissed();
+      const nm = i => g.players[i].name, timers = [], later = (ms, fn) => timers.push(setTimeout(fn, ms));
+      let raf = 0, swapped = false, done = false;
+      // start exactly where the list is, if any of it is on screen
+      const list = $app.querySelector('.board'), lr = list && list.getBoundingClientRect();
+      const from = lr && lr.bottom > 0 && lr.top < innerHeight ? lr : null;
+      const box = $app.getBoundingClientRect(), root = getComputedStyle(document.documentElement);
+      const minTop = 16 + (parseFloat(root.paddingTop) || 0), maxBottom = innerHeight - 16 - (parseFloat(root.paddingBottom) || 0);
+      const best = recap.best && BADGE[recap.best.kind] ? BADGE[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
+      const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = WHY[recap.reason.kind](recap.reason.score);
+      const foot = list && list.querySelector('.bfoot');
+      const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
+      const el = document.createElement('div');
+      el.className = 'race';
+      el.innerHTML = `<div class="race-card${best ? ' badged' : ''}" aria-hidden="true">
+          <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
+          <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
+          ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
+          ${best ? `<p class="race-badge"><b>${esc(best[0])}</b> <span>${esc(best[1])}</span></p>` : ''}</div>
+        <div class="race-curtain" aria-hidden="true"><p class="race-round">${slam(`Round ${recap.round + 1}`)}</p>
+          <p class="race-starter">${esc(starts)}</p><p class="race-why">${esc(why)}</p></div>
+        <p class="sr" role="status"></p>`;
+      const card = el.firstElementChild, curtain = el.querySelector('.race-curtain'), badge = el.querySelector('.race-badge');
+      const lines = [...card.querySelectorAll('.pl')];
+      card.style.cssText = `left:${from ? from.left : box.left + 16}px;top:${from ? from.top : 0}px;width:${from ? from.width : box.width - 32}px;transition:none`;
+      // grown, the lines share the screen's height less about 120 px for the heading and the badge: 34 to 54 px each
+      card.style.setProperty('--row', `${Math.max(34, Math.min(54, Math.floor((maxBottom - minTop - 120) / lines.length) - 3))}px`);
+      document.body.appendChild(el);
+      if (badge) card.style.setProperty('--room', `${badge.offsetHeight + 26}px`);
+      // measure the grown card on a copy, so it can grow in place and still fit on the screen
+      const probe = card.cloneNode(true);
+      probe.classList.add('grow'); probe.style.visibility = 'hidden';
+      el.appendChild(probe);
+      const h0 = card.offsetHeight, h1 = probe.offsetHeight;
+      probe.remove();
+      if (!from) card.style.top = `${(innerHeight - h0) / 2}px`;
+      void card.offsetHeight; card.style.removeProperty('transition'); // placed without moving; from here on it moves
+      const top1 = Math.max(minTop, Math.min(from ? from.top : (innerHeight - h1) / 2, maxBottom - h1));
+      $app.classList.add(from ? 'racing' : 'racing-all');
+
+      const grow = () => {
+        card.classList.add('grow'); card.style.top = `${top1}px`;
+        card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>Race to ${LIMIT}</b></span>`;
+      };
+      const bars = () => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.fill').style.width = barWidth(recap.after[i]); li.classList.toggle('over', recap.after[i] >= LIMIT); });
+      const count = k => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.num').textContent = Math.round(recap.before[i] + recap.pts[i] * k); });
+      const countUp = () => {
+        const t0 = performance.now();
+        const step = now => { const k = Math.min(1, (now - t0) / 900); count(1 - (1 - k) ** 3); if (k < 1) raf = requestAnimationFrame(step); };
+        raf = requestAnimationFrame(step);
+      };
+      // highest total on top; equal totals keep the finished round's order (the sort is stable)
+      const sort = flip => {
+        const ol = card.querySelector('.lines'), at = new Map(lines.map(li => [li, li.getBoundingClientRect().top]));
+        lines.slice().sort((a, b) => recap.after[+b.dataset.id] - recap.after[+a.dataset.id]).forEach(li => ol.appendChild(li));
+        if (flip) lines.forEach(li => {
+          const dy = at.get(li) - li.getBoundingClientRect().top;
+          if (dy) li.animate([{ transform:`translateY(${dy}px)` }, { transform:'none' }], { duration:550, easing:'cubic-bezier(.3,1.25,.5,1)' });
+        });
+      };
+      const pop = () => { if (badge) badge.classList.add('on'); };
+      const drop = () => { curtain.classList.add('in'); sound.round(); };
+      const doSwap = () => {
+        if (swapped) return;
+        swapped = true; $app.classList.remove('racing', 'racing-all'); card.remove();
+        try { swap(); } catch (e) { console.error(e); }
+      };
+      const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' '){ e.preventDefault(); e.stopImmediatePropagation(); finish(); } };
+      function finish(){
+        if (done) return;
+        done = true; timers.forEach(clearTimeout); cancelAnimationFrame(raf);
+        document.removeEventListener('keydown', onKey, true);
+        doSwap(); el.remove(); ui.race = false; resolve();
+      }
+      el.addEventListener('click', finish);
+      document.addEventListener('keydown', onKey, true);
+      later(60, () => { el.querySelector('[role=status]').textContent = `${best ? `${best[0]}: ${best[1]}. ` : ''}Round ${recap.round + 1}. ${starts}. ${why}.`; });
+
+      if (reduceMotion){
+        grow(); bars(); count(1); sort(false); pop();
+        later(1600, () => { drop(); doSwap(); });
+        later(2500, finish);
+        return;
+      }
+      if (!from) card.animate([{ opacity:0, transform:'scale(.96)' }, { opacity:1, transform:'none' }], { duration:250, easing:'ease-out' });
+      raf = requestAnimationFrame(() => { raf = requestAnimationFrame(grow); }); // the first frame is the list, exactly where it was
+      later(700, () => { bars(); countUp(); });
+      later(1700, () => sort(true));
+      later(2400, pop);
+      later(3400, drop);
+      later(3950, doSwap);           // the curtain covers the screen
+      later(4600, () => curtain.classList.add('gone'));
+      later(5150, finish);
+    });
+  }
+  // the developer menu's round change: the race for the round just finished, or made-up points before there is one
+  function devRecap(){
+    const g = state.game, recap = g && E.roundRecap(g);
+    if (recap) return { g, recap };
+    const players = g ? g.players : state.setup.names.map((nm, i) => ({ name:nm.trim() || `Player ${i + 1}`, score:0 }));
+    const n = players.length, order = E.orderFrom(g ? g.starter : 0, n), pts = Array(n).fill(0);
+    order.forEach((i, k) => { pts[i] = [14, 0, 26, 5, 18, 3][k]; });
+    const before = players.map(p => p.score), after = before.map((b, i) => b + pts[i]), top = Math.max(...after);
+    return { g:g || { players, shots:[] }, recap:{ round:g ? g.round : 1, next:order.find(i => after[i] === top), order, pts, before, after,
+      best:{ kind:'sevensOut', player:order[1], value:null }, reason:{ kind:'highest', score:top } } };
+  }
+
   // ---------- input ----------
   function tapDie(id){
     const t = state.game.turn, d = t.dice[id];
@@ -1651,8 +1871,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   function handle(a, id, el){
     const g = state.game;
-    // while pairs are flying out, only settings and the developer buttons respond
-    if ((ui.busy || ui.rolling) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno'].includes(a)) return;
+    // while pairs are flying out or the race between rounds plays, only settings and the developer buttons respond
+    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno'].includes(a)) return;
     ui.nope = null;
     if (a !== 'stop') ui.armed = null;
     if (a !== 'new') ui.confirmNew = false;
@@ -1774,6 +1994,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       }
       case 'undo': if (seated()) dispatch({ type:'undo' }); break;
       case 'devconfetti': celebrate(state.phase === 'play' && g ? pname(current(g)) : 'Test player'); break;
+      case 'devround': { const d = devRecap(); enqueue(() => playRace(d.recap, () => {}, d.g)); return; }
 
       // ----- online -----
       case 'online': ui.screen = 'online'; ui.hint = null; ui.online = {}; break;
@@ -1847,12 +2068,14 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (ui.missed){ const m = ui.missed; ui.missed = null; showMissed(m); }
   }
   // the phone's own game is saved here; online games live on the server
+  const write = s => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} };
   function save(){
-    if (online()) return;
+    // during the race between rounds the screen still shows the old state; the new one is already saved (presentRound)
+    if (online() || ui.race) return;
     // statistics never break playing; queueReport runs first because it may give an old save its id, which is saved with it
     let report = false;
     if (state.phase === 'over'){ try { queueReport(); report = true; } catch (e) {} }
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    write(state);
     if (report){ try { flushReports(); } catch (e) {} }
   }
   function load(){
@@ -1986,7 +2209,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   window.SevensDebug = Object.freeze({
     get state(){ return E.clone(state); },
     get net(){ return { code:net.code, seat:net.seat, status:net.status, rev:net.rev, room:net.room && E.clone(net.room) }; },
-    get busy(){ return ui.busy || ui.rolling; }
+    get busy(){ return ui.busy || ui.rolling || ui.race; }
   });
   try { window.claude?.hot?.snapshot?.(() => ({ state })); } catch (e) {}
   if (window.claude?.hot?.ready) window.claude.hot.ready(start);

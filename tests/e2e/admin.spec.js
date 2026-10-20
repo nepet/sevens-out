@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { sheetOf } from '../../server/core/stats.js';
 import { quickGame } from '../games.js';
-import { enterScore, live, net, noSideScroll } from './helpers.js';
+import { enterScore, skipRace, live, net, noSideScroll } from './helpers.js';
 
 const GAME = 'http://127.0.0.1:8787', ADMIN = 'http://127.0.0.1:8789', PAGE = 'http://127.0.0.1:8790';
 const gameUrl = (p = '/') => `${PAGE}${p}${p.includes('?') ? '&' : '?'}server=${encodeURIComponent('ws://127.0.0.1:8787')}`;
@@ -45,7 +45,8 @@ test('an online game played to the end shows up', async ({ browser, page }) => {
     const rev = (await net(a)).rev;
     const g = st.game, mine = g.seats[g.order[g.pos]] === seatA;
     await enterScore(mine ? a : b, mine ? 36 : 5, g.pos === 0 ? 1 : undefined); // Anna starts every round with 36
-    await expect.poll(async () => (await net(a)).rev).toBeGreaterThan(rev);
+    for (const P of [a, b]) await expect.poll(async () => (await net(P)).rev).toBeGreaterThan(rev);
+    for (const P of [a, b]) await skipRace(P);                   // between rounds both phones play the race
   }
   expect((await live(a)).phase).toBe('over');
   await A.close(); await B.close();
@@ -69,6 +70,7 @@ test('a one-phone game finished while offline arrives after the next visit', asy
     await enterScore(p, 36, 1);
     if (round === 3) await ctx.setOffline(true);
     await enterScore(p, 7);
+    if (round < 3) await skipRace(p);
   }
   await expect(p.locator('.verdict')).toContainText('loses');
   await expect.poll(() => p.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-reports')).queue.length)).toBe(1);

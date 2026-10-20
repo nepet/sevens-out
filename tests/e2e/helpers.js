@@ -11,6 +11,14 @@ export const saved = page => page.evaluate(() => JSON.parse(localStorage.getItem
 export const live = page => page.evaluate(() => window.SevensDebug.state);
 export const net = page => page.evaluate(() => window.SevensDebug.net);
 export const idle = page => expect.poll(() => page.evaluate(() => window.SevensDebug.busy)).toBe(false);
+// between rounds: tap the race away if it plays, then wait until the page is idle. A Sevens Out celebration
+// or a missed-7 joke from the round's last turn plays first, so wait for the race while the page is busy.
+export async function skipRace(page) {
+  const race = page.locator('.race');
+  await expect.poll(async () => (await race.isVisible()) || !(await page.evaluate(() => window.SevensDebug.busy))).toBe(true);
+  if (await race.isVisible()) await race.click({ timeout: 2000 }).catch(() => {}); // it may just have ended by itself
+  await idle(page);
+}
 
 // make the first dice the page rolls come up as `faces` (1-6); byte b gives face b % 6 + 1
 export async function fixDice(context, faces) {

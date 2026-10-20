@@ -166,6 +166,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - Clickable elements carry `data-act` (and optionally `data-id`). One document click listener calls `handle(action, id, el)`.
 - Game changes go through `dispatch(action)`. Locally, it applies the engine. Online, it sends `{t:'act', action}` and waits for the server.
 - New states are shown through `show()` or `present()`. When the events include `rolled` or `paired`, the page plays the tumble → pause → fly-out animation first, in order, through a queue. This works the same way for the player and for everyone watching. Other changes show at once.
+- A `roundEnd` event always goes through the queue, with reduced motion too: `present()` plays the round's Sevens Out celebration or missed-7 joke first, then `playRace(recap, swap)`, which switches to the new state under the race's curtain. States that arrive meanwhile wait in the queue, so the race is never cut off. While it plays, `ui.race` makes the page busy: game actions and shake to roll are ignored.
 - Online, `canAct()` decides whether this phone may move:
   - it's this phone's seat's turn, or
   - this phone is the host and the current player is offline.
@@ -177,11 +178,11 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
 - **Flow:** `again`, `new`/`newyes`/`newno`
-- **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`
+- **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`, `devround`
 - **Settings:** `sound`, `look`, `shake`
 - **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
 
-**Debugging:** `window.SevensDebug` gives read-only `state`, `net` and `busy` views. The tests use it.
+**Debugging:** `window.SevensDebug` gives read-only `state`, `net` and `busy` views (`busy` is also true during the race between rounds). The tests use it.
 
 ### The room server (`server/core/room.js` + adapters)
 
@@ -249,8 +250,17 @@ One `Room` per room code holds the authoritative game.
   - **iPhone permission:** iOS needs `DeviceMotionEvent.requestPermission()` called directly inside a tap.
   - **What counts as a shake:** 3 jolts above 14 m/s² within 900 ms, then a 1.5 s cool-down.
   - **Where it works:** in dice mode, when this phone may roll.
-- **Developer menu.** Play confetti, Play shots alarm, Play missed 7, and End game now (host only when online).
-- **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving.
+- **Between rounds: the race to 101.** When a round's last turn is booked, every phone plays the same race (about 5 s), built from the new state with `E.roundRecap`:
+  - **What happens:** the score list lifts and grows in place ("After round N · Race to 101"), and the rest of the screen fades away. The bars move from each player's total at the start of the round by the round's points while the totals count up, then the lines reorder by total (highest on top, ties in the finished round's order).
+  - **The round's best moment** pops up as a badge, the first that applies: Sevens Out with the first roll, Sevens Out, a round of shots paid, new on top, into the danger zone (86 or more), Ouch (a turn of 20 or more). Nothing applies, no badge.
+  - **The curtain:** a leather curtain drops with "Round N+1", "<Name> starts" ("You start" on that player's own phone online; spectators see the name) and the reason ("Highest score: 64", "Tied on 40, got there first", "Tied on 40, next in turn"). The new round is swapped in underneath, and the curtain lifts on it.
+  - **Skipping:** a tap on it, Escape, Enter or Space ends it at once.
+  - **Sound:** `sound.round()` plays a short sting as the curtain drops, in the jackpot or old-bandit flavour, and nothing when the sound is off.
+  - **Online:** every phone plays it from the same events. A phone that reloads or reconnects meanwhile just shows the new round. A correction emits only `edited`, so it never plays the race.
+  - **Saving:** a one-phone game saves the new state as soon as the race starts, so a reload mid-race keeps the last turn.
+  - **DOM:** `.race` (fixed, outside `#app`) → `.race-card` (the list's `.bhead` and `li.pl` lines from `lineHtml`, plus `.race-badge`) and `.race-curtain` (`.race-round`, `.race-starter`, `.race-why`).
+- **Developer menu.** Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
+- **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving. The race between rounds shows the grown list with its final totals, order and badge at once. The curtain then appears without sliding, and the whole race takes about 2.5 s.
 
 ## Conventions
 
@@ -275,6 +285,7 @@ One `Room` per room code holds the authoritative game.
   - The tests read state through `window.SevensDebug` or `localStorage`.
   - Use `contextOptions: { reducedMotion: 'reduce' }` for instant rolls.
   - To fix the dice, stub `crypto.getRandomValues` for 1-byte arrays (`fixDice` in `tests/e2e/helpers.js`).
+  - After a round's last turn, the race plays for about 2.5 s even with reduced motion. Tests that act right after a round ends call `skipRace(page)` (helpers.js): it waits for a Sevens Out or missed-7 joke that plays first, taps the race away, then waits until the page is idle.
   - `TARGET=worker` points online play at `wrangler dev` through the `?server=` override.
   - `tests/e2e/admin.spec.js` tests the admin page (`npm run test:admin`). Don't run it together with `test:worker`: both reset `.wrangler/e2e`.
 
