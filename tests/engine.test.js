@@ -381,3 +381,84 @@ test('undo to a snapshot taken between rounds by an older version moves on to th
   delete direct.game.history; const got = E.clone(r.state); delete got.game.history;
   assert.deepEqual(got, direct);
 });
+
+// roundRecap: the summary of the round just finished
+test('roundRecap: totals before and after the round, in the finished round\'s order', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 12, 2); s = score(s, 30); s = score(s, 4);
+  s = score(s, 5, 1);                                           // round 2 has a result; recap still describes round 1
+  const r = E.roundRecap(s.game);
+  assert.deepEqual([r.round, r.next, r.order], [1, 1, [0, 1, 2]]);
+  assert.deepEqual(r.pts, [12, 30, 4]);
+  assert.deepEqual(r.before, [0, 0, 0]);
+  assert.deepEqual(r.after, [12, 30, 4]);
+  assert.deepEqual(r.reason, { kind: 'highest', score: 30 });
+  assert.equal(E.roundRecap(start(2, 0, 'score').game), null);
+});
+
+const recapOf = (s) => E.roundRecap(s.game);
+
+test('roundRecap best moment: first roll beats Sevens Out', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 0, 1); s = score(s, 0); s = score(s, 6);
+  assert.deepEqual(recapOf(s).best, { kind: 'firstRoll', player: 0, value: null });
+});
+
+test('roundRecap best moment: Sevens Out by a non-starter (no rolls entered), and the first in playing order on a tie', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 6, 2); s = score(s, 0); s = score(s, 7);
+  assert.deepEqual(recapOf(s).best, { kind: 'sevensOut', player: 1, value: null });
+  s = start(3, 1, 'score');                                     // order 1, 2, 0
+  s = score(s, 5, 3); s = score(s, 0); s = score(s, 0);
+  assert.deepEqual(recapOf(s).best, { kind: 'sevensOut', player: 2, value: null });
+});
+
+test('roundRecap best moment: Sevens Out beats Ouch', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 25, 2); s = score(s, 0);
+  assert.equal(recapOf(s).best.kind, 'sevensOut');
+});
+
+test('roundRecap best moment: shots are noted in the round they were paid, not before', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 5, 2); s = score(s, 3);                          // round 1 done, P1 starts round 2
+  for (let i = 0; i < 3; i++) s = must(s, { type: 'drop' }).state;
+  assert.equal(recapOf(s).best, null, 'round 1 had no shots');
+  s = score(s, 4, 1); s = score(s, 6);
+  assert.deepEqual(recapOf(s).best, { kind: 'shots', player: 0, value: null });
+});
+
+test('roundRecap best moment: new on top needs a lone leader who was not the leader before', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 10, 2); s = score(s, 4); s = score(s, 3);       // P1 leads alone
+  let a = score(score(score(s, 1, 1), 12), 0);                  // round 2: P2 reaches 16 ... but P3 scores 0
+  assert.equal(recapOf(a).best.kind, 'sevensOut', 'zero turn comes first');
+  a = score(score(score(s, 1, 1), 12), 2);
+  assert.deepEqual(recapOf(a).best, { kind: 'newTop', player: 1, value: null });
+  const t = score(score(score(s, 1, 1), 7), 2);                 // P2 ties P1 at 11
+  assert.equal(recapOf(t).best, null);
+  assert.deepEqual(recapOf(t).reason, { kind: 'first', score: 11 });
+});
+
+test('roundRecap best moment: danger zone from below 86 to 86 or more', () => {
+  const rounds = (pts) => pts.reduce((s, p) => score(score(s, p, 1), 1), start(2, 0, 'score'));   // P1 leads and starts every round
+  assert.deepEqual(recapOf(rounds([30, 30, 20, 10])).best, { kind: 'danger', player: 0, value: 11 });
+  assert.equal(recapOf(rounds([30, 30, 26, 2])).best, null, 'already in the danger zone');
+});
+
+test('roundRecap best moment: ouch from 20 points, not from 19', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 20, 2); s = score(s, 3);
+  assert.deepEqual(recapOf(s).best, { kind: 'ouch', player: 0, value: 20 });
+  s = start(2, 0, 'score');
+  s = score(s, 19, 2); s = score(s, 3);
+  assert.equal(recapOf(s).best, null);
+});
+
+test('roundRecap reason: everyone on 0 is decided by turn', () => {
+  let s = start(3, 0, 'score');
+  s = score(s, 0, 1); s = score(s, 0); s = score(s, 0);
+  const r = recapOf(s);
+  assert.deepEqual(r.reason, { kind: 'turn', score: 0 });
+  assert.equal(r.next, 1);
+});

@@ -86,6 +86,34 @@
     for (let k = 1; k <= n; k++) { const i = (g.starter + k) % n; if (early.includes(i)) return i; }
     return early[0];
   }
+  // what the round just finished did: totals before/after, points, its best moment and why the next
+  // round starts as it does. Built from the score sheet and g.shots only; the finished round is the
+  // one before the last (the engine starts the next round in the same action that books the last turn)
+  function roundRecap(g) {
+    if (g.rounds.length < 2) return null;
+    const n = g.players.length, fin = g.rounds.length - 2, rd = g.rounds[fin];
+    const order = orderFrom(rd.starter, n);
+    const pts = Array.from({ length: n }, (_, i) => (rd.results[i] ? rd.results[i].pts : 0));
+    const after = Array(n).fill(0);
+    for (let k = 0; k <= fin; k++) for (let i = 0; i < n; i++) if (g.rounds[k].results[i]) after[i] += g.rounds[k].results[i].pts;
+    const before = after.map((a, i) => a - pts[i]);
+    const first = f => order.find(f);
+    const booked = i => !!rd.results[i];
+    const topAfter = Math.max(...after), topBefore = Math.max(...before);
+    const alone = after.filter(a => a === topAfter).length === 1;
+    const danger = LIMIT - 15, ouch = 20, big = Math.max(...pts);
+    let best = null;
+    const pick = (kind, player, value = null) => { if (player !== undefined) best = { kind, player, value }; return player !== undefined; };
+    pick('firstRoll', first(i => booked(i) && pts[i] === 0 && rd.results[i].rolls === 1)) ||
+    pick('sevensOut', first(i => booked(i) && pts[i] === 0)) ||
+    pick('shots', first(i => (g.shots || []).some(x => x.player === i && x.round === rd.no))) ||
+    (alone && pick('newTop', first(i => after[i] === topAfter && before[i] !== topBefore))) ||
+    (() => { const p = first(i => before[i] < danger && after[i] >= danger); return pick('danger', p, p === undefined ? null : LIMIT - after[p]); })() ||
+    (big >= ouch && pick('ouch', first(i => pts[i] === big), big));
+    const t = tiedForStart({ players: after.map(score => ({ score })), rounds: g.rounds.slice(0, fin + 1), starter: rd.starter });
+    const reason = { kind: t.tied.length === 1 ? 'highest' : t.early.length === 1 ? 'first' : 'turn', score: t.max };
+    return { round: rd.no, next: g.rounds[fin + 1].starter, order, pts, before, after, best, reason };
+  }
   // the highest score loses; on a tie the player later in this round's order loses
   function highestLater(g) {
     let L = null;
@@ -353,6 +381,6 @@
     MAX_ROLLS, LIMIT, DICE, MAX_PLAYERS, MAX_PIPS,
     apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
     active, sumActive, maxPairs, finalPenalty, pairable, canRoll, matchPairs, current,
-    reachedAt, tiedForStart, nextStarter, highestLater
+    reachedAt, tiedForStart, nextStarter, highestLater, roundRecap
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

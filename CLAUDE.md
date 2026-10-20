@@ -105,7 +105,7 @@ These rules were agreed with the owner. Don't change them unless asked.
 
 - **It is pure:** it never mutates its input, and it has no DOM, storage or network code.
 - **Dice:** they come from `crypto.getRandomValues` with rejection sampling. On a server, the server rolls.
-- **Read-only helpers are exported too:** `active`, `byHand`, `finalPenalty`, `pairable`, `canRoll`, `matchPairs`, `tiedForStart` and others.
+- **Read-only helpers are exported too:** `active`, `byHand`, `finalPenalty`, `pairable`, `canRoll`, `matchPairs`, `tiedForStart`, `roundRecap` (summary of the round just finished, for the race between rounds) and others.
 
 **Actions:**
 
