@@ -163,9 +163,7 @@ button.die:active{transform:translateY(2px)}
 .hint{min-height:1.45em;margin:0;font-size:.92rem}
 
 /* set-aside rack */
-.rackhead{display:flex;justify-content:space-between;align-items:baseline;gap:4px 10px;flex-wrap:wrap}
 .h3{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
-.rackhead small{font-size:.78rem;color:var(--ink-soft)}
 .rack{display:flex;flex-wrap:wrap;gap:8px;min-height:2.9rem;align-items:center}
 .pair{display:inline-flex;align-items:center;gap:5px;padding:5px 9px 5px 6px;border-radius:10px;background:var(--card);border:1px solid var(--line)}
 button.pair{border:1.5px solid var(--brass)}
@@ -201,6 +199,23 @@ html:root[data-look="vegas"] .felt-turn .who{font-size:1.7rem}
 .racklabel{font-size:.8rem;opacity:.8}
 .rackrow .btn.small{margin-left:auto}
 html:root[data-look="vegas"] .rackrow{border-top-color:var(--reel-edge)}
+/* the real-dice turn (viewScore()): the entry and the keypad sit on the table, the rolls used and the floor row under it */
+.felt-turn .tray.table .tray-top{justify-content:space-between}
+.felt-turn .entry{font-size:3.4rem;padding-block:2px}
+.felt-turn .pad{gap:6px}
+.felt-turn .key{min-height:50px}
+.rollpick{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.rollpick .seg{flex:0 1 13rem;min-width:9rem}
+.rollpick .segbtn{min-height:44px}
+.hintrow{display:flex;align-items:center;justify-content:space-between;gap:4px 12px;min-height:1.45em}
+.hintrow .hint{flex:1 1 auto;text-align:left;min-width:0}
+.hintrow .link{flex:none;min-height:44px;padding-block:0}
+.hintrow.end{justify-content:center}
+.bar .btn.save{min-height:58px}
+.bar .row>.cancel{flex:2 1 0;min-width:0}
+/* a player's line in the real-dice list is a button: a hit area of 44 px around the row, whatever its height */
+.pl.editable{position:relative}
+.pl.editable::after{content:"";position:absolute;inset:calc((var(--rowh) - 44px) / 2) 0}
 /* a short phone (375×667): tighter spacing, so the table and the hint stay above the bar where they can */
 @media (max-height:700px){
   html.felt #app{padding-top:8px;gap:8px}
@@ -209,6 +224,8 @@ html:root[data-look="vegas"] .rackrow{border-top-color:var(--reel-edge)}
   .tray.table{padding:8px 12px}
   .table .dice{padding-block:4px}
   .rackrow .rack{min-height:2.3rem}
+  .felt-turn .entry{font-size:2.6rem}
+  .felt-turn .key{min-height:44px}
   .bar .btn.two,.bar .waiting{min-height:52px}
 }
 
@@ -340,11 +357,11 @@ html.sheet-open{overflow:hidden}
 .die.fly{position:fixed;margin:0;z-index:40;pointer-events:none}
 
 /* dice on the floor (scoreboard mode) */
-.floor{display:flex;align-items:center;gap:10px 12px;flex-wrap:wrap;padding:10px 12px;border:1.5px dashed var(--line);border-radius:12px}
-.floor-txt{display:flex;flex-direction:column;gap:2px;flex:1 1 9rem;min-width:0}
-.floor-txt small{font-size:.78rem;color:var(--ink-soft)}
+.floor{display:flex;align-items:center;gap:8px 12px;padding:4px 4px 4px 12px;border:1.5px dashed var(--line);border-radius:12px}
+.floor .h3{flex:1 1 auto;min-width:0}
+.floor .btn{white-space:nowrap;min-height:44px}
 .fslots{display:flex;gap:6px}
-.fslot{width:2rem;height:2rem;border-radius:8px;border:1.5px dashed var(--ink-soft);display:grid;place-items:center;opacity:.7}
+.fslot{width:1.8rem;height:1.8rem;border-radius:8px;border:1.5px dashed var(--ink-soft);display:grid;place-items:center;opacity:.7}
 .fslot.last{border-color:var(--danger)}
 .fslot.on{border-style:solid;opacity:1}
 .fslot .die.mini{--die:1.6rem;transform:rotate(-14deg)}
@@ -1846,18 +1863,15 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <div class="elist">${list}</div>
         <p class="etotal">Total <b id="edit-total">${s.ok ? s.total : '–'}</b><span>was ${g.players[p].score}</span></p>
         <p class="hint" id="edit-err" aria-live="polite">${s.ok ? '' : 'Each round needs a whole number from 0 to 36.'}</p>
-        <div class="actions">
-          <button class="btn primary" data-act="esave"${s.ok && s.changed ? '' : ' disabled'}>Save changes</button>
-          <button class="btn" data-act="ecancel">Cancel</button>
-        </div>
-      </section>`;
+      </section>` + bar(`<div class="row"><button class="btn two cancel" data-act="ecancel">Cancel</button><button class="btn two primary go" data-act="esave"${s.ok && s.changed ? '' : ' disabled'}>Save changes</button></div>`);
   }
 
+  // dice on the floor as one compact row: the label, the three slots and the button
   function floorRow(g){
     const drops = g.drops || 0, faces = [5, 2, 6];
-    return `<div class="floor">
-        <div class="floor-txt"><span class="h3">Dice on the floor</span><small>The third one pays a round of shots</small></div>
-        <div class="fslots" role="img" aria-label="${drops} of 3 dice on the floor">${[0, 1, 2].map(i => `<span class="fslot${i < drops ? ' on' : ''}${i === 2 ? ' last' : ''}">${i < drops ? mini(faces[i]) : ''}</span>`).join('')}</div>
+    return `<div class="floor" title="The third one pays a round of shots">
+        <span class="h3">Dice on the floor</span>
+        <div class="fslots" role="img" aria-label="${drops} of 3 dice on the floor. The third one pays a round of shots">${[0, 1, 2].map(i => `<span class="fslot${i < drops ? ' on' : ''}${i === 2 ? ' last' : ''}">${i < drops ? mini(faces[i]) : ''}</span>`).join('')}</div>
         ${seated() ? '<button class="btn small" data-act="drop">Die dropped</button>' : ''}
       </div>`;
   }
@@ -1869,16 +1883,16 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   }
   const waiting = (who, what) => `<p class="waiting"><span class="pulse" aria-hidden="true"></span>Waiting for ${esc(who)} to ${what}.</p>`;
 
+  // the real-dice turn: slim header, score list, the player's line, the leather table with the entry and the keypad,
+  // the starter's rolls used, the dice on the floor, and "Save · Name +N" pinned to the bottom
   function viewScore(){
-    const g = state.game, p = current(g), n = g.players.length, isStarter = g.pos === 0, act = canAct();
-    const sub = isStarter
-      ? `Roll your dice up to ${MAX_ROLLS} times, then enter the pips left on the table and how many rolls you used. Your rolls become the limit for everyone else.`
-      : `Up to ${plural(g.mark, 'roll')}, the limit ${esc(pname(g.starter))} set. Enter the pips left on the table.`;
+    const g = state.game, p = current(g), isStarter = g.pos === 0, act = canAct();
+    const sub = isStarter ? `Starts the round · up to ${plural(MAX_ROLLS, 'roll')}` : `Up to ${plural(g.mark, 'roll')}`;
     const val = ui.entry === '' ? null : +ui.entry;
     const keys = [1,2,3,4,5,6,7,8,9].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
       + `<button class="key fn" data-act="clear">Clear</button><button class="key" data-act="key" data-id="0">0</button><button class="key fn" data-act="back" aria-label="Delete last digit">⌫</button>`;
     const rollPick = isStarter
-      ? `<div class="pick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg" role="group" aria-labelledby="rolls-h">${[1,2,3].map(k => `<button class="segbtn${ui.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${ui.rolls === k}">${k}</button>`).join('')}</div></div>`
+      ? `<div class="rollpick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg" role="group" aria-labelledby="rolls-h">${[1,2,3].map(k => `<button class="segbtn${ui.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${ui.rolls === k}">${k}</button>`).join('')}</div></div>`
       : '';
     let label, ready = false;
     if (val === null) label = 'Enter the pips left';
@@ -1886,23 +1900,23 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     else { label = `Save · ${pname(p)} +${val}`; ready = true; }
     let hint = ui.hint != null ? ui.hint : (val === 0 ? 'Zero means all three pairs came out.' : '');
     if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the score for them.`;
+    const foot = `<div class="hintrow"><p class="hint" aria-live="polite">${esc(hint)}</p>${undoLink(g)}</div>`;
     const entry = act ? `
-        <div class="tray">
+        <div class="tray table">
           <div class="tray-top"><span class="tlabel">Pips left on the table</span><span class="tlabel">0–36</span></div>
           <div class="entry" aria-live="polite">${val === null ? '<span class="ph">–</span>' : val}</div>
+          <div class="pad">${keys}</div>
         </div>
-        <div class="pad">${keys}</div>
         ${rollPick}
-        <p class="hint" aria-live="polite">${esc(hint)}</p>
-        <div class="actions"><button class="btn primary" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>${undoLink(g)}</div>`
-      : `<p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${waiting(pname(p), 'enter their score')}<div class="actions">${undoLink(g)}</div>`;
-    return header(g) + board(g, p) + lastLine(g) + `
-      <section class="turn" aria-label="${esc(pname(p))}'s turn">
-        <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${nameOf(p)}</h2></div>
-        <p class="sub">${sub}</p>
         ${floorRow(g)}
+        ${foot}`
+      : `${floorRow(g)}${foot}`;
+    const actions = act ? `<button class="btn primary save" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>` : waiting(pname(p), 'enter their score');
+    return header(g) + board(g, p) + `
+      <section class="turn felt-turn" aria-label="${esc(pname(p))}'s turn">
+        <div class="turnhead"><h2 class="who">${nameOf(p)}</h2><p class="rolls"><small>${sub}</small></p></div>
         ${entry}
-      </section>`;
+      </section>` + bar(actions, { leather:true });
   }
 
   // the dice turn: slim header, score list, the player's line, the leather table with the dice and the pairs
@@ -1978,16 +1992,14 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const again = !online() ? '<button class="btn primary" data-act="again">Play again</button>'
       : amHost() ? '<button class="btn primary" data-act="oreopen">Play again with this room</button>'
       : waiting(hostName(), 'start a new game');
+    const undo = undoLink(g);
     return header(g) + `
       <section class="panel">
         <p class="eyebrow">${g.early ? 'Ended early in' : 'Game over after'} ${plural(g.round, 'round')}</p>
         <h1 class="verdict"><span>${esc(pname(L))}</span> loses</h1>
         <p class="sub">${esc(why)}</p>
         ${winner}
-        ${shotsSummary(g)}
-        ${again}
-        ${undoLink(g)}
-      </section>` + board(g, -1);
+      </section>` + board(g, -1) + shotsSummary(g) + (undo ? `<div class="hintrow end">${undo}</div>` : '') + bar(again);
   }
 
   // who sets the 7-pairs aside in dice mode: the player (the default) or the app

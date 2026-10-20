@@ -550,6 +550,7 @@ test('with normal motion the race starts exactly over the score list, and the cu
 });
 
 test('a score list scrolled away comes back into view, and the race starts from it', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 460 });                          // a screen too short for the whole turn
   await startLocal(page, { mode: 'score' });
   await enterScore(page, 10, 1);
   await page.click('[data-act=key][data-id="2"]'); await page.click('[data-act=key][data-id="0"]');
@@ -928,3 +929,128 @@ for (const motion of ['reduce', 'no-preference']) {
     expect(errors).toEqual([]);
   });
 }
+
+test.describe('the real-dice turn, corrections and game over', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const six = ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'];
+  const onScreen = async (page, sel) => {
+    const [box, h, w] = [await page.locator(sel).boundingBox(), ...(await page.evaluate(() => [innerHeight, innerWidth]))];
+    expect(box, sel).not.toBeNull();
+    expect(box.y, `${sel} top`).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, `${sel} bottom`).toBeLessThanOrEqual(h + 0.5);
+    expect(box.x + box.width, `${sel} right`).toBeLessThanOrEqual(w + 0.5);
+  };
+  const barAtBottom = async page => {
+    const [box, h] = [await page.locator('#app > .bar').boundingBox(), await page.evaluate(() => innerHeight)];
+    expect(Math.abs(box.y + box.height - h)).toBeLessThanOrEqual(1);
+  };
+
+  for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
+    test(`Save stays pinned on screen at ${vp.width}×${vp.height} with six players, in both looks`, async ({ page }) => {
+      await page.setViewportSize(vp);
+      await startLocal(page, { names: six, mode: 'score' });
+      for (let turn = 0; turn < 2; turn++) {                           // the starter (rolls used) and then a player who isn't
+        for (const lookId of ['0', '1']) {
+          await openMenu(page); await page.click(`[data-act=look][data-id="${lookId}"]`); await closeMenu(page);
+          expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
+          await expect(page.locator('.board .pl')).toHaveCount(6);
+          await page.click('[data-act=clear]');
+          await page.click('[data-act=key][data-id="7"]');
+          if (turn === 0) await page.click('[data-act=rolls][data-id="2"]');
+          await expect(page.locator('.bar [data-act=commit]')).toBeEnabled();
+          await expect(page.locator('.bar [data-act=commit]')).toContainText(/^Save · \w+ \+7$/);
+          for (const sel of ['.key', '.segbtn', '[data-act=drop]']) {
+            for (const b of await page.locator(`#app ${sel}`).all()) expect((await b.boundingBox()).height, sel).toBeGreaterThanOrEqual(44 - 0.5);
+          }
+          // Save is pinned: it is on screen and the list is complete at the top of the page, whatever the keypad needs
+          await page.evaluate(() => scrollTo(0, 0));
+          await onScreen(page, '.bar [data-act=commit]');
+          await barAtBottom(page);
+          await onScreen(page, '.board');
+          expect(await noSideScroll(page)).toBe(true);
+          expect((await page.locator('.bar [data-act=commit]').boundingBox()).height).toBeGreaterThanOrEqual(44);
+        }
+        await page.click('[data-act=commit]');
+      }
+    });
+  }
+
+  test('the real-dice screen: entry and keypad on the leather, rolls used for the starter only, Undo above the bar', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
+    await expect(page.locator('.rnd')).toHaveText('Round 1 · Anna sets the limit (max 3)');
+    expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
+    await expect(page.locator('.tray.table .tlabel').first()).toHaveText('Pips left on the table');
+    await expect(page.locator('.tray.table .pad .key')).toHaveCount(12);
+    await expect(page.locator('.floor')).toContainText('Dice on the floor');
+    await expect(page.locator('[data-act=undo]')).toHaveCount(0);
+    const save = page.locator('.bar [data-act=commit]');
+    await expect(save).toBeDisabled(); await expect(save).toHaveText('Enter the pips left');
+    await page.click('[data-act=key][data-id="1"]'); await page.click('[data-act=key][data-id="2"]');
+    await expect(save).toBeDisabled(); await expect(save).toHaveText('Choose the rolls used');
+    await page.click('[data-act=rolls][data-id="2"]');
+    await expect(save).toHaveText('Save · Anna +12');
+    await save.click();
+    await expect(page.locator('[data-act=rolls]')).toHaveCount(0);       // only the starter chooses the rolls
+    await expect(page.locator('.turnhead .rolls')).toHaveText('Up to 2 rolls');
+    const undo = await page.locator('[data-act=undo]').boundingBox(), bar = await page.locator('#app > .bar').boundingBox();
+    expect(undo.y + undo.height).toBeLessThanOrEqual(bar.y + 0.5);       // above the bar
+    await page.click('[data-act=undo]');
+    await expect(page.locator('.bar [data-act=commit]')).toHaveText('Enter the pips left');
+  });
+
+  test('every line of the real-dice list has a tap target of 44 px, also in the dense list', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await startLocal(page, { names: six, mode: 'score' });
+    await expect(page.locator('.board')).toHaveClass(/\bdense\b/);
+    const heights = await page.evaluate(() => [...document.querySelectorAll('.board .pl.editable')].map(li => parseFloat(getComputedStyle(li, '::after').height)));
+    expect(heights).toHaveLength(6);
+    for (const h of heights) expect(h).toBeGreaterThanOrEqual(44);
+    // a tap 18 px under the last line's centre (outside the 30 px row, inside its hit area) opens its corrections
+    const last = await page.locator('.board .pl').last().boundingBox();
+    await page.mouse.click(last.x + last.width / 2, last.y + last.height / 2 + 18);
+    await expect(page.locator('[data-act=esave]')).toBeVisible();
+    await expect(page.locator('#edit-h')).toHaveText('Maximilian Long');
+  });
+
+  test('corrections: Save changes and Cancel are pinned to the bottom, also on a short phone', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await startLocal(page, { names: six, mode: 'score' });
+    await enterScore(page, 10, 1);
+    await page.click('.board .pl[data-id="0"]');
+    expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(false);   // corrections stay on paper
+    const save = page.locator('.bar [data-act=esave]'), cancel = page.locator('.bar [data-act=ecancel]');
+    await expect(save).toBeDisabled();
+    await onScreen(page, '.bar [data-act=esave]'); await onScreen(page, '.bar [data-act=ecancel]');
+    await barAtBottom(page);
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+    await expect(page.locator('.board .pl')).toHaveCount(6);
+    await page.fill('#edit-1', '14');
+    await expect(save).toBeEnabled();
+    expect((await save.boundingBox()).height).toBeGreaterThanOrEqual(44);
+    await save.click();
+    await expect(page.locator('.board .pl[data-id="0"] .num')).toHaveText('14');
+    await page.click('.board .pl[data-id="0"]');
+    await cancel.click();
+    await expect(page.locator('.bar [data-act=commit]')).toBeVisible();
+  });
+
+  for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
+    test(`game over: Play again is pinned at ${vp.width}×${vp.height}, with the list sorted and Undo above the bar`, async ({ page }) => {
+      await page.setViewportSize(vp);
+      await playShortGame(page);
+      const again = page.locator('.bar [data-act=again]');
+      await expect(again).toHaveText('Play again');
+      await onScreen(page, '.bar [data-act=again]');
+      await barAtBottom(page);
+      expect((await again.boundingBox()).height).toBeGreaterThanOrEqual(44);
+      expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(false);
+      expect(await page.locator('.board .pl .nm').allTextContents()).toEqual(['Anna', 'Ben']);
+      await expect(page.locator('.board .pl.lost .dl')).toHaveText('Loses');
+      const undo = await page.locator('[data-act=undo]').boundingBox(), bar = await page.locator('#app > .bar').boundingBox();
+      expect(undo.y + undo.height).toBeLessThanOrEqual(bar.y + 0.5);
+      expect(await noSideScroll(page)).toBe(true);
+      await again.click();
+      await expect(page.locator('[data-act=start]')).toBeVisible();
+    });
+  }
+});
