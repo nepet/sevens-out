@@ -235,15 +235,21 @@ test('without options fetched ahead, a tap fetches them first', async ({ browser
   const page = await ctx.newPage();
   await addAuthenticator(page);
   let n = 0;
-  await page.route('**/auth/options', route => (++n <= 2 ? route.abort('internetdisconnected') : route.continue()));
+  const purposes = [];
+  await page.route('**/auth/options', route => { purposes.push(route.request().postDataJSON().purpose); return ++n <= 2 ? route.abort('internetdisconnected') : route.continue(); });
   await page.goto(localUrl('/'));
   await openYou(page);
   await expect(page.locator('[data-act=acreate]')).toBeVisible();
   await expect.poll(() => n).toBe(2);
+  expect([...purposes].sort()).toEqual(['create', 'signin']); // both sets fetched ahead, both failed
   await page.fill('#aname', 'Gus');
   await page.click('[data-act=acreate]');
   await expect(page.locator('.acct-name')).toContainText('Gus');
-  expect(n).toBeGreaterThanOrEqual(3); // the tap fetched its own set; signed in, the tab then fetches one for adding a passkey
+  // the tap fetched its own create set (used once); signed in, the You tab then fetches one set for adding a passkey, and nothing more
+  await expect.poll(() => purposes.length).toBe(4);
+  expect(purposes.slice(2)).toEqual(['create', 'add']);
+  await page.waitForTimeout(500);
+  expect(purposes).toHaveLength(4);
   await ctx.close();
 });
 
