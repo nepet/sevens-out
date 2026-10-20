@@ -305,6 +305,8 @@
         const rest = g.history.slice(), snap = JSON.parse(rest.pop());
         s.phase = snap.phase; s.game = snap.game; s.game.history = rest;
         ev.push({ type: 'undone', msg: snap.msg || null });
+        // a snapshot taken between rounds by an older version: move on at once
+        if (s.phase === 'roundEnd') { startNextRound(s); ev.push({ type: 'started', starter: s.game.starter }); }
         break;
       }
       case 'edit': {

@@ -1214,7 +1214,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   function viewEdit(){
     const g = state.game, p = ui.edit, s = editState();
-    const tag = state.phase === 'play' ? [g.starter, 'Starts'] : state.phase === 'roundEnd' ? [g.next, 'Starts next'] : [g.loser, 'Loses'];
+    const tag = state.phase === 'play' ? [g.starter, 'Starts'] : [g.loser, 'Loses'];
     const rows = g.rounds.filter(rd => rd.results[p]);
     const list = rows.length ? rows.map(rd => {
       const r = rd.results[p], raw = ui.editVals[rd.no], v = raw != null ? raw : String(r.pts);
@@ -1359,24 +1359,6 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <div class="rack">${rack}</div>
         <div class="actions">${actions}</div>
       </section>` + sheet(g) + rules() + devBlock() + footer();
-  }
-
-  function viewRoundEnd(){
-    const g = state.game;
-    const { max, tied, early } = tiedForStart(g);
-    const why = tied.length === 1
-      ? `${pname(g.next)} has the highest score (${max}), so ${pname(g.next)} starts the next round.`
-      : early.length === 1
-        ? `${listNames(tied)} share the highest score (${max}). ${pname(g.next)} got there first, so ${pname(g.next)} starts.`
-        : `${listNames(tied)} share the highest score (${max}) and got there at the same time, so the start passes to the next of them after ${pname(g.starter)}.`;
-    return header(g) + `
-      <section class="panel">
-        <p class="eyebrow">Round ${g.round} done</p>
-        <h2 class="who">${esc(pname(g.next))} starts round ${g.round + 1}</h2>
-        <p class="sub">${esc(why)}</p>
-        ${seated() ? `<button class="btn primary" data-act="nextround">Start round ${g.round + 1}</button>` : waiting('a player', 'start the next round')}
-        ${undoLink(g)}
-      </section>` + board(g, -1, g.next, 'Starts next') + sheet(g) + rules() + devBlock() + footer();
   }
 
   function viewOver(){
@@ -1547,7 +1529,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   }
 
   function devBlock(){
-    const live = (state.phase === 'play' || state.phase === 'roundEnd') && !!state.game && (!online() || amHost());
+    const live = state.phase === 'play' && !!state.game && (!online() || amHost());
     const confirm = live && ui.confirmEnd
       ? `<div class="confirm"><span>End the game now? The highest score loses${state.phase === 'play' ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
@@ -1560,7 +1542,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function footer(){
     if (ui.confirmNew) return `<div class="foot"><div class="confirm"><span>End this game and go back to the player setup?</span><button class="btn small danger" data-act="newyes">End game</button><button class="btn small" data-act="newno">Keep playing</button></div></div>`;
     if (ui.confirmLeave) return `<div class="foot"><div class="confirm"><span>Leave room ${esc(net.code)}?${state.game && net.inGame ? ' The game goes on without this phone; you can rejoin with the code.' : ''}</span><button class="btn small danger" data-act="oleaveyes">Leave room</button><button class="btn small" data-act="oleaveno">Stay</button></div></div>`;
-    const inGame = !online() && (state.phase === 'play' || state.phase === 'roundEnd');
+    const inGame = !online() && state.phase === 'play';
     const soundPick = `<div class="soundpick"><span class="h3" id="snd-h">Sound</span><div class="seg small" role="group" aria-labelledby="snd-h">${SOUND_OPTS.map(([v, label], i) =>
       `<button class="segbtn${soundMode === v ? ' on' : ''}" data-act="sound" data-id="${i}" aria-pressed="${soundMode === v}">${label}</button>`).join('')}</div></div>`;
     const lookPick = `<div class="soundpick"><span class="h3" id="look-h">Look</span><div class="seg small" role="group" aria-labelledby="look-h">${LOOK_OPTS.map(([v, label], i) =>
@@ -1717,13 +1699,12 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         dispatch({ type:'stop' }); break;
       }
       case 'end': if (g.turn.rolls && canAct()) dispatch({ type:'stop' }); break;
-      case 'nextround': if (seated()) dispatch({ type:'nextround' }); break;
       case 'new': ui.confirmNew = true; break;
       case 'newyes': toSetup(); break;
       case 'newno': break;
       case 'again': toSetup(); break;
-      case 'endearly': if ((state.phase === 'play' || state.phase === 'roundEnd') && (!online() || amHost())) ui.confirmEnd = true; break;
-      case 'endyes': if (state.phase === 'play' || state.phase === 'roundEnd') dispatch({ type:'endearly' }); break;
+      case 'endearly': if (state.phase === 'play' && (!online() || amHost())) ui.confirmEnd = true; break;
+      case 'endyes': if (state.phase === 'play') dispatch({ type:'endearly' }); break;
       case 'endno': break;
       case 'shake': {
         if (!canShake()) return;
@@ -1816,7 +1797,6 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function gameView(){
     return (ui.edit != null && E.isScore(state.game)) ? viewEdit()
       : state.phase === 'play' ? (E.isScore(state.game) ? viewScore() : viewPlay())
-      : state.phase === 'roundEnd' ? viewRoundEnd()
       : viewOver();
   }
   function render(){
@@ -1965,6 +1945,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function start(data){
     const s = (data && data.state) || load();
     if (s && s.setup) state = s;
+    // a game saved between rounds by an older version moves on to the next round
+    if (state.phase === 'roundEnd'){ const r = E.apply(state, { type:'nextround' }); if (!r.error){ state = r.state; save(); } }
     flushReports();
     // ?join=CODE opens the join screen with the code filled in
     let join = '';

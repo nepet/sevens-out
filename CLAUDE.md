@@ -127,7 +127,7 @@ The page saves the phone's own game to `localStorage['sevens-out-v1']`. Online g
 
 ```js
 state = {
-  phase: 'setup' | 'play' | 'roundEnd' | 'over',
+  phase: 'setup' | 'play' | 'over',   // 'roundEnd' only in games saved before rounds moved on by themselves
   setup: { names: [..], starter, mode: 'dice' | 'score', pairing: 'manual' | 'auto' },   // pass-and-play setup screen
   game: {
     mode, pairing?, players: [{ name, score }], seats?: [seatId..],   // pairing missing = auto (old saves); seats only online
@@ -170,7 +170,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Dice:** `roll`, `die`, `unpair`, `takeall`, `stop`, `end`
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
-- **Flow:** `nextround`, `again`, `new`/`newyes`/`newno`
+- **Flow:** `again`, `new`/`newyes`/`newno`
 - **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`
 - **Settings:** `sound`, `look`, `shake`
 - **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`

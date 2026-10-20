@@ -38,8 +38,15 @@ export class Room {
 
   async load() {
     if (this.data !== undefined) return this.data;
-    if (!this.loading) this.loading = this.storage.get().then(d => { this.data = d || null; return this.data; });
+    if (!this.loading) this.loading = this.storage.get().then(d => { this.data = d || null; this.moveOn(); return this.data; });
     return this.loading;
+  }
+  // a room saved between rounds by an older version moves on to the next round (stored on the next save)
+  moveOn() {
+    const st = this.data && this.data.state;
+    if (!st || st.phase !== 'roundEnd') return;
+    const r = this.E.apply(st, { type: 'nextround' });
+    if (!r.error) this.data.state = r.state;
   }
   async save() {
     this.data.updated = this.now();

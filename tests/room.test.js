@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../engine.js';
+import { legacyRoundEnd } from './games.js';
 import { Room } from '../server/core/room.js';
 
 const E = globalThis.SevensEngine;
@@ -21,7 +22,7 @@ function makeRoom(stats = null) {
   const room = new Room({ engine: E, storage, net, stats });
   const connect = () => { const c = { inbox: [], open: true, seat: null }; conns.add(c); return c; };
   const drop = async c => { c.open = false; conns.delete(c); await room.closed(c); };
-  return { room, connect, drop, stored: () => stored && JSON.parse(stored), fresh: () => new Room({ engine: E, storage, net, stats }) };
+  return { room, connect, drop, setStored: d => { stored = JSON.stringify(d); }, stored: () => stored && JSON.parse(stored), fresh: () => new Room({ engine: E, storage, net, stats }) };
 }
 const send = (room, c, m) => room.message(c, JSON.stringify(m), 'K7QPM');
 const last = (c, t) => [...c.inbox].reverse().find(m => m.t === t);
@@ -276,4 +277,23 @@ test('statistics: "New game" reaches everyone before the abandoned game is recor
   assert.deepEqual(seen.at(-1), ['abandoned', 'lobby'], 'the lobby is shown first');
   assert.equal(last(a, 'room').room.phase, 'lobby');
   assert.equal(last(a, 'error'), undefined, 'a failing record does not abort the reopen');
+});
+
+test('a room saved between rounds moves on to the next round when it loads', async () => {
+  const r = await lobbyOf2({ mode: 'score' });
+  await send(r.room, r.a, { t: 'lobby', op: 'start' });
+  const tokenA = last(r.a, 'welcome').token;
+  for (let i = 0; i < 2; i++) {
+    const g = last(r.a, 'room').state.game, who = g.seats[g.order[g.pos]] === last(r.a, 'welcome').seat ? r.a : r.b;
+    await send(r.room, who, { t: 'act', action: { type: 'score', pts: i ? 30 : 10, rolls: i ? undefined : 1 } });
+  }
+  const d = r.stored(), after = d.state;
+  assert.equal(after.game.round, 2);
+  d.state = legacyRoundEnd(after);
+  assert.equal(d.state.phase, 'roundEnd');
+  r.setStored(d);
+  const again = r.fresh(), c = r.connect();
+  await again.message(c, JSON.stringify({ t: 'hello', token: tokenA }), 'K7QPM');
+  const st = last(c, 'room').state;
+  assert.deepEqual([st.phase, st.game.round, st.game.starter], ['play', 2, after.game.starter]);
 });

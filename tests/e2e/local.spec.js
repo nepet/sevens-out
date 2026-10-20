@@ -1,6 +1,7 @@
 // Pass-and-play on one phone: both modes, the animations, corrections, the shots alarm and shake to roll.
 import { test, expect } from '@playwright/test';
 import '../../engine.js';
+import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
 import { saved, idle, fixDice, startLocal, enterScore, checkSheet, noSideScroll } from './helpers.js';
 
@@ -300,4 +301,20 @@ test.describe('statistics', () => {
     await playShortGame(page);
     expect((await saved(page)).phase).toBe('over');
   });
+});
+
+test('a game saved between rounds carries on', async ({ page }) => {
+  const E = globalThis.SevensEngine;
+  let s = must(E.blank(), { type: 'start', names: ['Anna', 'Ben'], starter: 0, mode: 'score' });
+  s = must(s, { type: 'score', pts: 10, rolls: 1 });
+  s = must(s, { type: 'score', pts: 20 });
+  const old = legacyRoundEnd(s);
+  await page.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(old));
+  await page.goto('/');
+  const now = await saved(page);
+  expect(now.phase).toBe('play');
+  expect(now.game.round).toBe(2);
+  expect(now.game.starter).toBe(1);
+  await expect(page.locator('[data-act=nextround]')).toHaveCount(0);
+  await expect(page.locator('.board')).toBeVisible();
 });

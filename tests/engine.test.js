@@ -365,3 +365,19 @@ test('ending early: the highest score loses and the game is marked early', () =>
   assert.equal(r.state.game.loser, 0);
   assert.ok(r.state.game.early);
 });
+
+test('undo to a snapshot taken between rounds by an older version moves on to the next round', () => {
+  let s = start(2, 0, 'score');
+  s = score(s, 10, 1); s = score(s, 20);
+  const old = legacyRoundEnd(s), snapGame = E.clone(old.game);
+  delete snapGame.history;
+  const state = E.clone(s);
+  state.game.history = [JSON.stringify({ phase: 'roundEnd', game: snapGame, msg: 'x' })];
+  const r = must(state, { type: 'undo' });
+  assert.deepEqual(r.events.map(e => e.type), ['undone', 'started']);
+  assert.deepEqual([r.state.phase, r.state.game.round, r.state.game.starter], ['play', 2, 1]);
+  assert.deepEqual(r.state.game.history, []);
+  const direct = must(old, { type: 'nextround' }).state;
+  delete direct.game.history; const got = E.clone(r.state); delete got.game.history;
+  assert.deepEqual(got, direct);
+});
