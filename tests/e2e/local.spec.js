@@ -275,7 +275,7 @@ test.describe('the score list', () => {
       await openMenu(page); await page.click(`[data-act=look][data-id="${lookId}"]`); await closeMenu(page);
       await expect(page.locator('.board .pl')).toHaveCount(6);
       const box = await page.locator('.board').boundingBox();
-      expect(box.height).toBeLessThanOrEqual(260);
+      expect(box.height).toBeLessThanOrEqual(340);   // real dice: tappable 44 px rows (the dice turn's dense list is about 260)
       expect(await noSideScroll(page)).toBe(true);
       // a name longer than its column is cut, not wrapped
       const nm = page.locator('.board .pl[data-id="5"] .nm');
@@ -998,17 +998,30 @@ test.describe('the real-dice turn, corrections and game over', () => {
     await expect(page.locator('.bar [data-act=commit]')).toHaveText('Enter the pips left');
   });
 
-  test('every line of the real-dice list has a tap target of 44 px, also in the dense list', async ({ page }) => {
+  test('every line of the real-dice list is a real 44 px tap target, also with six players', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await startLocal(page, { names: six, mode: 'score' });
-    await expect(page.locator('.board')).toHaveClass(/\bdense\b/);
-    const heights = await page.evaluate(() => [...document.querySelectorAll('.board .pl.editable')].map(li => parseFloat(getComputedStyle(li, '::after').height)));
-    expect(heights).toHaveLength(6);
-    for (const h of heights) expect(h).toBeGreaterThanOrEqual(44);
-    // a tap 18 px under the last line's centre (outside the 30 px row, inside its hit area) opens its corrections
+    await expect(page.locator('.board')).toHaveClass(/\btall\b/);
+    // hit-test each row at its centre and 21 px above and below it: it must be that row that answers
+    const bad = await page.evaluate(() => {
+      const out = [];
+      for (const li of document.querySelectorAll('.board .pl.editable')) {
+        li.scrollIntoView({ block: 'center' });
+        const r = li.getBoundingClientRect(), x = r.left + r.width / 2, cy = r.top + r.height / 2;
+        if (r.height < 44 - 0.5) out.push([li.dataset.id, 'height', r.height]);
+        for (const dy of [-21, 0, 21]) {
+          const hit = document.elementFromPoint(x, cy + dy);
+          if (!hit || hit.closest('li.pl') !== li) out.push([li.dataset.id, dy]);
+        }
+      }
+      return out;
+    });
+    expect(bad).toEqual([]);
+    await page.evaluate(() => scrollTo(0, 0));
+    await expect(page.locator('.board .pl')).toHaveCount(6);
+    await onScreen(page, '.bar [data-act=commit]');
     const last = await page.locator('.board .pl').last().boundingBox();
-    await page.mouse.click(last.x + last.width / 2, last.y + last.height / 2 + 18);
-    await expect(page.locator('[data-act=esave]')).toBeVisible();
+    await page.mouse.click(last.x + last.width / 2, last.y + last.height / 2 + 20);
     await expect(page.locator('#edit-h')).toHaveText('Maximilian Long');
   });
 

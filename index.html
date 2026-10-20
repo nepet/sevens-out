@@ -79,6 +79,8 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 :is(.board,.race-card){--rowh:36px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px 8px 6px;display:flex;flex-direction:column;gap:2px}
 /* 5 or 6 players: denser rows, so the whole list stays on screen */
 :is(.board,.race-card).dense{--rowh:30px}
+/* lines you can tap (real dice, seated): a real 44 px row, also with 5 or 6 players */
+:is(.board,.race-card).tall{--rowh:44px}
 .bhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-height:18px;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
 .bhead>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bhead>span:last-child{flex:none}
@@ -110,8 +112,6 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 .pl.editable:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
 .pl.editable.now:hover{background:color-mix(in srgb,var(--brass) 24%,transparent)}
 .bfoot{margin:2px 0 0;font-size:.72rem;color:var(--ink-soft)}
-.last{font-size:.9rem;color:var(--ink-soft);margin:0}
-.last b{color:var(--ink)}
 /* without color-mix() (Safari before 16.2): plain tokens. A plain declaration placed before a color-mix() one wouldn't
    help: a declaration with var() is checked only after the tokens are filled in, and an invalid one falls back to unset.
    For the same reason the feature test names plain colours: with var() in it, it would always pass */
@@ -213,9 +213,6 @@ html:root[data-look="vegas"] .rackrow{border-top-color:var(--reel-edge)}
 .hintrow.end{justify-content:center}
 .bar .btn.save{min-height:58px}
 .bar .row>.cancel{flex:2 1 0;min-width:0}
-/* a player's line in the real-dice list is a button: a hit area of 44 px around the row, whatever its height */
-.pl.editable{position:relative}
-.pl.editable::after{content:"";position:absolute;inset:calc((var(--rowh) - 44px) / 2) 0}
 /* a short phone (375×667): tighter spacing, so the table and the hint stay above the bar where they can */
 @media (max-height:700px){
   html.felt #app{padding-top:8px;gap:8px}
@@ -358,7 +355,8 @@ html.sheet-open{overflow:hidden}
 
 /* dice on the floor (scoreboard mode) */
 .floor{display:flex;align-items:center;gap:8px 12px;padding:4px 4px 4px 12px;border:1.5px dashed var(--line);border-radius:12px}
-.floor .h3{flex:1 1 auto;min-width:0}
+.floor-txt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+.floor-txt small{font-size:.74rem;color:var(--ink-soft)}
 .floor .btn{white-space:nowrap;min-height:44px}
 .fslots{display:flex;gap:6px}
 .fslot{width:1.8rem;height:1.8rem;border-radius:8px;border:1.5px dashed var(--ink-soft);display:grid;place-items:center;opacity:.7}
@@ -1793,7 +1791,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         tag:lost ? 'Loses' : over && !r ? '–' : null, lost, edit });
     }).join('');
     const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
-    return `<section class="board${g.players.length >= 5 ? ' dense' : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
+    return `<section class="board${edit ? ' tall' : g.players.length >= 5 ? ' dense' : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
       <ol class="lines"${edit ? ' role="none"' : ''}>${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
   }
   // one line: turn marker, name (a die mark for the round's starter), bar towards 101 with the last 15 hatched,
@@ -1836,10 +1834,6 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return `<button class="die${sel ? ' sel' : ''}${can.has(d.id) ? ' can' : ''}${ui.nope === d.id ? ' nope' : ''}" data-act="die" data-id="${d.id}" aria-pressed="${sel}" aria-label="Die showing ${d.value}">${face(d.value)}</button>`;
   }
 
-  function lastLine(g){
-    const L = g.last; if (!L) return '';
-    return `<p class="last"><b>${esc(pname(L.player))}</b> ${L.pts === 0 ? 'cleared all six dice' : `left <b>${L.pts}</b> on the table`}${L.rolls != null ? ` after ${plural(L.rolls, 'roll')}` : ''} and is now at <b>${L.total}</b>.</p>`;
-  }
   const undoLink = g => isScore(g) && seated() && g.history && g.history.length ? '<button class="link" data-act="undo">Undo last entry</button>' : '';
 
   function viewEdit(){
@@ -1869,8 +1863,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // dice on the floor as one compact row: the label, the three slots and the button
   function floorRow(g){
     const drops = g.drops || 0, faces = [5, 2, 6];
-    return `<div class="floor" title="The third one pays a round of shots">
-        <span class="h3">Dice on the floor</span>
+    return `<div class="floor">
+        <span class="floor-txt"><span class="h3">Dice on the floor</span><small>3rd one pays the shots</small></span>
         <div class="fslots" role="img" aria-label="${drops} of 3 dice on the floor. The third one pays a round of shots">${[0, 1, 2].map(i => `<span class="fslot${i < drops ? ' on' : ''}${i === 2 ? ' last' : ''}">${i < drops ? mini(faces[i]) : ''}</span>`).join('')}</div>
         ${seated() ? '<button class="btn small" data-act="drop">Die dropped</button>' : ''}
       </div>`;
@@ -2366,7 +2360,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
         el = document.createElement('div');
         el.className = 'race';
-        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${list && list.classList.contains('dense') ? ' dense' : ''}" aria-hidden="true">
+        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${list && list.classList.contains('dense') ? ' dense' : ''}${list && list.classList.contains('tall') ? ' tall' : ''}" aria-hidden="true">
             <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
             <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
             ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}

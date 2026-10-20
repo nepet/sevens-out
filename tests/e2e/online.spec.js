@@ -165,6 +165,50 @@ test('everyone sees the roll animation and the Sevens Out celebration', async ({
 test.describe('real dice, scores here', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
+  test('the bar: a phone out of turn waits, the host covers an offline player, and game over has Play again', async ({ browser }) => {
+    const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
+    const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+    await A.page.click('[data-act=omode][data-id="1"]');
+    await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    await A.page.click('[data-act=ostart]');
+    // Ben's phone: the waiting note sits in the bar, with no keypad and no Save
+    await expect(B.page.locator('#app > .bar .waiting')).toContainText('Waiting for Anna to enter their score');
+    await expect(B.page.locator('.pad')).toHaveCount(0);
+    await expect(B.page.locator('#app > .bar [data-act=commit]')).toHaveCount(0);
+    await expect(A.page.locator('#app > .bar [data-act=commit]')).toHaveText('Enter the pips left');
+    await enterScore(A.page, 36, 1);
+    // Ben goes offline: the host gets the keypad and Save for him
+    await expect(B.page.locator('#app > .bar [data-act=commit]')).toBeVisible();
+    await B.ctx.close();
+    await expect(A.page.locator('.pl-away')).toHaveText('Offline');
+    await expect(A.page.locator('.pad')).toBeVisible();
+    await expect(A.page.locator('#app > .bar .waiting')).toHaveCount(0);
+    await A.page.click('[data-act=key][data-id="5"]');
+    await expect(A.page.locator('#app > .bar [data-act=commit]')).toHaveText('Save · Ben +5');
+    await A.page.click('[data-act=commit]');
+    await skipRace(A.page);
+    await A.ctx.close();
+  });
+
+  test('game over: the host\'s bar says Play again with this room, a guest waits', async ({ browser }) => {
+    const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
+    const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+    await A.page.click('[data-act=omode][data-id="1"]');
+    await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    await A.page.click('[data-act=ostart]');
+    for (let round = 1; round <= 3; round++) {
+      await enterScore(A.page, 36, 1);
+      await expect(B.page.locator('#app > .bar [data-act=commit]')).toBeVisible();
+      await enterScore(B.page, 5);
+      if (round < 3) { await skipRace(A.page); await skipRace(B.page); }
+    }
+    await expect(A.page.locator('.verdict')).toContainText('loses');
+    await expect(A.page.locator('#app > .bar [data-act=oreopen]')).toHaveText('Play again with this room');
+    await expect(B.page.locator('#app > .bar .waiting')).toContainText('Waiting for Anna to start a new game');
+    await expect(B.page.locator('#app > .bar [data-act=oreopen]')).toHaveCount(0);
+    await A.ctx.close(); await B.ctx.close();
+  });
+
   test('each player enters their own score; dropped dice and the shots alarm are shared', async ({ browser }) => {
     const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
     const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
