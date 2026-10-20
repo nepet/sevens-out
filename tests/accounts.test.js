@@ -208,7 +208,9 @@ test('origins, CORS, methods, sizes, bad input, rate limit and storage errors', 
   assert.equal((await s.call('POST', '/auth/options', { body: '{' })).body.error, 'not_json');
   assert.equal((await s.call('POST', '/auth/options', { body: [] })).body.error, 'not_json');
   assert.equal((await s.call('POST', '/auth/options', { body: { purpose: 'root' } })).body.error, 'purpose');
-  assert.equal((await s.call('POST', '/auth/options', { body: { purpose: 'create', name: ' \n ' } })).body.error, 'name');
+  const blank = await s.call('POST', '/auth/options', { body: { purpose: 'create', name: ' \n ' } });
+  const cred = await (await softAuthenticator({ origin: ORIGIN })).create({ challenge: blank.body.challenge });
+  assert.equal((await s.call('POST', '/auth/create', { body: { challengeId: blank.body.challengeId, credential: cred, name: '  ' } })).body.error, 'name', 'a player needs a name');
   const o = await s.call('POST', '/auth/options', { body: { purpose: 'signin' } });
   assert.equal((await s.call('POST', '/auth/signin', { body: { challengeId: o.body.challengeId, credential: 5 } })).body.error, 'unknown_passkey');
   const o2 = await s.call('POST', '/auth/options', { body: { purpose: 'create', name: 'A' } });
@@ -267,4 +269,16 @@ test('a game rewritten for a room that still remembers a deleted player drops th
   await s.call('DELETE', '/auth/me', { token });
   await writeRecord(s.db, rec(player.id));
   assert.equal(s.d1.raw.prepare('SELECT user_id FROM players WHERE idx = 0').get().user_id, null);
+});
+
+test('options fetched before the tap: a create challenge without a name, the name comes with create', async () => {
+  const s = server(), auth = await softAuthenticator({ origin: ORIGIN });
+  const o = await s.call('POST', '/auth/options', { body: { purpose: 'create' } });
+  assert.equal(o.status, 200);
+  assert.match(o.body.user.tag, /^[0-9a-f]{4}$/);
+  assert.equal(o.body.user.name, undefined, 'the page names the passkey itself');
+  const credential = await auth.create({ challenge: o.body.challenge, userId: o.body.user.id });
+  const r = await s.call('POST', '/auth/create', { body: { challengeId: o.body.challengeId, credential, name: ' Cleo ' } });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.player.name, r.body.player.tag], ['Cleo', o.body.user.tag]);
 });

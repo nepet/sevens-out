@@ -11,7 +11,9 @@
  * Routes (JSON; a session is `Authorization: Bearer <token>`):
  *   GET    /auth/config              -> { ok }                       the page's feature probe
  *   POST   /auth/options             { purpose: create|signin|add, name? } -> { challengeId, challenge, user?, exclude? }
- *   POST   /auth/create              { challengeId, credential }    -> { token, player }
+ *   POST   /auth/create              { challengeId, credential, name? } -> { token, player }
+ * The page fetches options before the tap (Safari wants the passkey prompt straight from a tap), so a create
+ * challenge may come without a name; the name then comes with /auth/create.
  *   POST   /auth/signin              { challengeId, credential }    -> { token, player }
  *   POST   /auth/passkeys            { challengeId, credential }    -> { passkey }   (session)
  *   DELETE /auth/passkeys/<id>                                      -> 204           (session; never the last one; ends the player's other sessions)
@@ -148,15 +150,13 @@ async function route(request, { db, origins, now }) {
     const c = { id: randomHex(16), challenge: b64url.encode(crypto.getRandomValues(new Uint8Array(32))), purpose, expiresAt: now + store.CHALLENGE_TTL_MS };
     const out = { challengeId: c.id, challenge: c.challenge, rp: { name: RP_NAME } };
     if (purpose === 'create') {
-      const name = cleanName(body.name);
-      if (!name) refuse(400, 'name');
-      Object.assign(c, { userId: randomHex(8), name });
+      Object.assign(c, { userId: randomHex(8), name: cleanName(body.name) || null });
     } else if (purpose === 'add') {
       const { user } = await signedIn(request, db, now);
       Object.assign(c, { userId: user.id, name: user.name });
       out.exclude = (await store.listPasskeys(db, user.id)).map(k => k.id);
     }
-    if (c.userId) out.user = { id: userHandleOf(c.userId), name: `${c.name} #${c.userId.slice(0, 4)}`, displayName: c.name };
+    if (c.userId) out.user = { id: userHandleOf(c.userId), tag: c.userId.slice(0, 4), ...(c.name && { name: `${c.name} #${c.userId.slice(0, 4)}`, displayName: c.name }) };
     await store.putChallenge(db, c);
     return { body: out };
   }
@@ -164,11 +164,13 @@ async function route(request, { db, origins, now }) {
   if (at('POST', '/auth/create')) {
     const body = await readJson(request);
     const c = await challengeFor(db, body, 'create', now);
+    const name = cleanName(body.name) || c.name;
+    if (!name) refuse(400, 'name');
     const key = await verifyRegistration({ credential: body.credential, challenge: c.challenge, origins });
     if (await store.getPasskey(db, key.credentialId)) refuse(409, 'passkey_taken');
     const { token, session } = await newSession(c.userId, now);
-    await storeNew(() => store.createUser(db, { id: c.userId, name: c.name, now, passkey: passkeyRow(key), session }));
-    return { body: { token, player: playerOf({ id: c.userId, name: c.name }) } };
+    await storeNew(() => store.createUser(db, { id: c.userId, name, now, passkey: passkeyRow(key), session }));
+    return { body: { token, player: playerOf({ id: c.userId, name }) } };
   }
 
   if (at('POST', '/auth/signin')) {

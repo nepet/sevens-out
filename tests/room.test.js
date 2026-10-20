@@ -362,7 +362,7 @@ test('players: a guest who signs in keeps their seat as that player', async () =
 test('players: without accounts, or when they fail, everyone plays as a guest', async () => {
   const r = makeRoom(), a = r.connect();
   await send(r.room, a, { t: 'hello', name: 'Anna', session: 'sess-anna', create: true });
-  assert.equal(last(a, 'welcome').user, null);
+  assert.ok(!('user' in last(a, 'welcome')), 'a server without accounts never signs a phone out');
   assert.equal(last(a, 'room').room.seats[0].user, null);
   const broken = makeRoom(null, { resolve: async () => { throw new Error('D1 is down'); } }), c = broken.connect();
   const err = console.error; console.error = () => {};
