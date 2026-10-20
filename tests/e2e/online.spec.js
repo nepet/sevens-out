@@ -541,6 +541,12 @@ test('Online tab and lobby: the layout, Share invite, and Start pinned for the h
   await expect(start).toBeInViewport();
   await expect(page.locator('.tabbar')).toHaveCount(0);
   await expect(page.locator('.seat .tag')).toHaveText('Host');
+  // the online dot takes its colour from the look's --ok token
+  expect(await page.locator('.seat .dot.on').evaluate(el => {
+    const probe = document.createElement('i'); probe.style.color = 'var(--ok)'; document.body.append(probe);
+    const ok = getComputedStyle(probe).color; probe.remove();
+    return getComputedStyle(document.documentElement).getPropertyValue('--ok').trim() !== '' && getComputedStyle(el).backgroundColor === ok;
+  })).toBe(true);
   // Share invite without a share sheet copies the link
   await page.click('[data-act=ocopy]');
   await expect(page.locator('.hint')).toHaveText('Link copied. Send it to the others.');
@@ -553,6 +559,14 @@ test('Online tab and lobby: the layout, Share invite, and Start pinned for the h
   // Leave room is in the menu
   await openMenu(page);
   await expect(page.locator('.sheet-layer [data-act=oleave]')).toBeVisible();
+  // the shown link belongs to that room: leaving and hosting another room starts without it
+  await page.click('.sheet-layer [data-act=oleave]');
+  await page.click('.sheet-layer [data-act=oleaveyes]');
+  await page.click('[data-act=online]');
+  await page.click('[data-act=ocreate]');
+  await expect(page.locator('.roomcode')).not.toHaveText(code);
+  await expect(page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  await expect(page.locator('#olink')).toHaveCount(0);
   await ctx.close();
 });
 

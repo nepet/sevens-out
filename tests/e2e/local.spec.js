@@ -845,8 +845,30 @@ test.describe('the dice turn screen', () => {
         expect(stop.width / (stop.width + roll.width)).toBeCloseTo(0.4, 1);   // Stop about 40%, Roll about 60%
         expect(Math.min(stop.height, roll.height)).toBeGreaterThanOrEqual(44);
       }
+      // armed: the hint fits on one line above the bar, and nothing scrolls
+      await page.click('.bar [data-act=stop]');
+      const hint = page.locator('#app > .felt-turn .hint');
+      await expect(hint).toContainText('Tap again to stop');
+      const [hb, bb] = [await hint.boundingBox(), await page.locator('#app > .bar').boundingBox()];
+      const lh = await hint.evaluate(el => parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.4);
+      expect(hb.height, 'one line').toBeLessThan(lh * 1.5);
+      expect(hb.y + hb.height, 'above the bar').toBeLessThanOrEqual(bb.y + 0.5);
+      expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
     });
   }
+
+  test('a small phone with six players and two pairs in the rack: the table and the hint stay above the bar', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 5, 3, 3]);                         // two pairs of 7 come out on the first roll
+    await page.setViewportSize({ width: 375, height: 667 });
+    await startLocal(page, { names: six, pairing: 'auto' });
+    await page.click('.bar [data-act=roll]');
+    await idle(page);
+    await expect(page.locator('.rack .pair')).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    const [hint, bar] = [await page.locator('#app > .felt-turn > .hint').boundingBox(), await page.locator('#app > .bar').boundingBox()];
+    expect(hint.y + hint.height).toBeLessThanOrEqual(bar.y + 0.5);
+    for (const b of await page.locator('.rack .pair, .dice .die').all()) expect((await b.boundingBox()).height).toBeGreaterThanOrEqual(44 - 0.5);
+  });
 
   test('with a short list the bar still sits on the bottom edge', async ({ page }) => {
     await startLocal(page);
@@ -1000,12 +1022,22 @@ test.describe('the real-dice turn, corrections and game over', () => {
     await save.click();
     await expect(page.locator('[data-act=rolls]')).toHaveCount(0);       // only the starter chooses the rolls
     await expect(page.locator('.turnhead .rolls')).toHaveText('Up to 2 rolls');
-    // scrolled to the end (Start used to leave the page there; it is pinned now): Undo is above the bar
-    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+    // three players fit on a 390×844 phone: without scrolling, Undo is on screen above the bar
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    await expect(page.locator('[data-act=undo]')).toBeInViewport();
     const undo = await page.locator('[data-act=undo]').boundingBox(), bar = await page.locator('#app > .bar').boundingBox();
     expect(undo.y + undo.height).toBeLessThanOrEqual(bar.y + 0.5);       // above the bar
     await page.click('[data-act=undo]');
     await expect(page.locator('.bar [data-act=commit]')).toHaveText('Enter the pips left');
+    // the next round's starter has Rolls used and Undo too: still no scrolling with three players
+    await enterScore(page, 12, 2); await enterScore(page, 5); await enterScore(page, 7);
+    await skipRace(page);
+    await expect(page.locator('[data-act=rolls]')).toHaveCount(3);
+    await expect(page.locator('[data-act=undo]')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    const undo2 = await page.locator('[data-act=undo]').boundingBox(), bar2 = await page.locator('#app > .bar').boundingBox();
+    expect(undo2.y + undo2.height).toBeLessThanOrEqual(bar2.y + 0.5);
   });
 
   test('every line of the real-dice list is a real 44 px tap target, also with six players', async ({ page }) => {
@@ -1283,6 +1315,57 @@ test.describe("Who's playing", () => {
     await expect(page.locator('.board')).toBeVisible();
     await expect(page.locator('.bar [data-act=commit]')).toBeVisible();
     await expect(page.locator('[data-act=play].play')).toHaveCount(0);
+  });
+
+  test('a small phone with six players: Start stays pinned on screen while the card scrolls', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/');
+    await toPlayers(page);
+    for (let i = 2; i < 6; i++) await page.click('[data-act=add]');
+    await expect(page.locator('.pcard .prow')).toHaveCount(6);
+    for (const y of [0, 'end']) {
+      await page.evaluate(v => scrollTo(0, v === 'end' ? document.documentElement.scrollHeight : v), y);
+      const [box, h] = [await page.locator('#app > .bar [data-act=start]').boundingBox(), await page.evaluate(() => innerHeight)];
+      expect(box.y, `top (${y})`).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height, `bottom (${y})`).toBeLessThanOrEqual(h + 0.5);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    // the last row and the mode row are reachable above the bar
+    const bar = await page.locator('#app > .bar').boundingBox();
+    for (const sel of ['#name-5', '#app [data-act=play]']) {
+      const b = await page.locator(sel).boundingBox();
+      expect(b.y + b.height, sel).toBeLessThanOrEqual(bar.y + 0.5);
+    }
+    expect(await noSideScroll(page)).toBe(true);
+    await page.click('[data-act=start]');
+    await expect(page.locator('.board .pl')).toHaveCount(6);
+  });
+
+  test('a literal save from an older page, mid-turn, opens the dice turn and plays on', async ({ page }) => {
+    // written by hand as a page from before 7s by hand, the floor counter, statistics and the Play sheet saved it:
+    // no setup.pairing/where, no game.pairing/drops/shots, no stats; Ben's turn, one roll made and one pair set aside
+    const old = '{"phase":"play","setup":{"names":["Anna","Ben"],"starter":0,"mode":"dice"},"game":{"mode":"dice","history":[],'
+      + '"players":[{"name":"Anna","score":9},{"name":"Ben","score":0}],"round":1,"starter":0,"order":[0,1],"pos":1,"mark":2,'
+      + '"ending":false,"crosser":null,"next":null,"loser":null,"last":null,'
+      + '"rounds":[{"no":1,"starter":0,"mark":2,"results":{"0":{"pts":9,"rolls":2}}}],'
+      + '"turn":{"dice":[{"id":0,"value":3,"held":1},{"id":1,"value":4,"held":1},{"id":2,"value":2,"held":null},{"id":3,"value":2,"held":null},{"id":4,"value":6,"held":null},{"id":5,"value":6,"held":null}],'
+      + '"rolls":1,"maxRolls":2,"pairs":[{"a":0,"b":1,"roll":1}]}}}';
+    await page.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, old);
+    const errors = []; page.on('pageerror', e => errors.push(e.message));
+    await page.goto('/');
+    expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
+    await expect(page.locator('.board .pl')).toHaveCount(2);
+    await expect(page.locator('h2.who')).toContainText('Ben');
+    await expect(page.locator('.rolls small')).toHaveText('Roll 1 of 2');
+    await expect(page.locator('.tval')).toHaveText('16');
+    await expect(page.locator('.rack .pair')).toHaveCount(1);
+    await expect(page.locator('.bar [data-act=stop]')).toContainText('+16');
+    await expect(page.locator('.bar [data-act=roll]')).toContainText('last roll');
+    await expect(page.locator('.tabbar')).toHaveCount(0);
+    await page.click('.bar [data-act=roll]');
+    await expect.poll(async () => (await saved(page)).game.turn.rolls).toBe(2);
+    await expect(page.locator('.bar [data-act=end]')).toBeVisible();
+    expect(errors).toEqual([]);
   });
 
   test('a saved setup without the new fields loads home, then this screen with its names', async ({ page }) => {
