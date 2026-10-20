@@ -209,6 +209,18 @@ test.describe('on a phone', () => {
     await expect.poll(async () => (await saved(page)).game.turn.rolls).toBe(1);
   });
 
+  test('a refused motion permission says so in the You tab and in the game menu', async ({ page }) => {
+    await page.addInitScript(() => { DeviceMotionEvent.requestPermission = () => Promise.resolve('denied'); });
+    await page.goto('/');
+    await openYou(page);
+    await page.click('[data-act=shake][data-id="1"]');
+    await expect(page.locator('.shake-hint')).toContainText("didn't allow motion access");
+    await startLocal(page);
+    await openMenu(page);
+    await page.click('.sheet-layer [data-act=shake][data-id="1"]');
+    await expect(page.locator('.sheet-layer .shake-hint')).toContainText("didn't allow motion access");
+  });
+
   test('shaking during the race between rounds does not roll', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
@@ -1379,4 +1391,10 @@ test.describe("Who's playing", () => {
     await expect(page.locator('#starter-2')).toBeChecked();
     await expect(page.locator('[data-act=play]')).toContainText('Dice in the app');
   });
+});
+
+test("Who's playing: the focus moves to the heading after Next", async ({ page }) => {
+  await page.goto('/');
+  await toPlayers(page);
+  await expect(page.locator('#players-h')).toBeFocused();
 });

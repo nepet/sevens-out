@@ -250,6 +250,7 @@ html:root[data-look="vegas"] .felt-turn .entry-top .entry{font-size:2.5rem}
 
 /* panels */
 .panel{display:flex;flex-direction:column;gap:12px}
+#players-h:focus{outline:none}
 .h2{font:800 1.45rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em;margin:0}
 .brand-xl{font:800 clamp(3.4rem,18vw,5.2rem)/.86 var(--font-display);text-transform:uppercase;margin:0;letter-spacing:.01em}
 .brand-xl span{color:var(--brass)}
@@ -257,8 +258,6 @@ html:root[data-look="vegas"] .felt-turn .entry-top .entry{font-size:2.5rem}
 .prow{display:flex;align-items:center;gap:8px}
 .prow input[type=text]{flex:1;min-width:0;height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem}
 .prow input[type=text]:focus-visible{border-color:var(--brass);outline:2px solid var(--brass);outline-offset:0}
-.startpick{display:inline-flex;align-items:center;gap:6px;font-size:.88rem;color:var(--ink-soft);padding:6px 2px;white-space:nowrap;cursor:pointer}
-.startpick input{accent-color:var(--brass);width:18px;height:18px;margin:0}
 .phead{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .textbtn{min-height:44px;display:inline-flex;align-items:center;gap:6px;padding:0 4px 0 10px;border:0;background:none;font-weight:600;font-size:.94rem;color:var(--ink)}
 .textbtn svg,.addrow svg,.iconbtn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
@@ -304,7 +303,7 @@ td.st::before{margin-right:6px}
 .confirm span{flex-basis:100%;font-size:.9rem}
 
 /* the pinned bottom bar (bar()): the screen's main action under the thumb. #app.has-bar lets it reach the bottom edge */
-#app.has-bar{padding-bottom:0;min-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
+#app.has-bar{padding-bottom:0;min-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
 .bar{position:sticky;bottom:0;z-index:20;margin:auto -16px calc(-1 * env(safe-area-inset-bottom,0px));padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:8px;background:var(--card);border-top:1px solid var(--line);box-shadow:0 -6px 18px var(--shade)}
 .bar.leather{background:var(--leather-deep);border-top-color:var(--leather);color:var(--on-leather)}
 .bar.leather .btn:not(.primary):not(.danger){border-color:var(--on-leather);color:var(--on-leather)}
@@ -328,7 +327,7 @@ html:root[data-look="vegas"] .menubtn{background:var(--leather-deep);border-colo
 html.sheet-open{overflow:hidden}
 .sheet-layer{position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;justify-content:flex-end}
 .sheet-backdrop{position:absolute;inset:0;background:var(--shade);animation:sheet-fade .2s ease-out both}
-.sheet{position:relative;width:100%;max-width:34rem;max-height:88dvh;margin-inline:auto;display:flex;flex-direction:column;background:var(--paper);color:var(--ink);border-radius:20px 20px 0 0;border-top:1px solid var(--line);box-shadow:0 -12px 36px var(--shade);padding-bottom:env(safe-area-inset-bottom,0px);animation:sheet-up .26s cubic-bezier(.2,.8,.3,1) both}
+.sheet{position:relative;width:100%;max-width:34rem;max-height:88vh;max-height:88dvh;margin-inline:auto;display:flex;flex-direction:column;background:var(--paper);color:var(--ink);border-radius:20px 20px 0 0;border-top:1px solid var(--line);box-shadow:0 -12px 36px var(--shade);padding-bottom:env(safe-area-inset-bottom,0px);animation:sheet-up .26s cubic-bezier(.2,.8,.3,1) both}
 .sheet:focus{outline:none}
 .sheet-guard{position:absolute;width:1px;height:1px;overflow:hidden}
 .sheet-grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:8px auto 0;flex:none}
@@ -1705,7 +1704,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked'){
       const code = net.code;
       netLeave();
-      ui.screen = 'online'; ui.joinCode = m.code === 'kicked' ? '' : code;
+      ui.screen = 'online'; ui.joinCode = m.code === 'kicked' ? '' : code; ui.online = {};
       ui.hint = m.code === 'no_room' ? `There's no room with the code ${code}. Check the code and try again.`
         : m.code === 'room_full' ? `Room ${code} is full. A room holds up to 6 players.`
         : 'The host removed you from the room.';
@@ -2196,7 +2195,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         ${account ? `<span class="me-slot" data-me="${i}">${meSlot(i, mine)}</span>` : ''}
         ${many ? `<button class="iconbtn" data-act="remove" data-id="${i}" aria-label="Remove ${esc(label(i))}">${ICON_X}</button>` : ''}
       </div>`).join('');
-    return `<header class="top slim"><div class="top-l"><button class="menubtn" data-act="home" aria-label="Back">${ICON_BACK}</button><h1 class="h2" id="players-h">Who's playing</h1></div></header>
+    return `<header class="top slim"><div class="top-l"><button class="menubtn" data-act="home" aria-label="Back">${ICON_BACK}</button><h1 class="h2" id="players-h" tabindex="-1">Who's playing</h1></div></header>
       <section class="panel" aria-labelledby="players-h">
         <div class="phead"><h2 class="h3">Players</h2><button class="textbtn" data-act="randstart">${ICON_RANDOM}Random starter</button></div>
         <div class="pcard">${rows}${s.names.length < MAX_PLAYERS ? `<button class="addrow" data-act="add">${ICON_PLUS}Add player</button>` : ''}</div>
@@ -2216,6 +2215,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       <section class="panel" aria-labelledby="set-h">
         <h2 class="h3" id="set-h">Settings</h2>
         <div class="pcard setcard">${seg('snd-h', 'Sound', SOUND_OPTS, soundMode, 'sound')}${seg('look-h', 'Look', LOOK_OPTS, look, 'look')}${shake}</div>
+        <p class="hint shake-hint" aria-live="polite">${esc(ui.hint || '')}</p>
         <div class="pcard foldcard">${rules()}${devBlock()}</div>
       </section>` + tabBar('you');
   }
@@ -2377,6 +2377,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     menu:{ title:'Game menu', ok:() => online() ? !!net.room : state.phase !== 'setup' && homeScreen() === 'home' && !!state.game, body:menuBody },
     play:{ title:'New game', ok:() => !online() && state.phase === 'setup' && ['home', 'players'].includes(homeScreen()), body:playBody }
   };
+  let focusNext = null; // an element id to focus after the next render
   let sheetReturn = null; // the opener to focus after the next render
   function openSheet(kind, from){
     if (!SHEETS[kind]) return;
@@ -2387,7 +2388,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function closeSheet({ redraw = true } = {}){
     if (!ui.sheet) return;
-    sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null;
+    sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null; ui.shakeNote = null;
     if (redraw) render();
   }
   // called by render(): shows, refreshes or hides the sheet; keeps its scroll position and the focused control
@@ -2403,12 +2404,17 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const body = $sheet.querySelector('.sheet-body'), f = document.activeElement;
     const key = f && body.contains(f) && f.dataset && f.dataset.act ? [f.dataset.act, f.dataset.id] : null;
     const typing = f && body.contains(f) && f.tagName === 'INPUT' && f.id ? f.id : null;
+    const fold = f && body.contains(f) && f.tagName === 'SUMMARY' && f.parentElement.dataset.fold ? f.parentElement.dataset.fold : null;
     const top = body.scrollTop, title = $sheet.querySelector('#sheet-h');
     if (title.textContent !== def.title) title.textContent = def.title;
     body.innerHTML = def.body();
     $sheet.hidden = false;
     body.scrollTop = top;
     if (typing){ const el = document.getElementById(typing); if (el){ el.focus({ preventScroll:true }); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } }
+    else if (fold){
+      const el = body.querySelector(`details[data-fold="${fold}"] > summary`);
+      (el || $sheet.querySelector('.sheet')).focus({ preventScroll:true });
+    }
     else if (key){
       const el = body.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
       (el || $sheet.querySelector('.sheet')).focus({ preventScroll:true });
@@ -2418,7 +2424,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function menuBody(){
     const g = state.game, quit = quitBlock();
     return (g && (!online() || net.room.phase === 'game') ? sheet(g) : '') + rules()
-      + `<section class="foot" aria-label="Settings">${settingsBlock()}</section>`
+      + `<section class="foot" aria-label="Settings">${settingsBlock()}<p class="hint shake-hint" aria-live="polite">${esc(ui.shakeNote || '')}</p></section>`
       + (quit ? `<div class="quit">${quit}</div>` : '') + devBlock();
   }
   // Escape closes the sheet. Tab stays inside it: a guard at each end sends the focus round to the other end
@@ -2717,7 +2723,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'you': ui.screen = 'you'; ui.hint = null; break;
       case 'play': ui.hint = null; if (state.phase === 'setup' && !online()) openSheet('play', ['play', null]); return;
       case 'where': ui.hint = null; state.setup.where = id === 1 && onlineAvailable() ? 'phones' : 'table'; break;
-      case 'players': ui.hint = null; closeSheet({ redraw:false }); ui.screen = 'players'; break;
+      case 'players': ui.hint = null; closeSheet({ redraw:false }); sheetReturn = null; focusNext = 'players-h'; ui.screen = 'players'; break;
       case 'roll': startRoll(); return;
       case 'die': tapDie(id); break;
       case 'unpair': if (canAct()) dispatch({ type:'unpair', index:id }); break;
@@ -2766,7 +2772,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         // ask right inside the tap, before anything async, or iPhone refuses
         askMotion().then(ok => {
           shakePref = ok; store(ok); listenMotion(ok);
-          ui.hint = ok ? 'Shake the phone to roll the dice.' : "Your phone didn't allow motion access, so shake to roll stays off.";
+          ui.hint = ui.shakeNote = ok ? 'Shake the phone to roll the dice.' : "Your phone didn't allow motion access, so shake to roll stays off.";
           render();
         });
         return;
@@ -2827,7 +2833,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'adeleteno': ui.account.confirmDelete = false; break;
 
       // ----- online -----
-      case 'online': if (!onlineAvailable()) return; ui.screen = 'online'; ui.hint = null; ui.online = {}; break;
+      case 'online': if (!onlineAvailable()) return; if (ui.screen !== 'online'){ ui.screen = 'online'; ui.online = {}; } ui.hint = null; break;
       case 'ocreate': case 'ojoin': {
         const { name, code } = readOnlineFields();
         if (!name){ ui.hint = 'Enter your name first, so the others know who you are.'; break; }
@@ -2918,6 +2924,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       const el = $app.querySelector(`[data-act="${act}"]` + (id != null ? `[data-id="${id}"]` : ''));
       if (el && (!at || at === document.body || $app.contains(at) || $sheet.contains(at))) el.focus({ preventScroll:true });
     }
+    if (focusNext){ const el = document.getElementById(focusNext); focusNext = null; if (el) el.focus({ preventScroll:true }); }
     save();
     if (ui.celebrate){ const nm = ui.celebrate; ui.celebrate = null; celebrate(nm); }
     if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }
@@ -3038,7 +3045,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   document.addEventListener('keydown', e => {
     const tag = e.target && e.target.tagName;
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.online){
-      e.preventDefault(); handle(e.target.dataset.online === 'code' ? 'ojoin' : (ui.online.code && !$sheet.contains(e.target) ? 'ojoin' : 'ocreate'), null); return;
+      e.preventDefault();
+      if (e.target.dataset.online === 'code'){ handle('ojoin', null); return; }
+      if ($sheet.contains(e.target)){ handle('ocreate', null); return; }
+      // the Online tab's name field never creates a room: with a code on screen it joins, without one it moves on to the code field
+      const oc = document.getElementById('ocode');
+      if (oc && !oc.value.trim()) oc.focus(); else handle('ojoin', null);
+      return;
     }
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.account){
       e.preventDefault(); handle(e.target.dataset.account === 'rename' ? 'arenamesave' : 'acreate', null); return;

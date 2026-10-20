@@ -514,6 +514,45 @@ test('a ?join link opened by a guest with no saved name: Online tab, code filled
   await ctx.close(); await A.ctx.close();
 });
 
+test('Enter in the name field of a ?join landing joins the room, never creates one', async ({ browser }) => {
+  const A = await host(browser, 'Anna');
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await page.goto(url(`/?join=${A.code}`));
+  await expect(page.locator('#ocode')).toHaveValue(A.code);
+  await page.locator('#oname').fill('Ben');
+  await page.locator('#oname').press('Enter');
+  await expect(page.locator('.roomcode')).toHaveText(A.code);
+  await expect(A.page.locator('.seat')).toHaveCount(2);
+  await ctx.close(); await A.ctx.close();
+});
+
+test('Enter in the Online tab name field with no code moves to the code field; the tab keeps typed values', async ({ browser }) => {
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await page.goto(url('/'));
+  await page.click('[data-act=online]');
+  await page.locator('#oname').fill('Cy');
+  await page.locator('#oname').press('Enter');
+  await expect(page.locator('#ocode')).toBeFocused();
+  await expect(page.locator('.roomcode')).toHaveCount(0);
+  await page.locator('#ocode').fill('K7QP');
+  await page.click('.tabbar [data-act=online]');                    // already on the tab: nothing is cleared
+  await expect(page.locator('#oname')).toHaveValue('Cy');
+  await expect(page.locator('#ocode')).toHaveValue('K7QP');
+  await ctx.close();
+});
+
+test('a focused fold title in the game menu keeps the focus when the room changes', async ({ browser }) => {
+  const A = await host(browser, 'Anna');
+  await openMenu(A.page, 'rules');
+  await A.page.locator('.sheet-layer details[data-fold=rules] summary').focus();
+  const B = await join(browser, A.code, 'Ben');
+  await expect.poll(async () => (await net(A.page)).room.seats.length).toBe(2);
+  await expect(A.page.locator('.sheet-layer details[data-fold=rules] summary')).toBeFocused();
+  await B.ctx.close(); await A.ctx.close();
+});
+
 test('Online tab and lobby: the layout, Share invite, and Start pinned for the host', async ({ browser }) => {
   const ctx = await browser.newContext({ ...phone, permissions: ['clipboard-read', 'clipboard-write'] });
   await ctx.addInitScript(() => { Object.defineProperty(Navigator.prototype, 'share', { value: undefined, configurable: true }); });

@@ -322,7 +322,7 @@ One `Room` per room code holds the authoritative game.
 - **Sounds.** Chosen in the You tab or the game menu. They are synthesized with Web Audio and unlocked on the first tap.
 - **Shake to roll.**
   - **When the setting shows** (a switch in the You tab, Off/On in the game menu): only when the page is the top-level window and the phone has a coarse pointer.
-  - **iPhone permission:** iOS needs `DeviceMotionEvent.requestPermission()` called directly inside a tap.
+  - **iPhone permission:** iOS needs `DeviceMotionEvent.requestPermission()` called directly inside a tap. The result shows as a hint line (`.shake-hint`) under the Settings card in the You tab and under the settings in the game menu (`ui.shakeNote`, cleared when the menu closes).
   - **What counts as a shake:** 3 jolts above 14 m/s² within 900 ms, then a 1.5 s cool-down.
   - **Where it works:** in dice mode, when this phone may roll.
 - **Between rounds: the race to 101.** When a round's last turn is booked, every phone plays the same race (about 5 s), built from the new state with `E.roundRecap`:
