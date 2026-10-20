@@ -1179,7 +1179,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   // playing order with `cur` highlighted; at game over they are sorted by total, highest first.
   function board(g, cur){
     const over = state.phase === 'over', rd = g.rounds[g.rounds.length - 1], turn = over ? -1 : current(g);
-    const edit = isScore(g) && seated();
+    const edit = isScore(g) && seated(); // then every line is a button, so the list drops its list role (role="none")
     const ids = over ? g.players.map((_, i) => i).sort((a, b) => g.players[b].score - g.players[a].score || a - b) : g.order;
     const lines = ids.map(i => {
       const r = rd.results[i], lost = over && i === g.loser;
@@ -1188,7 +1188,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     }).join('');
     const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
     return `<section class="board" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
-      <ol class="lines">${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
+      <ol class="lines"${edit ? ' role="none"' : ''}>${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
   }
   // one line: turn marker, name (a die mark for the round's starter), bar towards 101 with the last 15 hatched,
   // total, and this round's points (`tag` replaces them). The race between rounds draws its lines with this too,

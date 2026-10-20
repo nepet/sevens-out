@@ -236,6 +236,7 @@ test.describe('the score list', () => {
       await expect(line(i).locator('.dl')).toHaveText('–');
     }
     await expect(page.locator('.board .bfoot')).toHaveCount(0); // corrections are for real-dice games
+    await expect(page.locator('.board ol.lines')).not.toHaveAttribute('role', /.*/); // a plain list of list items
     await page.click('[data-act=roll]');
     await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
     await expect(line(1).locator('.dl')).toHaveText(/^\+\d+$/);
@@ -263,6 +264,7 @@ test.describe('the score list', () => {
     await expect(page.locator('.board .bfoot')).toHaveText('Tap a name to correct a score');
     await expect(page.locator('.board .pl.editable[role=button][tabindex="0"][data-act=edit]')).toHaveCount(6);
     await expect(page.locator('.board .pl[data-id="1"]')).toHaveAttribute('aria-label', "Correct Ben's scores");
+    await expect(page.locator('.board ol.lines')).toHaveAttribute('role', 'none'); // its items are buttons, not list items
   });
 
   test('game over lists the scores from the top with the loser marked', async ({ page }) => {
