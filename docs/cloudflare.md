@@ -72,6 +72,8 @@ Then point the page at it in `index.html`, commit and push:
 
 Run `npm run worker:deploy` again whenever `server/` or `engine.js` changes. Pushing to GitHub only updates the page.
 
+The Worker also answers player accounts at `/auth/*` (see [accounts.md](accounts.md)). They live in the D1 database `sevens-out-stats` (binding `STATS`). Without that binding the page hides accounts and everyone plays as a guest. The rate limit `AUTH_LIMIT` (60 requests per minute per IP) is in `wrangler.jsonc`. A database created before accounts needs `npm run db:accounts` once, before the deploy.
+
 ## 6. Where to look in the dashboard
 
 Open **Workers & Pages → sevens-out**:
@@ -118,6 +120,8 @@ If a domain of yours is already managed by Cloudflare:
 2. Change the meta tag to `wss://game.example.com`.
 3. Keep `ALLOWED_ORIGINS` pointing at the page's origin.
 
+Passkeys belong to the **page's** host name, not the Worker's. Moving the Worker to your own domain changes nothing for players. Moving the page leaves existing passkeys behind (see [accounts.md](accounts.md)).
+
 ## Costs and limits
 
 You aren't charged on the Free plan. The daily limits reset at 00:00 UTC:
@@ -140,6 +144,8 @@ If a limit were ever reached, the server refuses requests until the daily reset;
 | Phones can't connect, and Logs show 403 | `ALLOWED_ORIGINS` doesn't match the page exactly. Deploy again after fixing it. |
 | `wrangler deploy` asks for a subdomain | Step 2 wasn't done. Pick one when asked. |
 | `wrangler` says you're not authenticated | Run step 3 again (`npx wrangler login`). |
+| No "Your player" panel | The page is on an IP address, the browser has no passkeys, `STATS` isn't bound, or the Worker predates accounts. Check `/auth/config`, which should answer `{"ok":true}`. |
+| `/auth/*` answers `{"error":"storage"}` | The accounts tables are missing: run `npm run db:accounts`. |
 
 ## Removing it
 
