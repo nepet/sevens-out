@@ -4,7 +4,7 @@
  * then over, then corrected ends up as one row with the latest score sheet.
  */
 const GAME_COLS = ['id', 'source', 'mode', 'room_code', 'status', 'early', 'started_at', 'finished_at', 'rounds', 'player_count', 'loser', 'top_score', 'margin', 'sheet'];
-const PLAYER_COLS = ['game_id', 'idx', 'name', 'name_key', 'score', 'lost', 'sevens_outs', 'shots', 'turns'];
+const PLAYER_COLS = ['game_id', 'idx', 'name', 'name_key', 'score', 'lost', 'sevens_outs', 'shots', 'turns', 'user_id'];
 const TURN_COLS = ['game_id', 'round', 'idx', 'pts', 'rolls', 'starter', 'mark'];
 
 const MAX_PARAMS = 100; // D1's limit of bound parameters per statement

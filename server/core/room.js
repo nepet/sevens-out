@@ -298,9 +298,11 @@ export class Room {
     const d = this.data;
     if (!this.stats || !d || !d.stats || !d.state || !d.state.game) return null;
     try {
+      const seats = d.state.game.seats || [];
       return summarize(d.state, {
         id: d.stats.id, source: 'online', roomCode: d.code, startedAt: d.stats.startedAt,
-        finishedAt: status === 'over' ? this.now() : null, status
+        finishedAt: status === 'over' ? this.now() : null, status,
+        users: seats.map(id => (d.seats.find(s => s.id === id) || {}).user || null)
       });
     } catch (err) { console.error('stats', err); return null; }
   }

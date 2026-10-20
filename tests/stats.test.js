@@ -148,3 +148,10 @@ test('broken or made-up reports are refused', () => {
   refused(edit(d, (r, sh) => { sh.shots = [{ player: 9, round: 1 }]; }), 'shot for a missing player');
   refused(edit(sc, (r, sh) => { const rd = sh.rounds[0], p = (rd.starter + 1) % sh.players.length; rd.results[p].rolls = 2; }), 'scoreboard non-starter with rolls');
 });
+
+test('signed-in players carry their player ID; guests have none', () => {
+  const s = diceGame(3);
+  const { players } = summarize(s, { id: ID, source: 'online', status: 'over', users: [null, 'aaaa000000000001'] });
+  assert.deepEqual(players.map(p => p.user_id), s.game.players.map((_, i) => (i === 1 ? 'aaaa000000000001' : null)));
+  assert.ok(summarize(s, { id: ID, source: 'phone', status: 'over' }).players.every(p => p.user_id === null));
+});

@@ -282,4 +282,30 @@ test('auth: routed to the accounts handler on D1, limited per IP, off without a 
   assert.equal((await worker.fetch(new Request('https://x/auth/config'), { ALLOWED_ORIGINS: ORIGIN })).status, 404, 'no database, no accounts');
 });
 
+test('report: a signed-in phone owner\'s line counts for them, only under their player name', async () => {
+  const env = reportEnv();
+  const auth = await softAuthenticator({ origin: ORIGIN });
+  const call = async (path, body, headers = {}) => {
+    const res = await worker.fetch(new Request(`https://x${path}`, { method: 'POST', body: JSON.stringify(body), headers: { Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.6', ...headers } }), env);
+    return res.body ? JSON.parse(res.body) : null;
+  };
+  const s = diceGame(3), name = s.game.players[1].name, none = s.game.players.map(() => null);
+  const o = await call('/auth/options', { purpose: 'create', name });
+  const created = await call('/auth/create', { challengeId: o.challengeId, credential: await auth.create({ challenge: o.challenge, userId: o.user.id }) });
+  const bearer = { Authorization: `Bearer ${created.token}` };
+  const pre = await worker.fetch(new Request('https://x/report', { method: 'OPTIONS', headers: { Origin: ORIGIN } }), env);
+  assert.match(pre.headers.get('access-control-allow-headers'), /authorization/);
+  const send = async (owner, headers, id) => {
+    const body = { ...JSON.parse(reportBody(s, id)), owner };
+    const res = await worker.fetch(post(JSON.stringify(body), headers), env);
+    assert.equal(res.status, 204);
+    return env.STATS.raw.prepare('SELECT user_id FROM players WHERE game_id = ? ORDER BY idx').all(id).map(r => r.user_id);
+  };
+  assert.deepEqual(await send(1, bearer, 'aaaaaaaaaaaaaaa1'), none.map((_, i) => (i === 1 ? created.player.id : null)));
+  assert.deepEqual(await send(0, bearer, 'aaaaaaaaaaaaaaa2'), none, 'someone else\'s line');
+  assert.deepEqual(await send(1, {}, 'aaaaaaaaaaaaaaa3'), none, 'not signed in');
+  assert.deepEqual(await send(1, { Authorization: `Bearer ${'0'.repeat(64)}` }, 'aaaaaaaaaaaaaaa4'), none, 'an ended session');
+  assert.deepEqual(await send(7, bearer, 'aaaaaaaaaaaaaaa5'), none, 'no such line');
+});
+
 test.after(() => { globalThis.Response = NodeResponse; });

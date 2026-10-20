@@ -375,3 +375,16 @@ test('players: without accounts, or when they fail, everyone plays as a guest', 
   await send(old.room, o, { t: 'hello', token: 't'.repeat(32) });
   assert.deepEqual(last(o, 'room').room.seats.map(s => [s.name, s.user]), [['Old', null]]);
 });
+
+test('players: a finished game is recorded with the player ID of each signed-in seat', async () => {
+  const stats = recorder();
+  const r = makeRoom(stats, accounts), a = r.connect(), b = r.connect();
+  await send(r.room, a, { t: 'hello', session: 'sess-ben', create: true });
+  await send(r.room, b, { t: 'hello', name: 'Gus' });
+  await send(r.room, a, { t: 'lobby', op: 'settings', mode: 'score' });
+  await send(r.room, a, { t: 'lobby', op: 'start' });
+  await playToEnd(r.room, a, b);
+  const rec = stats.records.at(-1);
+  assert.equal(rec.game.status, 'over');
+  assert.deepEqual(rec.players.map(p => [p.name, p.user_id]), [['Ben', 'bbbb000000000001'], ['Gus', null]]);
+});

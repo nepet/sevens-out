@@ -17,7 +17,7 @@ import '../../engine.js';
 import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
 import { fromD1 } from '../d1/db.js';
 import { writeRecord } from '../d1/write.js';
-import { checkReport, summarize, MAX_REPORT_BYTES } from '../core/stats.js';
+import { checkReport, summarize, nameKey, MAX_REPORT_BYTES } from '../core/stats.js';
 import { handleAuth, originsFrom, resolveSession } from '../core/accounts.js';
 
 const E = globalThis.SevensEngine;
@@ -36,8 +36,21 @@ function corsHeaders(request, env) {
   if (!origin || !originAllowed(request, env)) return {};
   return {
     'access-control-allow-origin': origin, 'access-control-allow-methods': 'POST',
-    'access-control-allow-headers': 'content-type', 'access-control-max-age': '86400', vary: 'Origin'
+    'access-control-allow-headers': 'authorization, content-type', 'access-control-max-age': '86400', vary: 'Origin'
   };
+}
+
+// a signed-in phone owner's line (body.owner) counts for them when that line carries their player name;
+// anything else stores the game as before, without a player
+async function reportOwner(request, env, body, state) {
+  const m = /^Bearer (\S+)$/.exec(request.headers.get('Authorization') || '');
+  const players = state.game.players, i = body.owner;
+  if (!m || !Number.isInteger(i) || i < 0 || i >= players.length) return [];
+  try {
+    const user = await resolveSession(fromD1(env.STATS), m[1]);
+    if (!user || nameKey(players[i].name) !== nameKey(user.name)) return [];
+    return players.map((_, k) => (k === i ? user.id : null));
+  } catch (err) { console.error('report owner', err); return []; }
 }
 
 // POST /report: a finished one-phone game, checked against the rules, then stored like an online game
@@ -61,7 +74,8 @@ async function report(request, env) {
   try { body = JSON.parse(text); } catch { return reply(400, 'not_json'); }
   const r = checkReport(body, E);
   if (r.error) return reply(400, r.error);
-  const rec = summarize(r.state, { id: body.id, source: 'phone', startedAt: body.startedAt, finishedAt: body.finishedAt, status: 'over' });
+  const users = await reportOwner(request, env, body, r.state);
+  const rec = summarize(r.state, { id: body.id, source: 'phone', startedAt: body.startedAt, finishedAt: body.finishedAt, status: 'over', users });
   try { await writeRecord(fromD1(env.STATS), rec); }
   catch (err) { console.error('report write failed', err); return reply(503, 'storage'); }
   return reply(204);

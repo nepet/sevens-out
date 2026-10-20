@@ -3,7 +3,8 @@
  *
  *   summarize(state, meta) -> { game, players, turns }
  *     rows for the stats database (server/d1/schema.sql) from an engine state;
- *     meta = { id, source: 'online'|'phone', roomCode?, startedAt?, finishedAt?, status: 'playing'|'over'|'abandoned' }
+ *     meta = { id, source: 'online'|'phone', roomCode?, startedAt?, finishedAt?, status: 'playing'|'over'|'abandoned',
+ *             users?: [playerId|null per player] }   signed-in players' IDs (server/core/accounts.js)
  *
  *   checkReport(report, engine, now) -> { ok: true, state } | { error }
  *     validates a finished one-phone game sent by the page and rebuilds it with the engine's own
@@ -24,7 +25,7 @@ export function sheetOf(g) {
   };
 }
 
-export function summarize(state, { id, source, roomCode = null, startedAt = null, finishedAt = null, status }) {
+export function summarize(state, { id, source, roomCode = null, startedAt = null, finishedAt = null, status, users = [] }) {
   const g = state.game, n = g.players.length;
   const game = {
     id, source, mode: g.mode === 'score' ? 'score' : 'dice', room_code: roomCode, status, early: 0,
@@ -55,7 +56,7 @@ export function summarize(state, { id, source, roomCode = null, startedAt = null
   });
   const players = g.players.map((p, i) => ({
     game_id: id, idx: i, name: p.name, name_key: nameKey(p.name), score: p.score,
-    lost: i === g.loser ? 1 : 0, sevens_outs: per[i].sevens, shots: per[i].shots, turns: per[i].turns
+    lost: i === g.loser ? 1 : 0, sevens_outs: per[i].sevens, shots: per[i].shots, turns: per[i].turns, user_id: users[i] || null
   }));
   return { game, players, turns };
 }
