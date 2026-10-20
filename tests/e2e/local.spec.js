@@ -454,6 +454,27 @@ test.describe('between rounds', () => {
     await expect(page.locator('.race')).toHaveCount(0);
   });
 
+  test('"End game now" mentions the turn in progress only while dice are being rolled', async ({ page, context }) => {
+    await fixDice(context, [1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2]);     // no 7s: Anna 6, Ben 12
+    await startLocal(page);
+    await page.click('[data-fold=dev] summary');
+    const askEnd = async () => {
+      await page.click('[data-act=endearly]');
+      const text = await page.locator('[data-fold=dev] .confirm span').innerText();
+      await page.click('[data-act=endno]');
+      return text;
+    };
+    const plain = 'End the game now? The highest score loses.';
+    expect(await askEnd()).toBe(plain);                                // nobody has rolled yet
+    await page.click('[data-act=roll]');
+    expect(await askEnd()).toBe("End the game now? The highest score loses, and the turn in progress isn't counted.");
+    await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+    await page.click('[data-act=roll]'); await page.click('[data-act=end]');   // Ben ends round 1
+    await skipRace(page);
+    expect((await saved(page)).game.round).toBe(2);
+    expect(await askEnd()).toBe(plain);                                // between rounds
+  });
+
   test('the developer menu plays the round change', async ({ page }) => {
     await startLocal(page, { mode: 'score' });
     await enterScore(page, 10, 1);

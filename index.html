@@ -1668,8 +1668,10 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   function devBlock(){
     const live = state.phase === 'play' && !!state.game && (!online() || amHost());
+    // only dice that are being rolled make a turn in progress; a real-dice turn is booked in one go
+    const rolling = live && !E.isScore(state.game) && !!state.game.turn && state.game.turn.rolls > 0;
     const confirm = live && ui.confirmEnd
-      ? `<div class="confirm"><span>End the game now? The highest score loses${state.phase === 'play' ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
+      ? `<div class="confirm"><span>End the game now? The highest score loses${rolling ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
     return `<details class="fold" data-fold="dev"${ui.open.dev ? ' open' : ''}><summary>Developer</summary>
       <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button><button class="btn ghost" data-act="devmiss">Play missed 7</button><button class="btn ghost" data-act="devround">Play round change</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
