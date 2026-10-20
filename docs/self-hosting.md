@@ -9,15 +9,16 @@ The Cloudflare Worker (option 4) and the Node server share all game and room cod
 - serves the page (`/` and `/engine.js`) with online play pointed at itself (`same-origin`), so no extra configuration is needed,
 - serves the rooms as WebSockets at `/room/<CODE>`,
 - keeps each room as a JSON file in `DATA_DIR` and deletes rooms after 14 days without activity,
+- keeps player accounts in the SQLite file `DATA_DIR/sevens-out.db` (built into Node as `node:sqlite`),
 - answers `/health` with `ok`.
 
-It needs Node 20 or newer and **no npm packages**: the WebSocket server is built in (`server/node/ws.js`).
+It needs Node 22.13 or newer and **no npm packages**: the WebSocket server is built in (`server/node/ws.js`).
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `PORT` | `8788` | HTTP port |
 | `HOST` | `0.0.0.0` | Interface to listen on (use `127.0.0.1` behind a proxy) |
-| `DATA_DIR` | `./data` | Where room files are kept. Back this up if you care about running games. |
+| `DATA_DIR` | `./data` | Where room files and `sevens-out.db` are kept. Back up the whole folder: the database holds player accounts. Copy it with the server stopped, or `sevens-out.db-wal` may hold changes not yet in `sevens-out.db`. |
 | `ALLOWED_ORIGINS` | *(any)* | Comma-separated page origins allowed to connect, e.g. `https://game.example.com,https://<owner>.github.io` |
 
 Browsers need HTTPS (and therefore WSS) for shake-to-roll on iPhone and for mixed-content rules, so always put a TLS proxy in front.

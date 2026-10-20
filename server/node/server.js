@@ -5,7 +5,7 @@
  *   node server/node/server.js        # http://localhost:8788   (no npm packages needed)
  *
  * Serves the page (with online play pointed at itself) and the WebSocket rooms on one port.
- * Rooms are kept as JSON files in DATA_DIR. Put Caddy or another TLS proxy in front for HTTPS.
+ * Rooms are kept as JSON files in DATA_DIR, player accounts in DATA_DIR/sevens-out.db. Put Caddy or another TLS proxy in front for HTTPS.
  *
  * Environment:
  *   PORT=8788  HOST=0.0.0.0  DATA_DIR=./data  ALLOWED_ORIGINS=https://example.com,https://other.org
@@ -15,6 +15,7 @@ import { readFile, writeFile, rename, unlink, readdir, stat, mkdir } from 'node:
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { acceptUpgrade } from './ws.js';
+import { openDatabase } from './sqlite.js';
 import '../../engine.js';
 import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
 
@@ -120,7 +121,8 @@ async function sweep() {
 setInterval(sweep, 60 * 60 * 1000).unref();
 
 await mkdir(DATA_DIR, { recursive: true });
+const db = openDatabase(path.join(DATA_DIR, 'sevens-out.db'));
 await sweep();
 server.listen(PORT, HOST, () => console.log(`Sevens Out on http://localhost:${PORT}  (rooms in ${DATA_DIR})`));
 
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { server.close(); for (const ws of clients) ws.close(1001, 'server restart'); process.exit(0); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { server.close(); for (const ws of clients) ws.close(1001, 'server restart'); db.close(); process.exit(0); });

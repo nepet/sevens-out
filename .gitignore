@@ -4,3 +4,6 @@ test-results/
 playwright-report/
 .wrangler/
 .dev.vars
+*.db
+*.db-wal
+*.db-shm
