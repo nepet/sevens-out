@@ -138,7 +138,6 @@ test('one phone: the signed-in player\'s line says "You", "This is me" moves it,
   await expect(page.locator('[data-me]')).toHaveCount(2);           // Play again: Who's playing, still signed in
   await page.click('[data-act=home]');
   await openYou(page);
-  await page.locator('details[data-fold=account] summary').click();
   await page.click('[data-act=asignout]');
   await page.click('[data-act=home]');
   await toPlayers(page, { mode: 'score' });
@@ -178,7 +177,6 @@ test('a waiting report goes out with its owner\'s session only', async ({ browse
   await page.click('[data-act=again]');
   await page.click('[data-act=home]');
   await openYou(page);
-  await page.locator('details[data-fold=account] summary').click();
   await page.click('[data-act=asignout]');
   await page.fill('#aname', 'Cleo');
   await page.click('[data-act=acreate]');

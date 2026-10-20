@@ -25,14 +25,10 @@ async function createPlayer(page, name) {
   await expect(page.locator('.acct-name')).toContainText(name);
   return account(page);
 }
-async function openFold(page) {
-  const fold = page.locator('details[data-fold=account]');
-  if (!(await fold.evaluate(d => d.open))) await fold.locator('summary').click();
-}
 
 test('create a player, stay signed in, sign out and back in, rename', async ({ browser }) => {
   const { ctx, page } = await newPhone(browser);
-  await expect(panel(page)).toContainText('Your player');
+  await expect(panel(page)).toContainText('Keep your scores');
   expect(await account(page)).toEqual({ available: true, signedIn: false, id: null, name: null });
   expect(await noSideScroll(page)).toBe(true);
 
@@ -41,7 +37,7 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
   expect(me.name).toBe('Anna');
   expect(me.id).toMatch(/^[0-9a-f]{16}$/);
   await expect(page.locator('.acct-tag')).toHaveText(`#${me.id.slice(0, 4)}`);
-  await expect(panel(page)).toContainText('Signed in');
+  await expect(page.locator('[data-act=asignout]')).toBeVisible();
   const saved = await storedAccount(page);
   expect(saved).toMatchObject({ id: me.id, name: 'Anna' });
   expect(saved.token).toMatch(/^[0-9a-f]{64}$/);
@@ -56,7 +52,6 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
   expect((await account(page)).id).toBe(me.id);
 
   // sign out, then sign in again with the same passkey: the same player
-  await openFold(page);
   await page.click('[data-act=asignout]');
   await expect(page.locator('[data-act=asignin]')).toBeVisible();
   expect(await storedAccount(page)).toBeNull();
@@ -126,7 +121,6 @@ test('accounts are kept per server; an old saved account still works; a dead ses
 test('add a passkey: refused where the device has one, works on a second phone', async ({ browser }) => {
   const A = await newPhone(browser);
   const me = await createPlayer(A.page, 'Ben');
-  await openFold(A.page);
   await A.page.click('[data-act=aadd]');
   await expect(hint(A.page)).toHaveText('This device already has a passkey for Ben.');
   expect(await credentials(A.auth)).toHaveLength(1);
@@ -139,7 +133,6 @@ test('add a passkey: refused where the device has one, works on a second phone',
   await expect(B.page.locator('.acct-name')).toContainText('Ben');
   expect((await account(B.page)).id).toBe(me.id);
   await B.auth.cdp.send('WebAuthn.removeCredential', { authenticatorId: B.auth.authenticatorId, credentialId: copy.credentialId });
-  await openFold(B.page);
   await B.page.click('[data-act=aadd]');
   await expect(hint(B.page)).toHaveText('Passkey added. You can sign in with it on this device.');
   const own = await credentials(B.auth);
@@ -158,7 +151,6 @@ test('delete the player after a confirmation; its passkey then says so', async (
   const { ctx, page, auth } = await newPhone(browser);
   const me = await createPlayer(page, 'Cleo');
   const [cred] = await credentials(auth);
-  await openFold(page);
   await page.click('[data-act=adelete]');
   await expect(page.locator('.acct .confirm')).toContainText(`Delete Cleo #${me.id.slice(0, 4)}? Your passkey stops working here and your stats keep only the name.`);
   await page.click('[data-act=adeleteno]');
@@ -234,7 +226,6 @@ test('passkey options are fetched ahead, so the prompt opens right inside the ta
   expect(cred.userDisplayName).toBe('Fay');
 
   // signed in: the fold fetches a set for adding a passkey
-  await openFold(page);
   await expect.poll(() => options.filter(p => p === 'add').length).toBe(1);
   await ctx.close();
 });
@@ -252,7 +243,7 @@ test('without options fetched ahead, a tap fetches them first', async ({ browser
   await page.fill('#aname', 'Gus');
   await page.click('[data-act=acreate]');
   await expect(page.locator('.acct-name')).toContainText('Gus');
-  expect(n).toBe(3);
+  expect(n).toBeGreaterThanOrEqual(3); // the tap fetched its own set; signed in, the tab then fetches one for adding a passkey
   await ctx.close();
 });
 

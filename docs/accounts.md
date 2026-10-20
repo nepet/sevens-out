@@ -20,7 +20,7 @@ Signing in is optional. Guests play exactly as before.
 - **Passkeys (WebAuthn):** discoverable credentials, so signing in is one tap plus Face ID or a fingerprint,
   with no name to type. iCloud Keychain and Google Password Manager sync them, so a new phone of the same
   kind just works. Other devices can sign in with the system's "use a phone" QR code, then
-  "Add a passkey on this device".
+  "Add a passkey on this phone".
 - **The server:** the game server answers `/auth/*` (`server/core/accounts.js`). Both the Worker and the Node
   server run the same code. It checks every passkey with WebCrypto (`server/core/webauthn.js`), with no npm
   packages: challenge, origin, RP ID, user presence and signature, plus the sign counter where the device

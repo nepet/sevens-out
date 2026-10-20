@@ -1107,6 +1107,22 @@ test.describe('home and the Play sheet', () => {
     await expect(page.locator('.tabbar')).toHaveCount(0);
   });
 
+  test('the You tab settings rows change sound and look, and How to play and Developer fold open', async ({ page }) => {
+    await page.goto('/');
+    await openYou(page);
+    await page.click('[data-act=sound][data-id="2"]');
+    await expect(page.locator('[data-act=sound][data-id="2"]')).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => localStorage.getItem('sevens-out-sound'))).toBe('bandit');
+    await page.click('[data-act=look][data-id="1"]');
+    await expect(page.locator('html')).toHaveAttribute('data-look', 'vegas');
+    await expect(page.locator('[data-act=shake]')).toHaveCount(0); // a desktop pointer: no shake switch
+    for (const f of ['rules', 'dev']) {
+      const d = page.locator(`details[data-fold=${f}]`);
+      await d.locator('summary').click();
+      await expect(d).toHaveAttribute('open', '');
+    }
+  });
+
   test('the Play sheet: choices are kept in state.setup, the switch sets the 7s, Next leads to Who\'s playing', async ({ page }) => {
     await page.goto('/');
     const play = page.locator('[data-act=play]');
