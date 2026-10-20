@@ -19,7 +19,7 @@ server/admin/              the owner's admin page: worker.js, access.js (Access 
 server/cloudflare/         option 4: worker.js (Worker + Durable Object adapter), wrangler.jsonc
 server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files), ws.js (built-in WebSocket server)
 tests/                     node:test unit tests (engine, room, node server, worker adapter)
-tests/e2e/                 Playwright browser tests (local modes and two-phone online play)
+tests/e2e/                 Playwright browser tests (local modes, two-phone online play, passkey accounts)
 deploy/                    option 5: docker-compose.yml + Caddyfile, systemd unit
 docs/self-hosting.md       how to run option 5
 docs/admin.md              admin page: how it works, setup with Cloudflare Access
@@ -152,6 +152,7 @@ Other storage keys, all per device:
 - `sevens-out-name`: the name last used online
 - `sevens-out-online`: `{code, token, name, server}`, used to rejoin a room after a reload or a locked screen
 - `sevens-out-reports`: `{queue, sent}`, finished one-phone games waiting to be sent to `POST /report` until the server accepts or refuses them
+- `sevens-out-account`: `{token, id, name, server}`, the signed-in player (`server` is the `/auth` base at sign-in; an account saved for another server is ignored)
 
 ### The page (`index.html`)
 
@@ -182,8 +183,9 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`, `devround`
 - **Settings:** `sound`, `look`, `shake`
 - **Online:** `online`, `oback`, `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
+- **Account:** `acreate`, `asignin`, `arename`/`arenamesave`/`arenamecancel`, `aadd`, `asignout`, `adelete`/`adeleteyes`/`adeleteno`
 
-**Debugging:** `window.SevensDebug` gives read-only `state`, `net` and `busy` views (`busy` is also true during the race between rounds). The tests use it.
+**Debugging:** `window.SevensDebug` gives read-only `state`, `net`, `busy` and `account` views (`busy` is also true during the race between rounds; `account` is `{available, signedIn, id, name}`, never the token). The tests use it.
 
 ### The room server (`server/core/room.js` + adapters)
 
@@ -261,6 +263,13 @@ One `Room` per room code holds the authoritative game.
   - **Saving:** a one-phone game saves the new state as soon as the race starts, so a reload mid-race keeps the last turn.
   - **Fallback:** without `E.roundRecap` (an old engine.js in the cache) or when anything in the race fails, the new state shows at once, without a race, and the page is never left busy. A one-phone game that such an old engine leaves in `roundEnd` moves on with `nextround`.
   - **DOM:** `.race` (fixed, outside `#app`) → `.race-card` (the list's `.bhead` and `li.pl` lines from `lineHtml`, plus `.race-badge`) and `.race-curtain` (`.race-round`, `.race-starter`, `.race-why`).
+- **Your player.** An optional account with a passkey, in a panel on the home screen above "Not at the same table?". Guests can ignore it.
+  - **When it shows:** the browser has `PublicKeyCredential`, a server is configured, the page is the top-level window on a hostname (WebAuthn refuses IP addresses; `localhost` works), and `GET /auth/config` answered `{ok: true}`. The probe runs once per page load and never holds up the first render.
+  - **Signed out:** a name field (from `sevens-out-name`) with "Create player", and "Sign in with a passkey" (a discoverable passkey, so no name to type).
+  - **Signed in:** the name with its tag (`#` + the first 4 hex of the player ID), Rename, and a fold with "Add a passkey on this device", "Sign out" and "Delete player" (confirmed in the page).
+  - **Session:** a bearer token from `/auth`, kept in `sevens-out-account`. On load the page checks it with `GET /auth/me`: a new name is taken over, a 401 signs the phone out quietly, and network trouble keeps it. Create, sign-in and rename also write `sevens-out-name`.
+  - **Passkey hygiene:** after Delete the page calls `PublicKeyCredential.signalAllAcceptedCredentials` with no IDs, and a sign-in with a deleted player's passkey calls `signalUnknownCredential`, so password managers can hide them.
+  - While a passkey prompt is open (`ui.account.busy`), the panel's buttons are disabled.
 - **Developer menu.** Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
 - **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving. The race between rounds shows the grown list with its final totals, order and badge at once. The curtain then appears without sliding, and the whole race takes about 2.5 s.
 
@@ -291,6 +300,7 @@ One `Room` per room code holds the authoritative game.
   - To load the page with a changed `engine.js` or CSS (an old cached engine, a browser without `color-mix()`), serve the changed file through `page.route`, as the tests in `local.spec.js` do.
   - After a round's last turn, the race plays for about 2.5 s even with reduced motion. Tests that act right after a round ends call `skipRace(page)` (helpers.js): it waits for a Sevens Out or missed-7 joke that plays first, taps the race away, then waits until the page is idle.
   - `TARGET=worker` points online play at `wrangler dev` through the `?server=` override.
+  - **Passkeys** (`account.spec.js`): `addAuthenticator(page)` adds a CDP virtual authenticator that says yes at once; `credentials` and `copyCredential` read a passkey and copy it to another phone (a synced passkey). WebAuthn refuses IP addresses, so these tests open `localUrl()` (`http://localhost:8790`), not the config's `127.0.0.1`. The virtual authenticator can't press Cancel; a cancelled prompt is a stubbed `navigator.credentials.create`.
   - `tests/e2e/admin.spec.js` tests the admin page (`npm run test:admin`). Don't run it together with `test:worker`: both reset `.wrangler/e2e`.
 
 Invariants to keep after rule changes:

@@ -74,3 +74,27 @@ export function checkSheet(g) {
 }
 
 export const noSideScroll = page => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+
+// ----- passkeys (your player) -----
+// WebAuthn refuses IP addresses as the relying party ID, so account tests open the page on localhost, not 127.0.0.1
+export const LOCAL = 'http://localhost:8790';
+export const localUrl = (p = '/') => LOCAL + url(p);
+export const account = page => page.evaluate(() => window.SevensDebug.account);
+export const storedAccount = page => page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-account')));
+
+// a virtual platform authenticator (like Face ID / a fingerprint) that says yes at once
+export async function addAuthenticator(page, options = {}) {
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
+    protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true,
+    isUserVerified: true, automaticPresenceSimulation: true, ...options } });
+  return { cdp, authenticatorId };
+}
+export const credentials = async ({ cdp, authenticatorId }) => (await cdp.send('WebAuthn.getCredentials', { authenticatorId })).credentials;
+// the same synced passkey on another phone: copy a credential (with its private key) into another authenticator
+export async function copyCredential(from, to, credential = null) {
+  const c = credential || (await credentials(from))[0];
+  await to.cdp.send('WebAuthn.addCredential', { authenticatorId: to.authenticatorId, credential: c });
+  return c;
+}

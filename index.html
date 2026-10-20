@@ -373,6 +373,29 @@ td.st::before{margin-right:6px}
 .online-cta{display:flex;align-items:center;justify-content:space-between;gap:10px 14px;flex-wrap:wrap;padding:12px 14px;border:1.5px solid var(--brass);border-radius:14px}
 .online-cta>div{display:flex;flex-direction:column;gap:2px;flex:1 1 14rem;min-width:0}
 .online-cta .sub{font-size:.88rem}
+/* your player: an optional passkey account on the home screen */
+.acct{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:var(--card)}
+.acct-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.acct-top .h3{margin:0}
+.acct-opt,.acct-ok{font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+.acct-ok{color:var(--brass)}
+.acct .sub{font-size:.88rem}
+.acct-row{display:flex;gap:8px;align-items:center}
+.acct-row .text-in{flex:1 1 auto;min-width:0;background:var(--paper)}
+.acct-row .btn{flex:none}
+.acct-me{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.acct-name{margin:0;min-width:0;overflow-wrap:anywhere;font:800 1.7rem/1 var(--font-display)}
+.acct-tag{font:600 .85rem/1 var(--font-body);color:var(--ink-soft);letter-spacing:.02em;white-space:nowrap}
+.acct-me .btn{flex:none}
+.acct .fold{padding-top:2px}
+.acct .fold summary{min-height:38px;font-size:.92rem}
+.acct-acts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:2px}
+.acct-acts .btn:first-child,.acct-acts .btn:last-child:nth-child(2){grid-column:1/-1}
+.acct .confirm{margin-top:10px}
+.acct-del{color:var(--danger)}
+.acct-hint{font-size:.88rem}
+.acct-hint:empty{display:none}
+html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
 .fld{display:flex;flex-direction:column;gap:6px}
 .text-in{height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem;width:100%}
 .text-in:focus-visible{border-color:var(--brass);outline:2px solid var(--brass);outline-offset:0}
@@ -1025,6 +1048,245 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return s.replace(/^http(s?):/, 'ws$1:').replace(/\/+$/, '');
   }
   const onlineAvailable = () => !!serverBase() && 'WebSocket' in window;
+
+  // ---------- your player: a passkey account kept by the room server at /auth (server/core/accounts.js) ----------
+  // Optional: guests never see a prompt. The panel shows only when passkeys can work here and the server answers /auth/config.
+  const ACCOUNT_KEY = 'sevens-out-account', NAME_KEY = 'sevens-out-name';
+  const authProbe = { done:false, ok:false };
+  let account = null; // { token, id, name, server } from localStorage, or null
+  ui.account = { busy:false, hint:null, name:null, rename:false, renameVal:'', confirmDelete:false };
+  function authBase(){ const b = serverBase(); return b ? b.replace(/^ws(s?):/, 'http$1:') : ''; }
+  // WebAuthn refuses IP addresses as the relying party ID; localhost works
+  const ipHost = h => /^\d{1,3}(\.\d{1,3}){3}$/.test(h) || h.includes(':') || h.startsWith('[');
+  function accountsSupported(){
+    try {
+      return !!window.PublicKeyCredential && !!navigator.credentials && typeof fetch === 'function' && !!authBase()
+        && !!location.hostname && !ipHost(location.hostname) && window.self === window.top;
+    } catch (e) { return false; }
+  }
+  const accountsAvailable = () => authProbe.ok && accountsSupported();
+  const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+  const tagOf = id => String(id || '').slice(0, 4);
+  function storedName(){ try { return JSON.parse(localStorage.getItem(NAME_KEY) || 'null') || ''; } catch (e) { return ''; } }
+  function storeName(n){ try { localStorage.setItem(NAME_KEY, JSON.stringify(n)); } catch (e) {} }
+  // an account saved for another server (a ?server= override, a moved Worker) is left alone, not used
+  function readAccount(){
+    try {
+      const a = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || 'null');
+      if (a && typeof a.token === 'string' && typeof a.id === 'string' && typeof a.name === 'string' && a.server === authBase()) return a;
+    } catch (e) {}
+    return null;
+  }
+  function setAccount(a){
+    account = a;
+    try { if (a) localStorage.setItem(ACCOUNT_KEY, JSON.stringify(a)); else localStorage.removeItem(ACCOUNT_KEY); } catch (e) {}
+  }
+  const b64u = x => {
+    const b = x instanceof ArrayBuffer ? new Uint8Array(x) : new Uint8Array(x.buffer, x.byteOffset, x.byteLength);
+    let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+  const unb64u = s => { const t = atob(String(s).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((String(s).length + 3) % 4)); return Uint8Array.from(t, c => c.charCodeAt(0)); };
+  const hexB64u = h => b64u(Uint8Array.from(String(h).match(/../g) || [], x => parseInt(x, 16)));
+  // JSON to /auth; a failure throws an Error whose code is the server's { error } (or 'network')
+  async function authFetch(path, { method = 'GET', body, token } = {}){
+    const headers = {};
+    if (body !== undefined) headers['content-type'] = 'application/json';
+    if (token) headers.authorization = `Bearer ${token}`;
+    let res;
+    try { res = await fetch(authBase() + path, { method, headers, body:body === undefined ? undefined : JSON.stringify(body), cache:'no-store' }); }
+    catch (e) { throw Object.assign(new Error('network'), { code:'network' }); }
+    let data = null;
+    if (res.status !== 204){ try { data = await res.json(); } catch (e) {} }
+    if (!res.ok) throw Object.assign(new Error('auth ' + res.status), { code:(data && data.error) || 'http', status:res.status, detail:data && data.detail });
+    return data;
+  }
+  // only the home screen shows the panel, so answers that arrive later redraw only that
+  function refreshHome(){ if (!online() && ui.screen !== 'online' && state.phase === 'setup' && !ui.busy && !ui.race) render(); }
+  function startAccounts(){
+    if (!accountsSupported()) return;
+    account = readAccount();
+    fetch(authBase() + '/auth/config', { cache:'no-store' })
+      .then(r => r.ok ? r.json() : null).then(d => !!(d && d.ok === true), () => false)
+      .then(ok => { authProbe.done = true; authProbe.ok = ok; if (ok) refreshHome(); });
+    const a = account;
+    if (a) authFetch('/auth/me', { token:a.token }).then(d => {
+      if (account !== a || !d || !d.player) return;
+      if (d.player.name !== a.name){ setAccount(Object.assign({}, a, { name:d.player.name })); refreshHome(); }
+    }, err => {
+      if (account === a && err.status === 401){ setAccount(null); refreshHome(); } // the session ended; network trouble keeps it
+    });
+  }
+  function signedIn(r){
+    setAccount({ token:r.token, id:r.player.id, name:r.player.name, server:authBase() });
+    storeName(r.player.name);
+    Object.assign(ui.account, { name:null, rename:false, confirmDelete:false });
+  }
+  function regCredential(cred){
+    const r = cred.response;
+    const pk = typeof r.getPublicKey === 'function' ? r.getPublicKey() : null;
+    if (!pk || typeof r.getAuthenticatorData !== 'function') throw Object.assign(new Error('no public key'), { code:'no_public_key' });
+    return { id:cred.id, clientDataJSON:b64u(r.clientDataJSON), authenticatorData:b64u(r.getAuthenticatorData()), publicKey:b64u(pk),
+      publicKeyAlgorithm:r.getPublicKeyAlgorithm(), transports:typeof r.getTransports === 'function' ? r.getTransports() : [] };
+  }
+  function createOptions(o){
+    return {
+      challenge:unb64u(o.challenge),
+      rp:{ name:(o.rp && o.rp.name) || 'Sevens Out', id:location.hostname },
+      user:{ id:unb64u(o.user.id), name:o.user.name, displayName:o.user.displayName },
+      pubKeyCredParams:[{ type:'public-key', alg:-7 }, { type:'public-key', alg:-257 }],
+      authenticatorSelection:{ residentKey:'required', requireResidentKey:true, userVerification:'preferred' },
+      attestation:'none', timeout:120000,
+      excludeCredentials:(o.exclude || []).map(id => ({ type:'public-key', id:unb64u(id) }))
+    };
+  }
+  const cancelled = () => Object.assign(new Error('cancelled'), { name:'NotAllowedError' });
+  function accountError(err, kind, name){
+    const n = err && err.name, c = err && err.code;
+    if (n === 'NotAllowedError' || n === 'AbortError') return kind === 'asignin' ? 'Sign-in cancelled.' : 'No passkey was saved.';
+    if (n === 'InvalidStateError' && kind !== 'asignin') return `This device already has a passkey for ${name}.`;
+    if (n === 'SecurityError') return "Passkeys don't work on this address. Open the game from its usual link.";
+    switch (c){
+      case 'unknown_passkey': return "That passkey's player was deleted. Create a new player.";
+      case 'passkey_taken': return 'That passkey already belongs to a player. Sign in with it instead.';
+      case 'rate_limited': return 'Too many tries. Wait a minute and try again.';
+      case 'network': return "Can't reach the server. Check your connection and try again.";
+      case 'no_public_key': return "This passkey can't be used here. Try another browser or password manager.";
+      case 'name': return 'Enter a name with at least one letter or digit.';
+      case 'signed_out': return 'You were signed out. Sign in again.';
+    }
+    return 'Something went wrong. Try again.';
+  }
+  // the three passkey ceremonies: create a player, sign in, add a passkey to the signed-in player
+  async function accountCeremony(kind){
+    const A = ui.account;
+    if (A.busy || !accountsAvailable() || (kind === 'aadd') !== !!account) return;
+    let name = account ? account.name : '';
+    if (kind === 'acreate'){
+      const el = document.getElementById('aname');
+      name = cleanName(el ? el.value : A.name != null ? A.name : storedName());
+      if (!name){ A.hint = 'Enter your name first, so the others know who you are.'; render(); return; }
+    }
+    A.busy = true; A.hint = 'Waiting for your passkey…'; A.confirmDelete = false; render();
+    let credentialId = null;
+    try {
+      if (kind === 'asignin'){
+        const o = await authFetch('/auth/options', { method:'POST', body:{ purpose:'signin' } });
+        const cred = await navigator.credentials.get({ publicKey:{ challenge:unb64u(o.challenge), rpId:location.hostname, userVerification:'preferred', timeout:120000 } });
+        if (!cred) throw cancelled();
+        credentialId = cred.id;
+        const r = cred.response, credential = { id:cred.id, clientDataJSON:b64u(r.clientDataJSON), authenticatorData:b64u(r.authenticatorData), signature:b64u(r.signature) };
+        if (r.userHandle && r.userHandle.byteLength) credential.userHandle = b64u(r.userHandle);
+        const res = await authFetch('/auth/signin', { method:'POST', body:{ challengeId:o.challengeId, credential } });
+        signedIn(res);
+        A.hint = `Signed in as ${res.player.name}.`;
+      } else {
+        const token = kind === 'aadd' ? account.token : undefined;
+        const o = await authFetch('/auth/options', { method:'POST', body:kind === 'aadd' ? { purpose:'add' } : { purpose:'create', name }, token });
+        const cred = await navigator.credentials.create({ publicKey:createOptions(o) });
+        if (!cred) throw cancelled();
+        const body = { challengeId:o.challengeId, credential:regCredential(cred) };
+        if (kind === 'aadd'){
+          await authFetch('/auth/passkeys', { method:'POST', body, token });
+          A.hint = 'Passkey added. You can sign in with it on this device.';
+        } else {
+          const res = await authFetch('/auth/create', { method:'POST', body:Object.assign(body, { name }) });
+          signedIn(res);
+          A.hint = `Welcome, ${res.player.name}. You're signed in.`;
+        }
+      }
+    } catch (err) {
+      if (!(err && err.code) && !(err && /^(NotAllowed|Abort|InvalidState)Error$/.test(err.name))) console.error(err);
+      A.hint = accountError(err, kind, name);
+      if (err && err.code === 'signed_out' && account){ setAccount(null); }
+      // tell the password manager to hide a passkey whose player is gone
+      if (err && err.code === 'unknown_passkey' && credentialId && PublicKeyCredential.signalUnknownCredential){
+        try { PublicKeyCredential.signalUnknownCredential({ rpId:location.hostname, credentialId }).catch(() => {}); } catch (e) {}
+      }
+    }
+    A.busy = false;
+    refreshHome();
+  }
+  async function accountRename(){
+    const A = ui.account; if (A.busy || !account) return;
+    const el = document.getElementById('arename');
+    const name = cleanName(el ? el.value : A.renameVal);
+    if (!name){ A.hint = 'Enter a name with at least one letter or digit.'; render(); return; }
+    if (name === account.name){ A.rename = false; A.hint = null; render(); return; }
+    const a = account;
+    A.busy = true; A.hint = null; render();
+    try {
+      const r = await authFetch('/auth/me', { method:'PATCH', body:{ name }, token:a.token });
+      if (account === a){ setAccount(Object.assign({}, a, { name:r.player.name })); storeName(r.player.name); }
+      A.rename = false; A.hint = 'Name saved.';
+    } catch (err) {
+      A.hint = accountError(err, 'arename', name);
+      if (err.code === 'signed_out' && account === a){ setAccount(null); A.rename = false; }
+    }
+    A.busy = false;
+    refreshHome();
+  }
+  function accountSignOut(){
+    const a = account; if (!a || ui.account.busy) return;
+    setAccount(null);
+    Object.assign(ui.account, { rename:false, confirmDelete:false, hint:'Signed out. Sign in again with your passkey.' });
+    // the server forgets the session too; if it can't be reached, this phone is signed out anyway
+    try { fetch(authBase() + '/auth/signout', { method:'POST', headers:{ authorization:`Bearer ${a.token}` } }).catch(() => {}); } catch (e) {}
+  }
+  async function accountDelete(){
+    const A = ui.account, a = account; if (A.busy || !a) return;
+    A.busy = true; A.confirmDelete = false; A.hint = null; render();
+    try {
+      await authFetch('/auth/me', { method:'DELETE', token:a.token });
+      if (account === a) setAccount(null);
+      A.rename = false; A.hint = `Deleted ${a.name} #${tagOf(a.id)}.`;
+      // tell the password manager that this player has no passkeys left, so it can hide them
+      if (PublicKeyCredential.signalAllAcceptedCredentials){
+        try { PublicKeyCredential.signalAllAcceptedCredentials({ rpId:location.hostname, userId:hexB64u(a.id), allAcceptedCredentialIds:[] }).catch(() => {}); } catch (e) {}
+      }
+    } catch (err) {
+      A.hint = accountError(err, 'adelete', a.name);
+      if (err.code === 'signed_out' && account === a) setAccount(null);
+    }
+    A.busy = false;
+    refreshHome();
+  }
+  function accountBlock(){
+    if (!accountsAvailable()) return '';
+    const A = ui.account, dis = A.busy ? ' disabled' : '';
+    const hint = `<p class="hint acct-hint" aria-live="polite">${esc(A.hint || '')}</p>`;
+    if (!account){
+      const name = A.name != null ? A.name : storedName();
+      return `<section class="acct" aria-labelledby="acct-h">
+        <div class="acct-top"><h2 class="h3" id="acct-h">Your player</h2><span class="acct-opt">Optional</span></div>
+        <p class="sub">Use a passkey so your games count for you and you can rejoin from any phone.</p>
+        <div class="acct-row"><label class="sr" for="aname">Your name</label>
+          <input type="text" id="aname" class="text-in" data-account="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="go">
+          <button class="btn" data-act="acreate"${dis}>Create player</button></div>
+        <button class="btn ghost small" data-act="asignin"${dis}>Sign in with a passkey</button>
+        ${hint}
+      </section>`;
+    }
+    const who = A.rename
+      ? `<div class="acct-row"><label class="sr" for="arename">New name</label>
+          <input type="text" id="arename" class="text-in" data-account="rename" value="${esc(A.renameVal)}" maxlength="16" autocomplete="nickname" enterkeyhint="done">
+          <button class="btn primary" data-act="arenamesave"${dis}>Save</button><button class="btn ghost" data-act="arenamecancel"${dis}>Cancel</button></div>`
+      : `<div class="acct-me"><p class="acct-name"><span class="acct-nm">${esc(account.name)}</span> <small class="acct-tag">#${esc(tagOf(account.id))}</small></p>
+          <button class="btn small ghost" data-act="arename"${dis}>Rename</button></div>`;
+    const confirm = A.confirmDelete
+      ? `<div class="confirm"><span>Delete ${esc(account.name)} #${esc(tagOf(account.id))}? Your passkey stops working here and your stats keep only the name.</span><button class="btn small danger" data-act="adeleteyes"${dis}>Delete</button><button class="btn small" data-act="adeleteno"${dis}>Keep</button></div>`
+      : '';
+    return `<section class="acct" aria-labelledby="acct-h">
+        <div class="acct-top"><h2 class="h3" id="acct-h">Your player</h2><span class="acct-ok">Signed in</span></div>
+        ${who}
+        <details class="fold acct-more" data-fold="account"${ui.open.account ? ' open' : ''}><summary>Passkeys and sign-out</summary>
+          <div class="acct-acts"><button class="btn small ghost" data-act="aadd"${dis}>Add a passkey on this device</button><button class="btn small ghost" data-act="asignout"${dis}>Sign out</button>${A.confirmDelete ? '' : `<button class="btn small ghost acct-del" data-act="adelete"${dis}>Delete player</button>`}</div>
+          ${confirm}
+        </details>
+        ${hint}
+      </section>`;
+  }
+
   function newCode(){
     const b = new Uint8Array(5);
     crypto.getRandomValues(b);
@@ -1578,6 +1840,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="lede">Roll six dice and set aside every pair that makes 7. Whatever stays on the table counts against you. Once someone reaches ${LIMIT}, the round is finished and the highest score loses.</p>
         <div class="demo" role="img" aria-label="The three pairs that make 7: 1 and 6, 2 and 5, 3 and 4">${demo}</div>
       </header>
+      ${accountBlock()}
       ${onlineBlock}
       ${modeBlock}
       <section class="panel" aria-labelledby="players-h">
@@ -1937,6 +2200,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return { name, code };
   }
 
+  const ACCOUNT_ACTS = ['acreate', 'asignin', 'arename', 'arenamesave', 'arenamecancel', 'aadd', 'asignout', 'adelete', 'adeleteyes', 'adeleteno'];
   function handle(a, id, el){
     const g = state.game;
     // while pairs are flying out or the race between rounds plays, only settings and the developer buttons respond
@@ -1947,6 +2211,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (a !== 'endearly') ui.confirmEnd = false;
     if (a !== 'oleave') ui.confirmLeave = false;
     if (state.phase === 'setup' && !online()) ui.hint = null;
+    if (!ACCOUNT_ACTS.includes(a)) Object.assign(ui.account, { hint:null, confirmDelete:false });
     switch (a){
       case 'add':
         if (state.setup.names.length < MAX_PLAYERS){
@@ -2064,6 +2329,22 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       case 'devconfetti': celebrate(state.phase === 'play' && g ? pname(current(g)) : 'Test player'); break;
       case 'devround': { const d = devRecap(); enqueue(() => playRace(d.recap, () => {}, d.g)); return; }
 
+      // ----- your player -----
+      case 'acreate': case 'asignin': case 'aadd': accountCeremony(a); return;
+      case 'arename': {
+        if (!account || ui.account.busy) return;
+        Object.assign(ui.account, { rename:true, renameVal:account.name, hint:null, confirmDelete:false });
+        render();
+        const inp = document.getElementById('arename'); if (inp){ inp.focus(); try { inp.select(); } catch (e) {} }
+        return;
+      }
+      case 'arenamesave': accountRename(); return;
+      case 'arenamecancel': ui.account.rename = false; ui.account.hint = null; break;
+      case 'asignout': accountSignOut(); break;
+      case 'adelete': if (account && !ui.account.busy){ ui.account.confirmDelete = true; ui.account.hint = null; } break;
+      case 'adeleteyes': accountDelete(); return;
+      case 'adeleteno': ui.account.confirmDelete = false; break;
+
       // ----- online -----
       case 'online': ui.screen = 'online'; ui.hint = null; ui.online = {}; break;
       case 'oback': ui.screen = null; ui.hint = null; break;
@@ -2111,8 +2392,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   function render(){
     const f = document.activeElement;
     const key = f && $app.contains(f) && f.dataset && f.dataset.act ? [f.dataset.act, f.dataset.id] : null;
-    const typing = f && $app.contains(f) && f.tagName === 'INPUT' && f.dataset && f.dataset.online ? f.id : null;
-    if (typing) readOnlineFields();
+    const typing = f && $app.contains(f) && f.tagName === 'INPUT' && f.type === 'text' && f.id ? f.id : null;
+    if (typing && f.dataset.online) readOnlineFields();
     let html;
     try {
       html = online() ? (!net.room ? viewConnecting() : (net.room.phase !== 'game' || !state.game) ? viewLobby() : gameView())
@@ -2231,6 +2512,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (el.classList.contains('edit-in')){ ui.editVals[+el.dataset.round] = el.value; refreshEdit(); }
     if (el.dataset.online === 'code'){ const v = el.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); if (v !== el.value) el.value = v; ui.online.code = v; }
     if (el.dataset.online === 'name') ui.online.name = el.value;
+    if (el.dataset.account === 'name') ui.account.name = el.value;
+    if (el.dataset.account === 'rename') ui.account.renameVal = el.value;
   });
   $app.addEventListener('change', e => {
     const el = e.target;
@@ -2240,6 +2523,9 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const tag = e.target && e.target.tagName;
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.online){
       e.preventDefault(); handle(e.target.dataset.online === 'code' ? 'ojoin' : (ui.online.code ? 'ojoin' : 'ocreate'), null); return;
+    }
+    if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.account){
+      e.preventDefault(); handle(e.target.dataset.account === 'rename' ? 'arenamesave' : 'acreate', null); return;
     }
     if (state.phase !== 'play' || !state.game || !E.isScore(state.game) || ui.edit != null || !canAct()) return;
     if (e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button') return;
@@ -2259,6 +2545,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     // a game saved between rounds by an older version moves on to the next round
     if (state.phase === 'roundEnd'){ const r = E.apply(state, { type:'nextround' }); if (!r.error){ state = r.state; save(); } }
     flushReports();
+    startAccounts();
     // ?join=CODE opens the join screen with the code filled in
     let join = '';
     try { join = (new URLSearchParams(location.search).get('join') || '').toUpperCase(); } catch (e) {}
@@ -2277,7 +2564,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   window.SevensDebug = Object.freeze({
     get state(){ return E.clone(state); },
     get net(){ return { code:net.code, seat:net.seat, status:net.status, rev:net.rev, room:net.room && E.clone(net.room) }; },
-    get busy(){ return ui.busy || ui.rolling || ui.race; }
+    get busy(){ return ui.busy || ui.rolling || ui.race; },
+    get account(){ return { available:accountsAvailable(), signedIn:!!account, id:account ? account.id : null, name:account ? account.name : null }; }
   });
   try { window.claude?.hot?.snapshot?.(() => ({ state })); } catch (e) {}
   if (window.claude?.hot?.ready) window.claude.hot.ready(start);
