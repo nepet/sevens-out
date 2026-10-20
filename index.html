@@ -103,7 +103,8 @@ button{cursor:pointer}
 .last{font-size:.9rem;color:var(--ink-soft);margin:0}
 .last b{color:var(--ink)}
 /* without color-mix() (Safari before 16.2): plain tokens. A plain declaration placed before a color-mix() one wouldn't
-   help: a declaration with var() is checked only after the tokens are filled in, and an invalid one falls back to unset */
+   help: a declaration with var() is checked only after the tokens are filled in, and an invalid one falls back to unset.
+   For the same reason the feature test names plain colours: with var() in it, it would always pass */
 @supports not (color:color-mix(in srgb,red 50%,blue)){
   :is(.board,.race-card) .pl.now{background:var(--paper)}
   .trk::after{background:repeating-linear-gradient(135deg,var(--danger) 0 1px,transparent 1px 6px)}
