@@ -8,7 +8,7 @@ import { Room } from '../server/core/room.js';
 const E = globalThis.SevensEngine;
 
 // an in-memory room: conns are plain objects that collect what the server sends them
-function makeRoom(stats = null) {
+function makeRoom(stats = null, accounts = null) {
   let stored = null;
   const conns = new Set();
   const net = {
@@ -19,7 +19,7 @@ function makeRoom(stats = null) {
     close: c => { c.open = false; conns.delete(c); }
   };
   const storage = { get: async () => stored && JSON.parse(stored), put: async d => { stored = JSON.stringify(d); }, remove: async () => { stored = null; } };
-  const room = new Room({ engine: E, storage, net, stats });
+  const room = new Room({ engine: E, storage, net, stats, accounts });
   const connect = () => { const c = { inbox: [], open: true, seat: null }; conns.add(c); return c; };
   const drop = async c => { c.open = false; conns.delete(c); await room.closed(c); };
   return { room, connect, drop, setStored: d => { stored = JSON.stringify(d); }, stored: () => stored && JSON.parse(stored), fresh: () => new Room({ engine: E, storage, net, stats }) };
@@ -296,4 +296,82 @@ test('a room saved between rounds moves on to the next round when it loads', asy
   await again.message(c, JSON.stringify({ t: 'hello', token: tokenA }), 'K7QPM');
   const st = last(c, 'room').state;
   assert.deepEqual([st.phase, st.game.round, st.game.starter], ['play', 2, after.game.starter]);
+});
+
+// signed-in players: sessions resolve to { id, name } through the accounts adapter
+const PLAYERS = { 'sess-anna': { id: 'aaaa000000000001', name: 'Anna' }, 'sess-anna2': { id: 'aaaa000000000002', name: 'Anna' }, 'sess-ben': { id: 'bbbb000000000001', name: 'Ben' } };
+const accounts = { resolve: async s => PLAYERS[s] || null };
+
+test('players: a signed-in player sits under their player name, and everyone sees the player ID', async () => {
+  const r = makeRoom(null, accounts), a = r.connect(), b = r.connect(), c = r.connect(), g = r.connect();
+  await send(r.room, a, { t: 'hello', name: 'whatever', session: 'sess-anna', create: true });
+  await send(r.room, b, { t: 'hello', name: 'Anna', session: 'sess-anna2' });
+  await send(r.room, c, { t: 'hello', name: 'Cleo', session: 'expired' });
+  await send(r.room, g, { t: 'hello', name: 'Gus' });
+  assert.equal(last(a, 'welcome').user, 'aaaa000000000001');
+  assert.equal(last(c, 'welcome').user, null, 'an ended session plays as a guest, and the phone learns it');
+  assert.equal(last(g, 'welcome').user, null);
+  const seats = last(g, 'room').room.seats;
+  assert.deepEqual(seats.map(s => [s.name, s.user]), [['Anna', 'aaaa000000000001'], ['Anna 2', 'aaaa000000000002'], ['Cleo', null], ['Gus', null]]);
+});
+
+test('players: a player gets their seat back from another phone, also mid-game, and never takes two', async () => {
+  const r = makeRoom(null, accounts), a = r.connect(), b = r.connect();
+  await send(r.room, a, { t: 'hello', session: 'sess-anna', create: true });
+  await send(r.room, b, { t: 'hello', name: 'Ben' });
+  const seat = last(a, 'welcome').seat;
+  const again = r.connect();
+  await send(r.room, again, { t: 'hello', name: 'Anna', session: 'sess-anna' });
+  assert.equal(last(again, 'welcome').seat, seat, 'the same seat, not a new one');
+  assert.equal(last(again, 'room').room.seats.length, 2);
+  await send(r.room, a, { t: 'lobby', op: 'start' });
+  // a new phone without the room token, mid-game
+  await r.drop(a); await r.drop(again);
+  const phone = r.connect();
+  await send(r.room, phone, { t: 'hello', session: 'sess-anna' });
+  assert.equal(last(phone, 'welcome').seat, seat);
+  assert.ok(last(phone, 'welcome').token, 'the new phone gets the token for later');
+  const st = last(phone, 'room').state, cur = st.game.seats[st.game.order[st.game.pos]];
+  const mover = cur === seat ? phone : b;
+  await send(r.room, mover, { t: 'act', action: { type: 'roll' } });
+  assert.equal(last(mover, 'room').state.game.turn.rolls, 1, 'the player plays from the new phone');
+  // a stranger mid-game still only watches
+  const stranger = r.connect();
+  await send(r.room, stranger, { t: 'hello', session: 'sess-ben' });
+  assert.equal(last(stranger, 'welcome').seat, null);
+});
+
+test('players: a guest who signs in keeps their seat as that player', async () => {
+  const r = makeRoom(null, accounts), a = r.connect(), b = r.connect();
+  await send(r.room, a, { t: 'hello', name: 'Anna', create: true });
+  await send(r.room, b, { t: 'hello', name: 'Benny' });
+  const { token, seat } = last(b, 'welcome');
+  const b2 = r.connect();
+  await send(r.room, b2, { t: 'hello', token, session: 'sess-ben' });
+  assert.equal(last(b2, 'welcome').seat, seat);
+  assert.deepEqual(last(b2, 'room').room.seats.map(s => [s.name, s.user]), [['Anna', null], ['Ben', 'bbbb000000000001']], 'in the lobby the seat takes the player name');
+  // mid-game the name on the score sheet stays
+  await send(r.room, a, { t: 'lobby', op: 'start' });
+  const a2 = r.connect();
+  await send(r.room, a2, { t: 'hello', token: last(a, 'welcome').token, session: 'sess-anna' });
+  const room = last(a2, 'room');
+  assert.deepEqual(room.room.seats.map(s => [s.name, s.user]), [['Anna', 'aaaa000000000001'], ['Ben', 'bbbb000000000001']]);
+  assert.deepEqual(room.state.game.players.map(p => p.name), ['Anna', 'Ben']);
+});
+
+test('players: without accounts, or when they fail, everyone plays as a guest', async () => {
+  const r = makeRoom(), a = r.connect();
+  await send(r.room, a, { t: 'hello', name: 'Anna', session: 'sess-anna', create: true });
+  assert.equal(last(a, 'welcome').user, null);
+  assert.equal(last(a, 'room').room.seats[0].user, null);
+  const broken = makeRoom(null, { resolve: async () => { throw new Error('D1 is down'); } }), c = broken.connect();
+  const err = console.error; console.error = () => {};
+  try { await send(broken.room, c, { t: 'hello', name: 'Cleo', session: 'sess-anna', create: true }); } finally { console.error = err; }
+  assert.deepEqual(last(c, 'room').room.seats.map(s => [s.name, s.user]), [['Cleo', null]]);
+  // a room saved before seats had players
+  const old = makeRoom(null, accounts);
+  old.setStored({ v: 1, code: 'K7QPM', created: 1, updated: Date.now(), rev: 3, phase: 'lobby', host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: [{ id: 's1', name: 'Old', token: 't'.repeat(32) }], state: null });
+  const o = old.connect();
+  await send(old.room, o, { t: 'hello', token: 't'.repeat(32) });
+  assert.deepEqual(last(o, 'room').room.seats.map(s => [s.name, s.user]), [['Old', null]]);
 });

@@ -8,6 +8,8 @@
  *   storage: { get(): Promise<data|null>, put(data): Promise<void>, remove(): Promise<void> }
  *   net:     { send(conn, msg), conns(): conn[], seatOf(conn): string|null, bind(conn, seatId), close(conn, code, reason) }
  *   stats:   { record(rec) } (optional): gets a stats record (server/core/stats.js summarize) whenever a game starts, ends or is abandoned
+ *   accounts: { resolve(session) -> Promise<{ id, name } | null> } (optional): the signed-in player behind hello.session
+ *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user
  * server/cloudflare/worker.js (Durable Object) and server/node/server.js (plain Node) are the two adapters.
  * The wire protocol is documented in CLAUDE.md.
  */
@@ -30,8 +32,8 @@ const hex = n => { const b = new Uint8Array(n); crypto.getRandomValues(b); retur
 const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
 
 export class Room {
-  constructor({ engine, storage, net, stats = null, now = () => Date.now() }) {
-    this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.now = now;
+  constructor({ engine, storage, net, stats = null, accounts = null, now = () => Date.now() }) {
+    this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.accounts = accounts; this.now = now;
     this.data = undefined; // undefined = not loaded yet, null = no room
     this.loading = null;
   }
@@ -71,7 +73,7 @@ export class Room {
     const d = this.data, on = this.connectedSeats();
     return {
       code: d.code, phase: d.phase, host: this.effectiveHost(on), settings: d.settings,
-      seats: d.seats.map(s => ({ id: s.id, name: s.name, connected: on.has(s.id) }))
+      seats: d.seats.map(s => ({ id: s.id, name: s.name, connected: on.has(s.id), user: s.user || null }))
     };
   }
   roomMessage(events = []) {
@@ -103,12 +105,33 @@ export class Room {
     if (this.data && this.net.seatOf(conn)) this.broadcast();
   }
 
+  // the signed-in player behind a session, or null (a guest); an account failure never keeps anyone out
+  async player(session) {
+    if (!this.accounts || typeof session !== 'string' || !session) return null;
+    try { return await this.accounts.resolve(session); } catch (err) { console.error('accounts', err); return null; }
+  }
+
   // ----- hello: create, join, rejoin or watch -----
   async hello(conn, m, code) {
+    const user = await this.player(m.session); // before reading the room: other messages may run meanwhile
     let d = this.data;
+    if (d && user) {
+      // a player gets their seat back from any phone, even mid-game
+      const seat = d.seats.find(s => s.user === user.id);
+      if (seat) return this.seat(conn, seat, user);
+    }
     if (d && m.token) {
       const seat = d.seats.find(s => s.token === m.token);
-      if (seat) return this.seat(conn, seat);
+      if (seat) {
+        // a guest who has signed in since takes their seat as that player
+        if (user && !seat.user) {
+          seat.user = user.id;
+          if (d.phase === 'lobby') seat.name = this.uniqueName(user.name, seat);
+          d.rev++;
+          await this.save();
+        }
+        return this.seat(conn, seat, user);
+      }
     }
     if (!d) {
       if (!m.create) { this.error(conn, 'no_room', 'There is no room with this code.'); return this.net.close(conn, 4404, 'no_room'); }
@@ -117,35 +140,41 @@ export class Room {
         v: 1, code, created: this.now(), updated: this.now(), rev: 1,
         phase: 'lobby', host: null, settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: [], state: null
       };
-      const seat = this.addSeat(m.name);
+      const seat = this.addSeat(m.name, user);
       d.host = seat.id;
       await this.save();
-      return this.seat(conn, seat);
+      return this.seat(conn, seat, user);
     }
     if (m.create) return this.error(conn, 'room_taken', 'That code is in use.');
     if (d.phase === 'lobby') {
       if (d.seats.length >= MAX_SEATS) { this.error(conn, 'room_full', 'This room is full.'); return this.net.close(conn, 4409, 'room_full'); }
-      const seat = this.addSeat(m.name);
+      const seat = this.addSeat(m.name, user);
       d.rev++;
       await this.save();
-      return this.seat(conn, seat);
+      return this.seat(conn, seat, user);
     }
     // a game is running: watch it
     this.net.bind(conn, null);
-    this.net.send(conn, { t: 'welcome', seat: null });
+    this.net.send(conn, { t: 'welcome', seat: null, user: user ? user.id : null });
     this.net.send(conn, this.roomMessage());
   }
-  addSeat(name) {
+  // a signed-in player sits under their player name
+  addSeat(name, user = null) {
     const d = this.data;
-    let base = cleanName(name) || `Player ${d.seats.length + 1}`, nm = base, k = 2;
-    while (d.seats.some(s => s.name.toLowerCase() === nm.toLowerCase())) nm = `${base.slice(0, 13)} ${k++}`;
-    const seat = { id: hex(4), name: nm, token: hex(16) };
+    const seat = { id: hex(4), name: this.uniqueName(user ? user.name : name), token: hex(16), user: user ? user.id : null };
     d.seats.push(seat);
     return seat;
   }
-  seat(conn, seat) {
+  uniqueName(name, self = null) {
+    const d = this.data;
+    let base = cleanName(name) || `Player ${d.seats.length + 1}`, nm = base, k = 2;
+    while (d.seats.some(s => s !== self && s.name.toLowerCase() === nm.toLowerCase())) nm = `${base.slice(0, 13)} ${k++}`;
+    return nm;
+  }
+  // welcome.user is the signed-in player the server sees (null: a guest, or the session has ended)
+  seat(conn, seat, user = null) {
     this.net.bind(conn, seat.id);
-    this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token });
+    this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token, user: user ? user.id : null });
     this.broadcast();
   }
 

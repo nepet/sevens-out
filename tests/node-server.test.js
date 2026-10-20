@@ -130,6 +130,14 @@ test('player accounts: create and sign in with a passkey, kept across a restart'
   const assertion = await auth.get({ challenge: s.body.challenge });
   const back = await authCall('POST', '/auth/signin', { body: { challengeId: s.body.challengeId, credential: assertion } });
   assert.equal(back.body.player.id, created.body.player.id);
+
+  // the session signs the player into a room
+  const c = client('STUVW');
+  await c.send({ t: 'hello', name: 'x', session: back.body.token, create: true });
+  assert.equal((await c.next(m => m.t === 'welcome')).user, created.body.player.id);
+  assert.deepEqual((await c.next(m => m.t === 'room')).room.seats.map(x => [x.name, x.user]), [['Anna', created.body.player.id]]);
+  c.ws.close();
+  await c.closed;
 });
 
 test('player accounts: CORS, body size and the per-IP limit', async () => {

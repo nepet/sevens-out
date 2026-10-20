@@ -272,6 +272,10 @@ test('auth: routed to the accounts handler on D1, limited per IP, off without a 
   assert.equal(created.status, 200);
   assert.equal(env.STATS.raw.prepare('SELECT name FROM users').get().name, 'Anna');
   assert.equal((await call('GET', '/auth/me', null, { Authorization: `Bearer ${created.body.token}` })).body.player.name, 'Anna');
+  // a room in this Worker resolves the session against the same database
+  const obj = new GameRoom(fakeCtx(), env), ws = await connect(obj, 'K7QPM');
+  await say(obj, ws, { t: 'hello', session: created.body.token, create: true });
+  assert.equal(last(ws, 'welcome').user, created.body.player.id);
   assert.equal((await call('GET', '/auth/me')).status, 429, 'the fourth counted request from this IP');
   assert.equal((await call('GET', '/auth/config')).status, 200, 'the probe is not counted');
   assert.equal((await call('GET', '/auth/config', null, { Origin: 'https://evil.example' })).status, 403);

@@ -18,7 +18,7 @@ import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
 import { fromD1 } from '../d1/db.js';
 import { writeRecord } from '../d1/write.js';
 import { checkReport, summarize, MAX_REPORT_BYTES } from '../core/stats.js';
-import { handleAuth, originsFrom } from '../core/accounts.js';
+import { handleAuth, originsFrom, resolveSession } from '../core/accounts.js';
 
 const E = globalThis.SevensEngine;
 
@@ -116,7 +116,8 @@ export class GameRoom extends DurableObject {
       close: (ws, code, reason) => { try { ws.close(code, reason); } catch {} }
     };
     const stats = env && env.STATS ? { record: rec => this.recordStats(rec) } : null;
-    this.room = new Room({ engine: E, storage, net, stats });
+    const accounts = env && env.STATS ? { resolve: session => resolveSession(fromD1(env.STATS), session) } : null;
+    this.room = new Room({ engine: E, storage, net, stats, accounts });
   }
 
   async fetch(request) {
