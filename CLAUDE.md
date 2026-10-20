@@ -85,7 +85,7 @@ These rules were agreed with the owner. Don't change them unless asked.
 - **Entering a turn:** each turn the player enters the pips left on the table (0–36). The starter also enters the rolls used (1–3).
 - **Undo:** reverts the last entry, dropped die or correction, using snapshots in `game.history` (capped at 40).
 - **Dice on the floor:** one counter is shared by the table (`game.drops`), and each drop counts against the player whose turn it is. The third drop means that player pays a round of shots: it triggers the skull takeover, is recorded in `game.shots`, and resets the counter.
-- **Corrections:** tap a score card to edit any past round. The engine rebuilds the totals (`recalc`) and re-applies the starter and 101 rules wherever the game stands. A game ended early stays over.
+- **Corrections:** tap a player's line in the score list to edit any past round. The engine rebuilds the totals (`recalc`) and re-applies the starter and 101 rules wherever the game stands. A game ended early stays over.
   - While nothing has been played in the new round, a correction re-applies the starter and 101 rules to the finished rounds (the round restarts with the right starter, or the game ends); dropped dice don't close that window; shots from a removed empty round move to the finished round.
 
 ### Dice mode extras
@@ -155,6 +155,12 @@ Other storage keys, all per device:
 ### The page (`index.html`)
 
 The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template strings.
+
+**The score list** (`board(g, cur)`, one `lineHtml(g, i, opts)` per player) sits at the top of every game screen:
+- During play and corrections the lines follow this round's playing order (`g.order`), with the current player (or the player being corrected) highlighted. At game over they are sorted by total, highest first (equal totals keep seating order), and the loser's line says "Loses".
+- Each line: ▶ marker, name (a die mark for the round's starter, `you` online), a bar towards 101 with the last 15 hatched, the total, and this round's `+N`, `now` or `–`. Offline and rounds of shots paid add a small second row.
+- Real-dice mode: seated players tap a line to correct that player's scores (`data-act="edit"`).
+- DOM, relied on by the tests and the race between rounds: `section.board` → `.bhead` → `ol.lines` → `li.pl[data-id]` (classes `now`, `wait`, `over`, `lost`, `editable`) with `.mk`, `.nm`, `.trk > .fill`, `.num`, `.dl` and an optional `.pl-sub`; then `p.bfoot`. `lineHtml` depends only on its arguments (and the room's connections), so the race can reuse it.
 
 **Events and actions:**
 - Clickable elements carry `data-act` (and optionally `data-id`). One document click listener calls `handle(action, id, el)`.

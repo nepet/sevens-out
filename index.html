@@ -66,26 +66,39 @@ button{cursor:pointer}
 .alert{border:1.5px solid var(--danger);border-radius:10px;padding:10px 12px;font-size:.9rem;margin:0}
 .alert strong{color:var(--danger)}
 
-/* scoreboard */
-.board{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.board.cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
-.board.cols-3 .pl{padding:9px 10px}
-.board.cols-3 .num{font-size:1.8rem}
-.board.cols-3 .pl-top{flex-wrap:wrap}
-.pl{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
-.pl.now{border-color:var(--brass);box-shadow:inset 0 0 0 1px var(--brass)}
-.pl-top{display:flex;justify-content:space-between;align-items:center;gap:6px}
-.nm{font-weight:600;overflow-wrap:anywhere;min-width:0}
-.tag{font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--brass);white-space:nowrap}
-.pl.lost .tag{color:var(--danger)}
-.sc{display:flex;align-items:baseline;gap:5px}
-.num{font:800 2.1rem/1 var(--font-display);font-variant-numeric:tabular-nums}
-.of{font-size:.78rem;color:var(--ink-soft)}
-.bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden}
-.bar span{display:block;height:100%;background:var(--brass);border-radius:3px}
-.pl.over .bar span{background:var(--danger)}
+/* score list: one line per player in this round's playing order (sorted by total at game over) */
+.board{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:7px 10px 8px;display:flex;flex-direction:column;gap:4px}
+.bhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-height:18px;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
+.bhead>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bhead>span:last-child{flex:none}
+.bhead b{color:var(--brass)}
+.lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+.board .pl{display:grid;grid-template-columns:12px minmax(0,6.5rem) minmax(0,1fr) 2.4rem 2.6rem;grid-template-rows:minmax(28px,auto);align-items:center;column-gap:8px;padding-inline:4px 6px;border-radius:8px}
+.board .pl.now{background:color-mix(in srgb,var(--brass) 16%,transparent)}
+.board .mk{font-size:.7rem;line-height:1;color:var(--brass);visibility:hidden}
+.board .pl.now .mk{visibility:visible}
+.board .nm{display:flex;align-items:center;gap:5px;min-width:0;font-weight:600;font-size:.9rem;white-space:nowrap}
+.board .nt{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.board .nm .you{flex:none;margin-left:0}
+.sd{flex:none;position:relative;width:11px;height:11px;border-radius:3px;background:var(--brass)}
+.sd::after{content:"";position:absolute;inset:3.5px;border-radius:50%;background:var(--brass-ink)}
+.board .pl.wait:not(.now) :is(.nm,.num){opacity:.55}
+.trk{position:relative;height:7px;border-radius:4px;background:var(--line)}
+.trk::after{content:"";position:absolute;right:0;top:0;bottom:0;width:15%;border-radius:0 4px 4px 0;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--danger) 40%,transparent) 0 3px,transparent 3px 6px)}
+.fill{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--brass);z-index:1}
+.board .num{font:800 1.2rem/1 var(--font-display);text-align:right;font-variant-numeric:tabular-nums}
+.dl{font:800 .9rem/1 var(--font-display);color:var(--brass);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dl.off{font:600 .66rem/1 var(--font-body);color:var(--ink-soft)}
+.pl.over .fill{background:var(--danger)}
 .pl.over .num{color:var(--danger)}
-.pl-foot{font-size:.78rem;color:var(--ink-soft);font-variant-numeric:tabular-nums;min-height:1.1em}
+.pl.lost .dl{font:700 .66rem/1 var(--font-body);letter-spacing:.06em;text-transform:uppercase;color:var(--danger)}
+.pl-sub{grid-column:2/-1;display:flex;flex-wrap:wrap;gap:0 10px;margin-top:-4px;padding-bottom:4px;line-height:1.2}
+.pl-away{font-size:.72rem;font-weight:700;color:var(--ink-soft)}
+.pl-shots{font-size:.72rem;font-weight:700;color:var(--danger)}
+.pl.editable{cursor:pointer}
+.pl.editable:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
+.pl.editable.now:hover{background:color-mix(in srgb,var(--brass) 24%,transparent)}
+.bfoot{margin:2px 0 0;font-size:.72rem;color:var(--ink-soft)}
 .last{font-size:.9rem;color:var(--ink-soft);margin:0}
 .last b{color:var(--ink)}
 
@@ -233,14 +246,8 @@ td.st::before{margin-right:6px}
 .fslot.last{border-color:var(--danger)}
 .fslot.on{border-style:solid;opacity:1}
 .fslot .die.mini{--die:1.6rem;transform:rotate(-14deg)}
-.pl-shots{font-size:.75rem;font-weight:700;color:var(--danger)}
 
 /* correcting past scores (scoreboard mode) */
-.pl.editable{cursor:pointer}
-.pl.editable:hover{border-color:var(--ink-soft)}
-.pl-foot{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
-.pl-foot>span:first-child{min-width:0}
-.pl-edit{color:var(--brass);font-weight:700;text-decoration:underline;text-underline-offset:2px;white-space:nowrap}
 .elist{display:flex;flex-direction:column}
 .erow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:8px;border-bottom:1px solid var(--line)}
 .erow label{display:flex;flex-direction:column;font-weight:600}
@@ -310,7 +317,6 @@ td.st::before{margin-right:6px}
 /* online play */
 .you{font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--brass);margin-left:4px;vertical-align:middle}
 .who .you{font-family:var(--font-body);font-size:.8rem}
-.pl-away{font-size:.75rem;font-weight:700;color:var(--ink-soft)}
 .warn{color:var(--danger)}
 .waiting{display:flex;align-items:center;gap:10px;margin:0;padding:12px 14px;border:1.5px dashed var(--line);border-radius:12px;color:var(--ink-soft);font-weight:600}
 .pulse{width:10px;height:10px;border-radius:50%;background:var(--brass);flex:none;animation:pulse 1.2s ease-in-out infinite}
@@ -330,6 +336,7 @@ td.st::before{margin-right:6px}
 .seats{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
 .seat{display:flex;align-items:center;gap:10px;min-height:46px;border-bottom:1px solid var(--line)}
 .seat .nm{flex:1;min-width:0;font-weight:600;overflow-wrap:anywhere}
+.tag{font-size:.68rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;color:var(--brass);white-space:nowrap}
 .seat .dot{width:10px;height:10px;border-radius:50%;background:var(--line);flex:none}
 .seat .dot.on{background:#2E9E5B}
 .picks{display:flex;flex-wrap:wrap;gap:6px}
@@ -374,11 +381,12 @@ html:root[data-look="vegas"] .fx-title{font-size:clamp(2rem,10vw,3rem);line-heig
 html:root[data-look="vegas"] .who{font-size:2rem;line-height:1.05}
 html:root[data-look="vegas"] .verdict{font-size:clamp(2.1rem,10.5vw,3.3rem);line-height:1}
 html:root[data-look="vegas"] .h2{font-size:1.2rem}
-/* LED credit meters */
-html:root[data-look="vegas"] .pl{background:var(--meter);border-color:var(--line)}
-html:root[data-look="vegas"] .pl.now{border-color:var(--brass);box-shadow:inset 0 0 0 1px var(--brass),0 0 16px rgba(255,197,49,.35)}
-html:root[data-look="vegas"] .num{font-size:1.7rem;color:var(--led);text-shadow:0 0 10px rgba(255,42,61,.6)}
-html:root[data-look="vegas"] .board.cols-3 .num{font-size:1.35rem}
+/* the score list as an LED credit meter */
+html:root[data-look="vegas"] .board{background:var(--meter);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--chrome) 18%,transparent)}
+html:root[data-look="vegas"] .board .pl.now{background:color-mix(in srgb,var(--brass) 13%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--brass) 55%,transparent),0 0 14px color-mix(in srgb,var(--brass) 25%,transparent)}
+html:root[data-look="vegas"] .board .num{font-size:.92rem;color:var(--led);text-shadow:0 0 10px color-mix(in srgb,var(--led) 60%,transparent)}
+html:root[data-look="vegas"] .dl:not(.off){font-size:.72rem}
+html:root[data-look="vegas"] .fill{box-shadow:0 0 8px color-mix(in srgb,var(--brass) 45%,transparent)}
 /* reel window */
 html:root[data-look="vegas"] .tray{color:var(--reel-ink);background:linear-gradient(180deg,var(--reel-edge) 0%,var(--reel-mid) 18%,var(--reel) 50%,var(--reel-mid) 82%,var(--reel-edge) 100%);box-shadow:inset 0 0 0 4px var(--chrome),inset 0 0 0 7px var(--brass),inset 0 10px 14px rgba(0,0,0,.3),inset 0 -10px 14px rgba(0,0,0,.3),0 0 30px rgba(255,197,49,.22)}
 html:root[data-look="vegas"] .tray::before{inset:0;border:0;border-radius:20px;opacity:1;background:linear-gradient(90deg,rgba(0,0,0,.2),transparent 9%,transparent 91%,rgba(0,0,0,.2))}
@@ -1167,25 +1175,38 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     return `<span class="chip">Room <b>${esc(net.code)}</b>${st}</span>`;
   }
 
-  function board(g, cur, tagIdx, tagText){
-    const rd = g.rounds[g.rounds.length - 1];
-    const cols = g.players.length === 4 || g.players.length === 2 ? 2 : 3;
-    const canEdit = isScore(g) && seated();
-    return `<section class="board cols-${cols}" aria-label="Scores">${g.players.map((pl, i) => {
-      const r = rd.results[i], pct = Math.min(pl.score / LIMIT, 1) * 100;
-      const shotsN = (g.shots || []).filter(s => s.player === i).length;
-      const away = online() && g.seats && !seatOnline(g.seats[i]);
-      const editAttrs = canEdit ? ` role="button" tabindex="0" data-act="edit" data-id="${i}" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
-      const foot = r ? `+${r.pts} this round${r.rolls != null ? ` · ${plural(r.rolls, 'roll')}` : ''}` : (i === cur ? 'Playing now' : 'Still to play');
-      return `<div class="pl${i === cur ? ' now' : ''}${pl.score >= LIMIT ? ' over' : ''}${state.phase === 'over' && i === g.loser ? ' lost' : ''}${canEdit ? ' editable' : ''}"${editAttrs}>
-        <div class="pl-top"><span class="nm">${nameOf(i)}</span>${i === tagIdx ? `<span class="tag">${tagText}</span>` : ''}</div>
-        <div class="sc"><span class="num">${pl.score}</span><span class="of">/ ${LIMIT}</span></div>
-        <div class="bar" aria-hidden="true"><span style="width:${pct.toFixed(1)}%"></span></div>
-        <div class="pl-foot"><span>${foot}</span>${canEdit ? '<span class="pl-edit" aria-hidden="true">Edit</span>' : ''}</div>
-        ${away ? '<div class="pl-away">Offline</div>' : ''}
-        ${shotsN ? `<div class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</div>` : ''}
-      </div>`;
-    }).join('')}</section>`;
+  // the score list: one line per player. During play (and corrections) the lines follow this round's
+  // playing order with `cur` highlighted; at game over they are sorted by total, highest first.
+  function board(g, cur){
+    const over = state.phase === 'over', rd = g.rounds[g.rounds.length - 1], turn = over ? -1 : current(g);
+    const edit = isScore(g) && seated();
+    const ids = over ? g.players.map((_, i) => i).sort((a, b) => g.players[b].score - g.players[a].score || a - b) : g.order;
+    const lines = ids.map(i => {
+      const r = rd.results[i], lost = over && i === g.loser;
+      return lineHtml(g, i, { now:i === cur, wait:!over && !r && i !== turn, played:!!r, starter:i === g.starter, pts:r ? r.pts : 0,
+        tag:lost ? 'Loses' : over && !r ? '–' : null, lost, edit });
+    }).join('');
+    const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
+    return `<section class="board" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
+      <ol class="lines">${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
+  }
+  // one line: turn marker, name (a die mark for the round's starter), bar towards 101 with the last 15 hatched,
+  // total, and this round's points (`tag` replaces them). The race between rounds draws its lines with this too,
+  // so it depends only on its arguments (and the room's connections for "Offline").
+  function lineHtml(g, i, { now = false, wait = false, played = false, starter = false, pts = 0, total = null, tag = null, lost = false, edit = false } = {}){
+    const pl = g.players[i], tot = total != null ? total : pl.score;
+    const shotsN = (g.shots || []).filter(s => s.player === i).length;
+    const away = online() && g.seats && !seatOnline(g.seats[i]);
+    const me = online() && g.seats && g.seats[i] === net.seat;
+    const dl = tag != null ? tag : played ? `+${pts}` : wait ? '–' : 'now';
+    const attrs = edit ? ` role="button" tabindex="0" data-act="edit" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
+    const sub = (away ? '<span class="pl-away">Offline</span>' : '') + (shotsN ? `<span class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</span>` : '');
+    return `<li class="pl${now ? ' now' : ''}${wait ? ' wait' : ''}${tot >= LIMIT ? ' over' : ''}${lost ? ' lost' : ''}${edit ? ' editable' : ''}" data-id="${i}"${attrs}>`
+      + '<span class="mk" aria-hidden="true">▶</span>'
+      + `<span class="nm">${starter ? '<i class="sd" role="img" aria-label="Starter"></i>' : ''}<span class="nt">${esc(pl.name)}</span>${me ? '<small class="you">you</small>' : ''}</span>`
+      + `<span class="trk" aria-hidden="true"><span class="fill" style="width:${(Math.min(tot / LIMIT, 1) * 100).toFixed(1)}%"></span></span>`
+      + `<span class="num">${tot}</span><span class="dl${played && tag == null ? '' : ' off'}">${dl}</span>`
+      + (sub ? `<span class="pl-sub">${sub}</span>` : '') + '</li>';
   }
 
   // the turn as it should look right now: pairs that haven't flown out yet are still on the table
@@ -1214,7 +1235,6 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   function viewEdit(){
     const g = state.game, p = ui.edit, s = editState();
-    const tag = state.phase === 'play' ? [g.starter, 'Starts'] : [g.loser, 'Loses'];
     const rows = g.rounds.filter(rd => rd.results[p]);
     const list = rows.length ? rows.map(rd => {
       const r = rd.results[p], raw = ui.editVals[rd.no], v = raw != null ? raw : String(r.pts);
@@ -1227,7 +1247,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
           </div>
         </div>`;
     }).join('') : `<p class="empty">${esc(pname(p))} hasn't played a turn yet.</p>`;
-    return header(g) + board(g, p, tag[0], tag[1]) + `
+    return header(g) + board(g, p) + `
       <section class="panel" aria-labelledby="edit-h">
         <div><p class="eyebrow">Correct scores</p><h2 class="who" id="edit-h">${esc(pname(p))}</h2></div>
         <p class="sub">Change the points for any round, then save. Totals, the next starter and the ${LIMIT} rule are worked out again from the corrected sheet.</p>
@@ -1284,7 +1304,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         <p class="hint" aria-live="polite">${esc(hint)}</p>
         <div class="actions"><button class="btn primary" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>${undoLink(g)}</div>`
       : `<p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${waiting(pname(p), 'enter their score')}<div class="actions">${undoLink(g)}</div>`;
-    return header(g) + board(g, p, g.starter, 'Starts') + lastLine(g) + `
+    return header(g) + board(g, p) + lastLine(g) + `
       <section class="turn" aria-label="${esc(pname(p))}'s turn">
         <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${nameOf(p)}</h2></div>
         <p class="sub">${sub}</p>
@@ -1343,7 +1363,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       actions = `<button class="btn primary" data-act="roll">Roll ${diceWord(nAct)} · ${plural(left, 'roll')} left</button><div class="row">${sec.join('')}</div>`;
     }
 
-    return header(g) + board(g, p, g.starter, 'Starts') + lastLine(g) + `
+    return header(g) + board(g, p) + lastLine(g) + `
       <section class="turn" aria-label="${esc(pname(p))}'s turn">
         <div class="turnhead">
           <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${nameOf(p)}</h2></div>
@@ -1382,7 +1402,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         ${shotsSummary(g)}
         ${again}
         ${undoLink(g)}
-      </section>` + board(g, -1, L, 'Loses') + sheet(g) + rules() + devBlock() + footer();
+      </section>` + board(g, -1) + sheet(g) + rules() + devBlock() + footer();
   }
 
   // who sets the 7-pairs aside in dice mode: the player (the default) or the app
@@ -1906,7 +1926,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     if (!el || !$app.contains(el) || el.disabled) return;
     handle(el.dataset.act, el.dataset.id != null ? +el.dataset.id : null, el);
   });
-  // score cards act as buttons in scoreboard mode
+  // score lines act as buttons in scoreboard mode
   document.addEventListener('keydown', e => {
     const el = e.target;
     if ((e.key === 'Enter' || e.key === ' ') && el && el.matches && el.matches('[role="button"][data-act]') && $app.contains(el)){

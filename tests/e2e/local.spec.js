@@ -206,6 +206,88 @@ test.describe('on a phone', () => {
   });
 });
 
+// scoreboard mode, Anna starts every round with 36 and reaches 108 in round 3; Ben adds 5 a round
+async function playShortGame(page) {
+  await startLocal(page, { names: ['Anna', 'Ben'], mode: 'score' });
+  for (let round = 1; round <= 3; round++) {
+    await enterScore(page, 36, 1);
+    await enterScore(page, 5);
+  }
+  await expect(page.locator('.verdict')).toContainText('loses');
+}
+
+test.describe('the score list', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const names = page => page.locator('.board .pl .nm').allTextContents();
+
+  test('the score list follows the round\'s playing order', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], starter: 1 });
+    expect(await names(page)).toEqual(['Ben', 'Cleo', 'Anna']);
+    await expect(page.locator('.board .bhead')).toContainText('Round 1 · Ben starts');
+    await expect(page.locator('.board .bhead')).toContainText('to 101');
+    const line = i => page.locator(`.board .pl[data-id="${i}"]`);
+    await expect(line(1)).toHaveClass(/\bnow\b/);
+    await expect(line(1).locator('.nm i.sd')).toHaveCount(1);
+    await expect(page.locator('.board i.sd')).toHaveCount(1);
+    await expect(line(1).locator('.dl')).toHaveText('now');
+    for (const i of [2, 0]) {
+      await expect(line(i)).toHaveClass(/\bwait\b/);
+      await expect(line(i)).not.toHaveClass(/\bnow\b/);
+      await expect(line(i).locator('.dl')).toHaveText('–');
+    }
+    await expect(page.locator('.board .bfoot')).toHaveCount(0); // corrections are for real-dice games
+    await page.click('[data-act=roll]');
+    await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+    await expect(line(1).locator('.dl')).toHaveText(/^\+\d+$/);
+    await expect(line(1)).not.toHaveClass(/\bnow\b|\bwait\b/);
+    await expect(line(2)).toHaveClass(/\bnow\b/);
+    await expect(line(2).locator('.dl')).toHaveText('now');
+    const score = (await saved(page)).game.players[1].score;
+    await expect(line(1).locator('.num')).toHaveText(String(score));
+    await expect(line(1).locator('.dl')).toHaveText(`+${score}`);
+  });
+
+  test('six players fit on one screen', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'], mode: 'score' });
+    for (const lookId of ['0', '1']) {
+      await page.click(`[data-act=look][data-id="${lookId}"]`);
+      await expect(page.locator('.board .pl')).toHaveCount(6);
+      const box = await page.locator('.board').boundingBox();
+      expect(box.height).toBeLessThanOrEqual(260);
+      expect(await noSideScroll(page)).toBe(true);
+      // a name longer than its column is cut, not wrapped
+      const nm = page.locator('.board .pl[data-id="5"] .nm');
+      const one = await page.locator('.board .pl[data-id="0"] .nm').boundingBox();
+      expect((await nm.boundingBox()).height).toBeLessThanOrEqual(one.height + 1);
+    }
+    await expect(page.locator('.board .bfoot')).toHaveText('Tap a name to correct a score');
+    await expect(page.locator('.board .pl.editable[role=button][tabindex="0"][data-act=edit]')).toHaveCount(6);
+    await expect(page.locator('.board .pl[data-id="1"]')).toHaveAttribute('aria-label', "Correct Ben's scores");
+  });
+
+  test('game over lists the scores from the top with the loser marked', async ({ page }) => {
+    await playShortGame(page);
+    expect(await names(page)).toEqual(['Anna', 'Ben']);
+    const anna = page.locator('.board .pl[data-id="0"]'), ben = page.locator('.board .pl[data-id="1"]');
+    await expect(anna).toHaveClass(/\blost\b/);
+    await expect(anna).toHaveClass(/\bover\b/);
+    await expect(anna.locator('.dl')).toHaveText('Loses');
+    await expect(anna.locator('.num')).toHaveText('108');
+    await expect(ben).not.toHaveClass(/\blost\b|\bover\b|\bnow\b|\bwait\b/);
+    await expect(ben.locator('.dl')).toHaveText('+5');
+    await expect(page.locator('.board .bhead')).toContainText('Final scores');
+
+    // the highest total goes on top, whatever the seating or playing order
+    await page.evaluate(() => localStorage.removeItem('sevens-out-v1'));
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
+    for (const [pts, rolls] of [[36, 1], [0], [30], [0, 1], [0], [36], [0, 1], [36], [0], [0, 1], [0], [36]]) await enterScore(page, pts, rolls);
+    await expect(page.locator('.verdict')).toContainText('Cleo loses');
+    expect((await saved(page)).game.order).toEqual([0, 1, 2]);
+    expect(await names(page)).toEqual(['Cleo', 'Anna', 'Ben']);   // 102, 72, 0
+    await expect(page.locator('.board .pl').first()).toHaveClass(/\blost\b/);
+  });
+});
+
 test('no sideways scrolling at phone width, in both looks', async ({ page }) => {
   await page.goto('/');
   expect(await noSideScroll(page)).toBe(true);
@@ -217,14 +299,6 @@ test('no sideways scrolling at phone width, in both looks', async ({ page }) => 
 test.describe('statistics', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
   const reports = page => page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-reports') || '{"queue":[],"sent":{}}'));
-  async function playShortGame(page) {
-    await startLocal(page, { names: ['Anna', 'Ben'], mode: 'score' });
-    for (let round = 1; round <= 3; round++) {
-      await enterScore(page, 36, 1); // Anna starts every round and reaches 108 in round 3
-      await enterScore(page, 5);
-    }
-    await expect(page.locator('.verdict')).toContainText('loses');
-  }
 
   test('a finished one-phone game is sent once, also when the phone was offline at the end', async ({ page }) => {
     await page.route('**/report', route => route.abort('internetdisconnected'));
