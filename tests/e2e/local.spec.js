@@ -1129,7 +1129,18 @@ test.describe('home and the Play sheet', () => {
     expect((await saved(page)).setup.pairing).toBe('manual');
     await sw.click();                                                   // auto again, for the game below
     expect(await noSideScroll(page)).toBe(true);
-    for (const h of await sheet.locator('.opt, .switch, [data-act=players]').evaluateAll(els => els.map(el => el.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(32);
+    for (const h of await sheet.locator('.opt, [data-act=players]').evaluateAll(els => els.map(el => el.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(44);
+    // the switch is drawn 32px tall; its real hit area (a taller ::before) must reach 44px
+    const swBox = await sw.boundingBox();
+    const reach = await page.evaluate(({ x, y }) => { const el = document.elementFromPoint(x, y); return !!el && !!el.closest('[data-act=pairing]'); }, { x: swBox.x + swBox.width / 2, y: swBox.y });
+    expect(reach).toBe(true);
+    let up = 0, down = 0;
+    for (let d = 0; d <= 12; d++) {
+      const hit = dy => page.evaluate(({ x, y }) => { const el = document.elementFromPoint(x, y); return !!el && !!el.closest('[data-act=pairing]'); }, { x: swBox.x + swBox.width / 2, y: dy });
+      if (await hit(swBox.y - d)) up = d;
+      if (await hit(swBox.y + swBox.height + d - 1)) down = d;
+    }
+    expect(swBox.height + up + down).toBeGreaterThanOrEqual(44);
 
     // real dice: no switch; the choice is saved and survives a reload
     await page.click('[data-act=mode][data-id="1"]');
@@ -1175,5 +1186,98 @@ test.describe('home and the Play sheet', () => {
     await page.click('[data-act=players]');
     await expect(page.locator('#name-0')).toHaveValue('Zed');
     await expect(page.locator('#starter-1')).toBeChecked();
+  });
+});
+
+test.describe("Who's playing", () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+
+  test('the players card: starter dice, names, remove, add, random, the mode row and a pinned Start', async ({ page }) => {
+    await page.goto('/');
+    await toPlayers(page);
+    await expect(page.locator('h1#players-h')).toHaveText("Who's playing");
+    await expect(page.locator('[data-act=home][aria-label=Back]')).toBeVisible();
+    await expect(page.locator('.pcard .prow')).toHaveCount(2);
+    await expect(page.locator('.hint')).toHaveText('The die marks who starts round 1.');
+    await expect(page.locator('[data-act=play]')).toContainText('Dice in the app · You find the 7s');
+    await page.fill('#name-0', 'Anna'); await page.fill('#name-1', 'Ben');
+    await expect(page.locator('#starter-0')).toHaveAttribute('aria-label', 'Anna starts');
+    await expect(page.locator('#starter-1')).toHaveAttribute('aria-label', 'Let Ben start');
+    await page.check('#starter-1');
+    await expect(page.locator('#starter-0')).toHaveAttribute('aria-label', 'Let Anna start');
+    await expect(page.locator('#starter-1')).toHaveAttribute('aria-label', 'Ben starts');
+    expect((await saved(page)).setup.starter).toBe(1);
+    // two players: no remove; three: remove on every row
+    await expect(page.locator('[data-act=remove]')).toHaveCount(0);
+    await page.click('[data-act=add]');
+    await expect(page.locator('[data-act=remove]')).toHaveCount(3);
+    await page.fill('#name-2', 'Cleo');
+    // tap sizes
+    const sizes = await page.locator('.pcard .diepick, .pcard [data-act=remove], .pcard .name-in, .addrow, [data-act=randstart], [data-act=home], [data-act=play]').evaluateAll(els => els.map(el => { const r = el.getBoundingClientRect(); return [r.width, r.height]; }));
+    for (const [w, h] of sizes) { expect(h).toBeGreaterThanOrEqual(44); expect(w).toBeGreaterThanOrEqual(44); }
+    expect(await noSideScroll(page)).toBe(true);
+    const startBox = await page.locator('.bar [data-act=start]').boundingBox();
+    expect(startBox.y + startBox.height).toBeLessThanOrEqual(844);
+    await page.click('[data-act=randstart]');
+    await expect(page.locator('.hint')).toContainText('starts the first round');
+    await page.click('[data-act=remove][data-id="2"]');
+    await expect(page.locator('.pcard .prow')).toHaveCount(2);
+    // the mode row opens the Play sheet; real dice shows in the row
+    await page.click('[data-act=play]');
+    await expect(page.locator('.sheet-layer .sheet')).toBeVisible();
+    await page.click('[data-act=mode][data-id="1"]');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-act=play]')).toContainText('Real dice · Scores here');
+    await expect(page.locator('[data-act=play]')).toBeFocused();
+    await page.click('[data-act=home]');
+    await expect(page.locator('[data-act=play].play')).toBeVisible();
+  });
+
+  test('a hint left on Who\'s playing does not come back when you return', async ({ page }) => {
+    await page.goto('/');
+    await toPlayers(page);
+    await page.click('[data-act=randstart]');
+    await expect(page.locator('.hint')).toContainText('starts the first round');
+    await page.click('[data-act=home]');
+    await page.click('[data-act=play]'); await page.click('[data-act=players]');
+    await expect(page.locator('.hint')).toHaveText('The die marks who starts round 1.');
+  });
+
+  test('Play again and New game land here with the same players and mode', async ({ page }) => {
+    await playShortGame(page);
+    await page.click('[data-act=again]');
+    await expect(page.locator('h1#players-h')).toBeVisible();
+    await expect(page.locator('#name-0')).toHaveValue('Anna');
+    await expect(page.locator('#name-1')).toHaveValue('Ben');
+    await expect(page.locator('[data-act=play]')).toContainText('Real dice');
+    await page.click('[data-act=start]');
+    await expect(page.locator('.board')).toBeVisible();
+    await openMenu(page);
+    await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
+    await expect(page.locator('#name-0')).toHaveValue('Anna');
+    await expect(page.locator('[data-act=play]')).toContainText('Real dice');
+  });
+
+  test('a game saved mid-turn before this change loads into the turn; an old setup loads home and this screen', async ({ page }) => {
+    const E = globalThis.SevensEngine;
+    let s = must(E.blank(), { type: 'start', names: ['Anna', 'Ben'], starter: 0, mode: 'score' });
+    s = must(s, { type: 'score', pts: 10, rolls: 1 });
+    await page.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(s));
+    await page.goto('/');
+    await expect(page.locator('.board')).toBeVisible();
+    await expect(page.locator('.bar [data-act=commit]')).toBeVisible();
+    await expect(page.locator('[data-act=play].play')).toHaveCount(0);
+  });
+
+  test('a saved setup without the new fields loads home, then this screen with its names', async ({ page }) => {
+    const old = { phase: 'setup', setup: { names: ['Zed', 'Yan', 'Xi'], starter: 2 }, game: null };
+    await page.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(old));
+    await page.goto('/');
+    await expect(page.locator('[data-act=play].play')).toBeVisible();
+    await page.click('[data-act=play]');
+    await page.click('[data-act=players]');
+    await expect(page.locator('#name-2')).toHaveValue('Xi');
+    await expect(page.locator('#starter-2')).toBeChecked();
+    await expect(page.locator('[data-act=play]')).toContainText('Dice in the app');
   });
 });
