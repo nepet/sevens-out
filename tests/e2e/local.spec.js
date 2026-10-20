@@ -572,6 +572,28 @@ test('no sideways scrolling at phone width, in both looks', async ({ page }) => 
   expect(await noSideScroll(page)).toBe(true);
 });
 
+test('without color-mix() (iOS 16.1 and older) the current line and the danger hatch still show, in both looks', async ({ page }) => {
+  // the page as such a browser reads it: color-mix() is an unknown function, in the rules and in @supports
+  await page.route(u => u.pathname === '/', async route => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, body: (await res.text()).replaceAll('color-mix(', 'color-old(') });
+  });
+  await startLocal(page, { mode: 'score' });
+  expect(await page.evaluate(() => document.querySelector('style').textContent.includes('color-mix('))).toBe(false);
+  const look = () => page.evaluate(() => {
+    const now = getComputedStyle(document.querySelector('.board .pl.now'));
+    return { fill: now.backgroundColor, ring: now.boxShadow, hatch: getComputedStyle(document.querySelector('.board .trk'), '::after').backgroundImage };
+  });
+  const pub = await look();
+  expect(pub.fill).not.toBe('rgba(0, 0, 0, 0)');
+  expect(pub.hatch).toContain('repeating-linear-gradient');
+  await page.click('[data-act=look][data-id="1"]');
+  const vegas = await look();
+  expect(vegas.fill).not.toBe('rgba(0, 0, 0, 0)');
+  expect(vegas.ring).not.toBe('none');
+  expect(vegas.hatch).toContain('repeating-linear-gradient');
+});
+
 test.describe('statistics', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
   const reports = page => page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-reports') || '{"queue":[],"sent":{}}'));
