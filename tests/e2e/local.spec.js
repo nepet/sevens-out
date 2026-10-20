@@ -140,6 +140,8 @@ test.describe('scoreboard mode', () => {
     await startLocal(page, { mode: 'score' });
     await enterScore(page, 10, 1); await enterScore(page, 20); await skipRace(page);
     await enterScore(page, 0, 2); await enterScore(page, 10);       // Ben stays on 20, Anna climbs to 20
+    await expect(page.locator('.race-why')).toHaveText('Tied on 20, got there first');
+    await skipRace(page);
     const s = await saved(page);
     expect([s.phase, s.game.round, s.game.starter]).toEqual(['play', 3, 1]); // Ben got there first
   });

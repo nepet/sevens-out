@@ -443,6 +443,8 @@ test('roundRecap best moment: new on top needs a lone leader who was not the lea
 test('roundRecap best moment: danger zone from below 86 to 86 or more', () => {
   const rounds = (pts) => pts.reduce((s, p) => score(score(s, p, 1), 1), start(2, 0, 'score'));   // P1 leads and starts every round
   assert.deepEqual(recapOf(rounds([30, 30, 20, 10])).best, { kind: 'danger', player: 0, value: 11 });
+  assert.deepEqual(recapOf(rounds([30, 30, 25, 1])).best, { kind: 'danger', player: 0, value: 15 }, 'from 85 to exactly 86');
+  assert.equal(recapOf(rounds([30, 30, 20, 5])).best, null, '85 is not in the danger zone yet');
   assert.equal(recapOf(rounds([30, 30, 26, 2])).best, null, 'already in the danger zone');
 });
 
