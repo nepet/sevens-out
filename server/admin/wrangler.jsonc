@@ -7,8 +7,8 @@
   "d1_databases": [{ "binding": "STATS", "database_name": "sevens-out-stats", "database_id": "9d714305-77cc-4e55-b642-ba4c2900a657" }],
   "vars": {
     // Zero Trust team name (<team>.cloudflareaccess.com) and the Access application's audience tag (docs/admin.md)
-    "ACCESS_TEAM": "",
-    "ACCESS_AUD": ""
+    "ACCESS_TEAM": "peterslab",
+    "ACCESS_AUD": "63ecf8f90234dd4b52cd47f6136e05ea1576f5485e868648b1d8ea903a3d382f"
   },
   // ADMIN_EMAIL is a secret: npx wrangler secret put ADMIN_EMAIL -c server/admin/wrangler.jsonc
   "observability": { "enabled": true }
