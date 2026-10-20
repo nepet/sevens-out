@@ -790,3 +790,141 @@ test.describe('game menu', () => {
     await expect(page.locator('.sheet-layer [data-act=new]')).toHaveCount(0); // Play again is on the screen
   });
 });
+
+test.describe('the dice turn screen', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const six = ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'];
+  // a box inside the screen as it is, without scrolling
+  const onScreen = async (page, sel) => {
+    const [box, h, w] = [await page.locator(sel).boundingBox(), ...(await page.evaluate(() => [innerHeight, innerWidth]))];
+    expect(box, sel).not.toBeNull();
+    expect(box.y, `${sel} top`).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height, `${sel} bottom`).toBeLessThanOrEqual(h + 0.5);
+    expect(box.x + box.width, `${sel} right`).toBeLessThanOrEqual(w + 0.5);
+  };
+  // the pinned bar reaches the bottom edge of the screen
+  const barAtBottom = async page => {
+    const [box, h] = [await page.locator('#app > .bar').boundingBox(), await page.evaluate(() => innerHeight)];
+    expect(Math.abs(box.y + box.height - h)).toBeLessThanOrEqual(1);
+  };
+
+  for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
+    test(`Roll and Stop are on screen without scrolling at ${vp.width}×${vp.height} with six players, in both looks`, async ({ page }) => {
+      await page.setViewportSize(vp);
+      await startLocal(page, { names: six });
+      for (const lookId of ['0', '1']) {
+        await openMenu(page); await page.click(`[data-act=look][data-id="${lookId}"]`); await closeMenu(page);
+        await page.evaluate(() => scrollTo(0, 0));
+        expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
+        if (!(await saved(page)).game.turn.rolls) {
+          await expect(page.locator('.bar [data-act=roll]')).toContainText('Roll 6 dice');
+          await onScreen(page, '.bar [data-act=roll]');
+          await barAtBottom(page);
+          await page.click('[data-act=roll]');
+          await page.evaluate(() => scrollTo(0, 0));
+        }
+        expect(await page.evaluate(() => scrollY)).toBe(0);
+        await onScreen(page, '.bar [data-act=stop]');
+        await onScreen(page, '.bar [data-act=roll]');
+        await barAtBottom(page);
+        // the score list is complete and on screen above the table
+        await expect(page.locator('.board .pl')).toHaveCount(6);
+        await onScreen(page, '.board');
+        await onScreen(page, '.dice');
+        expect(await noSideScroll(page)).toBe(true);
+        const stop = await page.locator('.bar [data-act=stop]').boundingBox(), roll = await page.locator('.bar [data-act=roll]').boundingBox();
+        expect(stop.width / (stop.width + roll.width)).toBeCloseTo(0.4, 1);   // Stop about 40%, Roll about 60%
+        expect(Math.min(stop.height, roll.height)).toBeGreaterThanOrEqual(44);
+      }
+    });
+  }
+
+  test('with a short list the bar still sits on the bottom edge', async ({ page }) => {
+    await startLocal(page);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+    await barAtBottom(page);
+  });
+
+  test('Stop arms first, then confirms; with no rolls left there is one End turn button', async ({ page, context }) => {
+    await fixDice(context, [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6]);       // no 7s: Anna 12, then Ben 30
+    await startLocal(page);
+    await expect(page.locator('.rnd')).toHaveText('Round 1 · Anna sets the limit (max 3)');
+    await expect(page.locator('.bar [data-act=stop]')).toHaveCount(0);  // nothing to stop before the first roll
+    await expect(page.locator('.bar [data-act=roll]')).toHaveText('Roll 6 dice 3 rolls left');
+    await page.click('[data-act=roll]');
+    await expect(page.locator('.rolls small')).toHaveText('Roll 1 of 3');
+    await expect(page.locator('.tval')).toHaveText('12');
+    const stop = page.locator('.bar [data-act=stop]');
+    await expect(stop).toHaveText('Stop take +12');
+    await expect(page.locator('.bar [data-act=roll]')).toHaveText('Roll 6 dice 2 rolls left');
+    await stop.click();
+    await expect(stop).toHaveText('Confirm stop · +12');
+    await expect(stop).toHaveClass(/\barmed\b/);
+    expect((await saved(page)).game.players[0].score).toBe(0);         // not yet
+    await stop.click();
+    let s = await saved(page);
+    expect([s.game.players[0].score, s.game.turn.maxRolls]).toEqual([12, 1]);
+    await expect(page.locator('.rnd')).toHaveText('Round 1 · 1 roll max');
+    await expect(page.locator('.bar [data-act=roll]')).toHaveText('Roll 6 dice last roll');
+    await page.click('[data-act=roll]');
+    await expect(page.locator('.bar [data-act=stop], .bar [data-act=roll]')).toHaveCount(0);
+    await expect(page.locator('.bar [data-act=end]')).toHaveText('End turn · +30 no rolls left');
+    const end = await page.locator('.bar [data-act=end]').boundingBox(), w = await page.evaluate(() => innerWidth);
+    expect(end.width).toBeGreaterThan(w - 40);                         // full width
+    await page.click('[data-act=end]');
+    await skipRace(page);
+    s = await saved(page);
+    expect([s.game.round, s.game.players.map(p => p.score)]).toEqual([2, [12, 30]]);
+  });
+
+  test('a pair from this roll is set aside along the table\'s edge and can be put back; the app finds them on request', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 2, 3, 3]);
+    await startLocal(page, { pairing: 'auto' });
+    await page.click('[data-act=roll]');
+    await expect(page.locator('.table .rackrow .rack button.pair[data-act=unpair]')).toHaveCount(1);
+    await expect(page.locator('.racklabel')).toHaveText('Tap a pair to put it back');
+    await page.click('[data-act=unpair][data-id="0"]');
+    await expect(page.locator('.table [data-act=takeall]')).toBeVisible();   // the app finds them: one tap sets them aside again
+    await page.click('[data-act=takeall]');
+    await expect(page.locator('.rack .pair')).toHaveCount(1);
+    await expect(page.locator('.hint')).toHaveCount(1);                     // one hint line
+  });
+});
+
+// the race between rounds still lifts the slim score list of the dice turn (review focus 3)
+for (const motion of ['reduce', 'no-preference']) {
+  test(`dice mode, ${motion === 'reduce' ? 'reduced' : 'normal'} motion: the race starts over the slim score list and brings in the next round`, async ({ page, context }) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(String(e)));
+    await page.emulateMedia({ reducedMotion: motion });
+    await fixDice(context, Array(18).fill(1));                          // no 7s, so no celebration first (reduced motion)
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'] });
+    for (const who of [0, 1]) {
+      await page.click('[data-act=roll]'); await idle(page);
+      if (who === 0) { await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); }
+      else await page.click('[data-act=end]');
+      await idle(page);
+    }
+    await page.click('[data-act=roll]'); await idle(page);              // Cleo has the last turn of the round
+    await page.evaluate(() => { document.activeElement.blur(); scrollTo(0, 0); });
+    const board = await page.locator('.board').boundingBox();
+    await recordRaceStart(page);
+    await page.click('[data-act=end]');
+    const start = await raceStart(page);
+    // with reduced motion the list has grown by the time the card can be measured: it grows from the list's place
+    if (motion === 'reduce') for (const k of ['x', 'y', 'width']) expect(Math.abs(start.card[k] - board[k]), k).toBeLessThanOrEqual(2);
+    else sameBox(start.card, board);
+    const shown = await page.evaluate(() => [document.querySelectorAll('.race-card .pl').length,
+      ...[...document.querySelectorAll('.race-round, .race-starter')].map(el => el.textContent)]);
+    await expect(page.locator('.race')).toHaveCount(0, { timeout: 7000 }); // it ends by itself
+    await idle(page);
+    // with normal motion the tumbling dice draw random faces too, so the fixed dice may land elsewhere: read who starts
+    const g = (await live(page)).game, next = g.players[g.starter].name;
+    expect(shown).toEqual([3, 'Round 2', `${next} starts`]);
+    expect(g.round).toBe(2);
+    await expect(page.locator('.board .bhead')).toContainText(`Round 2 · ${next} starts`);
+    await expect(page.locator('.bar [data-act=roll]')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
+    expect(errors).toEqual([]);
+  });
+}

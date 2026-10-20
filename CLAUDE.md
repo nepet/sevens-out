@@ -99,7 +99,7 @@ These rules were agreed with the owner. Don't change them unless asked.
 ### Dice mode extras
 
 - **Pairs of 7** is chosen on the setup screen or in the lobby.
-  - **Find them yourself** (default): nothing is set aside after a roll. The player taps two dice that add up to 7. The page doesn't highlight pairs or offer "Set aside all 7s" (`takeall` is refused with `by_hand`), and "Counts if you stop" shows every pip on the table.
+  - **Find them yourself** (default): nothing is set aside after a roll. The player taps two dice that add up to 7. The page doesn't highlight pairs or offer "Set aside all 7s" (`takeall` is refused with `by_hand`), and "On the table" shows every pip on the table.
   - **Missed 7s:** rolling on or stopping with a 7-pair still on the table emits `missed` (before `rolled` on a roll). Every phone then shows the "Need glasses?" joke: the missed dice get a pair of glasses and a sad trombone plays. Taps go through it, the next roll clears it, and otherwise it goes after about 3 s.
   - **The app finds them:** rolling sets all 7-pairs aside. The page then shows the dice lying still for about 0.7 s and flies each pair into the rack.
   - Games saved before the choice existed have no `pairing` field and keep the automatic behaviour (`byHand(g)` is false).
@@ -165,16 +165,28 @@ Other storage keys, all per device:
 
 The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template strings.
 
+**The slim header** (`header(g)`) tops the play screens: the menu button, "Round N · M rolls max" (or "<Name> sets the limit (max 3)", "Game over" at the end; `.rnd`), the room chip online (`netChip()`), and when someone is at 101 a one-line `.alert` ("Anna is at 104. Last round: the highest score loses.").
+
+**The dice turn** (`viewPlay()`), top to bottom: header, score list, the player's line (`h2.who` with "Roll 1 of 2" and the roll slots in `.rolls`), the leather table (`.tray.table`: "On the table N" in `.tval`, the dice, and along its bottom edge `.rackrow` with the set-aside pairs in `.rack`; a pair from this roll is a `button.pair[data-act=unpair]`, and `takeall` sits there with automatic pairing), one `.hint` line, and the pinned leather bar:
+- Before the first roll: Roll alone, full width ("Roll 6 dice / 3 rolls left").
+- After a roll: Stop about 40% (outline, "Stop / take +N"; the first tap arms it, `ui.armed`, and it turns into "Confirm stop · +N") and Roll about 60% (brass, "Roll 4 dice / 2 rolls left" or "last roll"). Buttons are `.btn.two` (`.stop`, `.go`) with a `<b>` and a `<small>` line.
+- No rolls left (or all six dice out): one full-width "End turn · +N".
+- Rolling or setting aside 7s: Roll is disabled as "Rolling…" (no `data-act`).
+- Not this phone's turn: the bar holds the waiting note ("Waiting for Ben to roll") with the pulse. The host covering for an offline player gets the controls.
+- **On the leather:** `render()` sets `html.felt` while the dice turn shows. The page background becomes the leather, and inside `#app` (and the race card) the tokens are remapped to ink on leather (`--ink` = `--on-leather`, `--brass` = `--stitch`, `--danger` = `--on-leather-danger`, …), so the list, chips and buttons follow in every look. Other screens stay on paper.
+- **Small phones:** the bar is always pinned. The table grows into free height and shrinks first on a short screen (`--die` also follows the height; a `max-height: 700px` block tightens the spacing), then the page scrolls under the bar. The score list is never hidden.
+
 **The score list** (`board(g, cur)`, one `lineHtml(g, i, opts)` per player) sits at the top of the play screens (dice turn, real-dice keypad, corrections) and under the verdict at game over:
 - During play and corrections the lines follow this round's playing order (`g.order`), with the current player (or the player being corrected) highlighted. At game over they are sorted by total, highest first (equal totals keep seating order), and the loser's line says "Loses".
 - Each line: ▶ marker, name (a die mark for the round's starter, `you` online, and online the `#tag` of the other signed-in players, which gives way first to a long name), a bar towards 101 with the last 15 hatched, the total, and this round's `+N`, `now` or `–`. Offline and rounds of shots paid add a small second row.
 - Real-dice mode: seated players tap a line to correct that player's scores (`data-act="edit"`).
+- Rows are about 36 px (`--rowh`), 30 px with 5–6 players (`section.board.dense`; the race card copies `dense`, so it starts exactly over the list).
 - DOM, relied on by the tests and the race between rounds: `section.board` → `.bhead` → `ol.lines` → `li.pl[data-id]` (classes `now`, `wait`, `over`, `lost`, `editable`) with `.mk`, `.nm`, `.trk > .fill`, `.num`, `.dl` and an optional `.pl-sub`; then `p.bfoot`. `lineHtml` depends only on its arguments (and the room's connections), so the race can reuse it.
 
 **The game menu, the bottom sheet and the bottom bar:**
 - **Game menu:** the menu button (`menuButton()`, `data-act="menu"`) sits at the top left of the play screens (dice, real dice, corrections, game over) and the lobby. It opens a bottom sheet with the score sheet (`sheet(g)`, a fold open by default), How to play (`rules()`), Sound / Look / Shake (`settingsBlock()`), New game (one phone, during play) or Leave room (online) with their in-page confirmations (`quitBlock()`), and Developer (`devBlock()`, folded). Nothing sits under the play screens any more; home and the online entry keep `footer()` (the settings only).
 - **Bottom sheet:** one layer outside `#app` (`.sheet-layer` → `.sheet-backdrop` + `section.sheet[role=dialog]` with `.sheet-grab`, `.sheet-head` (`#sheet-h`, `.sheet-close`) and `.sheet-body`). Kinds are registered in `SHEETS` as `{title, ok(), body()}`; `openSheet(kind, from)` shows one (`ui.sheet`), `closeSheet()` hides it and gives the focus back to the opener (`from` = its `[data-act, data-id]`, kept in `ui.sheetFrom`). Every `render()` rebuilds only the body (`renderSheet()`), keeping its scroll position and the focused control, and closes the sheet when `ok()` says it doesn't belong on the new screen. While it is open `#app` is `inert`, Escape, the close button and a backdrop tap (`data-act="sheetclose"`) close it, Tab stays inside, and the keypad keys and shake to roll are ignored. Reduced motion: no slide. `newyes`, `oleaveyes`, `endyes` and the `dev*` actions close it first.
-- **Bottom bar:** `bar(inner, {leather})` returns a `.bar` (`.bar.leather` for the turn screens), pinned to the bottom with `position: sticky` and padded by the safe area. Put it last in a view; `render()` then gives `#app` the class `has-bar`, so the bar reaches the bottom edge.
+- **Bottom bar:** `bar(inner, {leather})` returns a `.bar` (`.bar.leather` for the turn screens), pinned to the bottom with `position: sticky` and padded by the safe area. Put it last in a view; `render()` then gives `#app` the class `has-bar`, so the bar reaches the bottom edge (nothing after `#app` may add height: the `#acct-live` region sits at the top). The dice turn uses it; real dice, corrections and game over are next.
 
 **Events and actions:**
 - Clickable elements carry `data-act` (and optionally `data-id`). One document click listener calls `handle(action, id, el)`, for elements in `#app` and in the sheet.
@@ -281,6 +293,7 @@ One `Room` per room code holds the authoritative game.
   - **The curtain:** a leather curtain drops with "Round N+1", "<Name> starts" ("You start" on that player's own phone online; spectators see the name) and the reason ("Highest score: 64", "Tied on 40, got there first", "Tied on 40, next in turn"). The new round is swapped in underneath, then the curtain slides down and away. "<Name> starts" and the reason are fully shown about 1 s before it leaves.
   - **Skipping:** a tap on it, Escape, Enter or Space ends it at once.
   - **Sound:** `sound.round()` plays a short sting as the curtain drops, in the jackpot or old-bandit flavour, and nothing when the sound is off.
+  - **The game menu** closes when the race starts (`playRace()`), so a phone with its menu open never misses it.
   - **Online:** every phone plays it from the same events. A phone that reloads or reconnects meanwhile just shows the new round. A correction emits only `edited`, so it never plays the race, and a correction screen open on another phone stays open when the round moves on. Leaving the room bumps `net.session`, and changes still queued from that room are dropped, so the phone's own saved game stays as it was.
   - **Saving:** a one-phone game saves the new state as soon as the race starts, so a reload mid-race keeps the last turn.
   - **Fallback:** without `E.roundRecap` (an old engine.js in the cache) or when anything in the race fails, the new state shows at once, without a race, and the page is never left busy. A one-phone game that such an old engine leaves in `roundEnd` moves on with `nextround`.
@@ -322,7 +335,7 @@ One `Room` per room code holds the authoritative game.
   - Separate browser contexts act as separate phones.
   - The tests read state through `window.SevensDebug` or `localStorage`.
   - Use `contextOptions: { reducedMotion: 'reduce' }` for instant rolls.
-  - To fix the dice, stub `crypto.getRandomValues` for 1-byte arrays (`fixDice` in `tests/e2e/helpers.js`).
+  - To fix the dice, stub `crypto.getRandomValues` for 1-byte arrays (`fixDice` in `tests/e2e/helpers.js`). With normal motion the tumbling dice use the same calls, so the fixed faces only hold with reduced motion.
   - To load the page with a changed `engine.js` or CSS (an old cached engine, a browser without `color-mix()`), serve the changed file through `page.route`, as the tests in `local.spec.js` do.
   - After a round's last turn, the race plays for about 2.5 s even with reduced motion. Tests that act right after a round ends call `skipRace(page)` (helpers.js): it waits for a Sevens Out or missed-7 joke that plays first, taps the race away, then waits until the page is idle.
   - Settings, New game, Leave room and the developer buttons live in the game menu on play screens and in the lobby: `openMenu(page, fold?)` opens it (and a fold: `sheet`, `rules`, `dev`), `closeMenu(page)` closes it with Escape. The sheet covers the game, so close it before tapping the game again.

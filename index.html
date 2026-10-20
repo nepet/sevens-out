@@ -24,7 +24,7 @@
   --leather:#6A2129; --leather-deep:#3F1218; --on-leather:#F4E7E1; --stitch:#D8B06A;
   --brass:#B5832A; --brass-ink:#1A1306;
   --bone:#F7F2E7; --bone-edge:#D3C8B1; --pip:#1D1915; --shade:rgba(10,12,18,.28);
-  --danger:#B3261E; --danger-ink:#FFFFFF;
+  --danger:#B3261E; --danger-ink:#FFFFFF; --on-leather-danger:#FF9A8F;
   --font-display:"Big Shoulders Display","Arial Narrow","Roboto Condensed",sans-serif;
   --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --die:clamp(3.5rem,17vw,4.5rem);
@@ -53,7 +53,9 @@ button,input{font:inherit;color:inherit}
 button{cursor:pointer}
 :focus-visible{outline:3px solid var(--brass);outline-offset:2px}
 .wrap{max-width:34rem;margin-inline:auto;padding-inline:16px;padding-block:14px 48px;display:flex;flex-direction:column;gap:14px}
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sr{position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* the account's live region sits after #app: at the top, so it never makes the page longer than the screen (the bar's bottom edge) */
+#acct-live{top:0}
 
 /* header */
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
@@ -63,18 +65,26 @@ button{cursor:pointer}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:.8rem;color:var(--ink-soft)}
 .chip b{color:var(--ink);font-weight:700}
-.alert{border:1.5px solid var(--danger);border-radius:10px;padding:10px 12px;font-size:.9rem;margin:0}
+.alert{border:1.5px solid var(--danger);border-radius:10px;padding:6px 10px;font-size:.86rem;line-height:1.3;margin:0}
+/* the slim header of the play screens (header()): menu button, "Round 4 · 2 rolls max", the room online */
+.top.slim{gap:6px 10px;min-height:44px}
+.top.slim .top-l{flex:1 1 12rem}
+.rnd{margin:0;min-width:0;overflow-wrap:anywhere;font-size:.92rem;line-height:1.2;color:var(--ink-soft)}
+.rnd b{font:800 1.35rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em;color:var(--ink)}
+html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 .alert strong{color:var(--danger)}
 
 /* score list: one line per player in this round's playing order (sorted by total at game over);
    the race between rounds (.race-card) draws the same lines */
-:is(.board,.race-card){background:var(--card);border:1px solid var(--line);border-radius:14px;padding:7px 10px 8px;display:flex;flex-direction:column;gap:4px}
+:is(.board,.race-card){--rowh:36px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px 8px 6px;display:flex;flex-direction:column;gap:2px}
+/* 5 or 6 players: denser rows, so the whole list stays on screen */
+:is(.board,.race-card).dense{--rowh:30px}
 .bhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-height:18px;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
 .bhead>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bhead>span:last-child{flex:none}
 .bhead b{color:var(--brass)}
-.lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
-:is(.board,.race-card) .pl{display:grid;grid-template-columns:12px minmax(0,6.5rem) minmax(0,1fr) 2.4rem 2.6rem;grid-template-rows:minmax(28px,auto);align-items:center;column-gap:8px;padding-inline:4px 6px;border-radius:8px}
+.lines{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+:is(.board,.race-card) .pl{display:grid;grid-template-columns:12px minmax(0,6.5rem) minmax(0,1fr) 2.4rem 2.6rem;grid-template-rows:minmax(var(--rowh),auto);align-items:center;column-gap:8px;padding-inline:4px 6px;border-radius:8px}
 :is(.board,.race-card) .pl.now{background:color-mix(in srgb,var(--brass) 16%,transparent)}
 :is(.board,.race-card) .mk{font-size:.7rem;line-height:1;color:var(--brass);visibility:hidden}
 :is(.board,.race-card) .pl.now .mk{visibility:visible}
@@ -118,12 +128,12 @@ button{cursor:pointer}
 .eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--brass);margin:0}
 .who{font:800 2.5rem/.95 var(--font-display);margin:2px 0 0;overflow-wrap:anywhere;text-wrap:balance}
 .sub{margin:0;color:var(--ink-soft);font-size:.9rem;max-width:46ch}
-.rolls{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.rolls{display:flex;align-items:center;gap:8px;flex:none}
 .slots{display:flex;gap:6px}
 .slot{width:14px;height:14px;border-radius:4px;border:2px solid var(--ink-soft)}
 .slot.used{background:var(--ink);border-color:var(--ink)}
 .slot.off{border-style:dashed;opacity:.35}
-.rolls small{font-size:.75rem;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+.rolls small{font-size:.86rem;font-weight:600;font-variant-numeric:tabular-nums}
 
 /* tray */
 .tray{position:relative;border-radius:20px;padding:16px 18px 20px;background:radial-gradient(120% 90% at 50% 15%,var(--leather),var(--leather-deep));box-shadow:inset 0 3px 14px var(--shade);color:var(--on-leather)}
@@ -161,6 +171,46 @@ button.die:active{transform:translateY(2px)}
 button.pair{border:1.5px solid var(--brass)}
 .seven{font:800 1.15rem/1 var(--font-display);color:var(--brass);margin-left:3px}
 .empty{margin:0;font-size:.86rem;color:var(--ink-soft)}
+
+/* the dice turn on the leather (viewPlay(), html.felt): the page takes the table's colours, and inside #app the tokens
+   are remapped to ink on leather, so everything drawn with them (the list, buttons, chips) follows in every look */
+html.felt,html.felt body{background:var(--leather)}
+html:root[data-look="vegas"].felt,html:root[data-look="vegas"].felt body{background-color:var(--leather-deep)}
+html.felt :is(#app,.race-card){--ink:var(--on-leather);--ink-soft:color-mix(in srgb,var(--on-leather) 72%,transparent);--line:color-mix(in srgb,var(--on-leather) 22%,transparent);
+  --card:color-mix(in srgb,var(--leather-deep) 62%,transparent);--paper:var(--leather-deep);--brass:var(--stitch);--danger:var(--on-leather-danger);--danger-ink:var(--leather-deep);color:var(--ink)}
+html.felt .race-badge{background:var(--leather-deep)}
+@supports not (color:color-mix(in srgb,red 50%,blue)){
+  html.felt :is(#app,.race-card){--ink-soft:var(--on-leather);--line:var(--leather);--card:var(--leather-deep)}
+}
+html.felt #app{gap:10px}
+/* the table takes the room the screen has left: it grows on a tall phone and shrinks first on a short one
+   (the dice follow the screen's height too) */
+.felt-turn{flex:1 0 auto;gap:8px;--die:clamp(2.75rem,min(17vw,7.8vh),4.5rem)}
+.felt-turn .turnhead{flex-wrap:nowrap;align-items:flex-end}
+.felt-turn .who{font-size:2.3rem;min-width:0}
+html:root[data-look="vegas"] .felt-turn .who{font-size:1.7rem}
+.felt-turn .hint{text-align:center}
+.tray.table{flex:1 0 auto;display:flex;flex-direction:column;justify-content:space-between;padding:12px 14px 10px}
+.table .tray-top{justify-content:flex-end}
+.table .tval{font-size:1.6rem}
+.table .dice{gap:12px 16px;padding-block:8px}
+.table .btn{border-color:currentColor;color:inherit}
+.table .empty{color:inherit;opacity:.7}
+.rackrow{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:4px;padding-top:8px;border-top:1.5px dashed var(--stitch)}
+.rackrow .rack{min-height:2.6rem}
+.racklabel{font-size:.8rem;opacity:.8}
+.rackrow .btn.small{margin-left:auto}
+html:root[data-look="vegas"] .rackrow{border-top-color:var(--reel-edge)}
+/* a short phone (375×667): tighter spacing, so the table and the hint stay above the bar where they can */
+@media (max-height:700px){
+  html.felt #app{padding-top:8px;gap:8px}
+  .felt-turn{gap:6px}
+  .felt-turn .who{font-size:1.9rem}
+  .tray.table{padding:8px 12px}
+  .table .dice{padding-block:4px}
+  .rackrow .rack{min-height:2.3rem}
+  .bar .btn.two,.bar .waiting{min-height:52px}
+}
 
 /* buttons */
 .actions{display:flex;flex-direction:column;gap:8px;margin-top:2px}
@@ -222,7 +272,14 @@ td.st::before{margin-right:6px}
 .bar.leather{background:var(--leather-deep);border-top-color:var(--leather);color:var(--on-leather)}
 .bar.leather .btn:not(.primary):not(.danger){border-color:var(--on-leather);color:var(--on-leather)}
 .bar .row{flex-wrap:nowrap}
-.bar .waiting{border-color:currentColor;color:inherit;opacity:.85}
+.bar .waiting{border-color:currentColor;color:inherit;opacity:.85;min-height:58px}
+/* two-line bar buttons: "Stop / take +17" (about 40%) and "Roll 4 dice / last roll" (about 60%) */
+.btn.two{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-height:58px;padding:6px 10px;line-height:1.15}
+.btn.two b{font-weight:700;font-size:1.05rem}
+.btn.two small{font-size:.8rem;font-weight:500;opacity:.85}
+.bar .row>.stop{flex:2 1 0;min-width:0}
+.bar .row>.go{flex:3 1 0;min-width:0}
+.bar.leather .btn.armed:not(.primary){background:var(--on-leather);border-color:var(--on-leather);color:var(--leather-deep);font-weight:700}
 
 /* the game menu button (menuButton()) */
 .top-l{display:flex;align-items:center;gap:10px;min-width:0}
@@ -366,7 +423,7 @@ html.sheet-open{overflow:hidden}
 .race-card{position:absolute;z-index:0;margin:0;transition:top .55s cubic-bezier(.4,0,.2,1),padding-bottom .55s cubic-bezier(.4,0,.2,1),box-shadow .4s}
 .race-card.grow{box-shadow:0 14px 40px var(--shade)}
 .race-card.grow.badged{padding-bottom:var(--room)}
-.race-card .pl{min-height:28px;transition:min-height .55s cubic-bezier(.4,0,.2,1),grid-template-columns .55s cubic-bezier(.4,0,.2,1)}
+.race-card .pl{min-height:var(--rowh);transition:min-height .55s cubic-bezier(.4,0,.2,1),grid-template-columns .55s cubic-bezier(.4,0,.2,1)}
 .race-card :is(.nm,.num,.dl){transition:font-size .5s}
 .race-card .trk{transition:height .5s}
 .race-card .fill{transition:width .9s ease-out}
@@ -471,7 +528,7 @@ html:root[data-look="vegas"]{
   --leather:#B3122B; --leather-deep:#4E0412; --on-leather:#FFF3D6; --stitch:#FFD34D;
   --brass:#FFC531; --brass-ink:#2A1500;
   --bone:#D7132E; --bone-edge:#7C0716; --pip:#FFFFFF; --die-hi:#FF6A7B; --shade:rgba(0,0,0,.55);
-  --danger:#FF5468; --danger-ink:#2A0006;
+  --danger:#FF5468; --danger-ink:#2A0006; --on-leather-danger:#FF6B7C;
   --chrome:#C9CED6; --bulb:#FFE27A; --led:#FF2A3D; --meter:#070308;
   --font-display:"Bungee","Arial Black",Impact,sans-serif;
   color-scheme:dark;
@@ -1693,13 +1750,13 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
 
   // ---------- views ----------
   const nameOf = i => esc(pname(i)) + (isMe(i) ? ' <small class="you">you</small>' : '');
+  // the slim header of the play screens: the menu button, the round and its roll limit, the room online,
+  // and the 101 alert as one line
   function header(g){
-    const lim = g.mark != null
-      ? `<span class="chip">Roll limit <b>${g.mark}</b> · set by ${esc(pname(g.starter))}</span>`
-      : `<span class="chip">${esc(pname(g.starter))} sets the roll limit (max <b>${MAX_ROLLS}</b>)</span>`;
-    return `<header class="top marquee"><div class="top-l">${menuButton()}<div class="brand">Sevens <span>Out</span></div></div><div class="meta">Round ${g.round}${isScore(g) ? ' · Real dice' : ''}</div></header>
-      <div class="chips">${netChip()}${state.phase === 'play' ? lim : ''}</div>
-      ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> This round is played to the end, then the highest score loses.</p>` : ''}`;
+    const lim = state.phase === 'over' ? 'Game over'
+      : g.mark != null ? `${plural(g.mark, 'roll')} max` : `${esc(pname(g.starter))} sets the limit (max ${MAX_ROLLS})`;
+    return `<header class="top slim"><div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${netChip()}</header>
+      ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}`;
   }
   function netChip(){
     if (!online()) return '';
@@ -1719,7 +1776,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         tag:lost ? 'Loses' : over && !r ? '–' : null, lost, edit });
     }).join('');
     const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
-    return `<section class="board" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
+    return `<section class="board${g.players.length >= 5 ? ' dense' : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
       <ol class="lines"${edit ? ' role="none"' : ''}>${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
   }
   // one line: turn marker, name (a die mark for the round's starter), bar towards 101 with the last 15 hatched,
@@ -1848,20 +1905,18 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       </section>`;
   }
 
+  // the dice turn: slim header, score list, the player's line, the leather table with the dice and the pairs
+  // set aside along its bottom edge, one hint line, and Stop | Roll pinned to the bottom
   function viewPlay(){
-    const g = state.game, t = displayTurn(g.turn), p = current(g), n = g.players.length, act = canAct();
-    const isStarter = g.pos === 0, rolled = t.rolls > 0, done = rolled && !canRoll(t);
+    const g = state.game, t = displayTurn(g.turn), p = current(g), act = canAct();
+    const rolled = t.rolls > 0, done = rolled && !canRoll(t);
     const hand = E.byHand(g); // the player finds the 7s, so nothing on screen gives them away
     const can = rolled && !ui.rolling && act && !hand ? pairable(t) : new Set();
     const pen = hand ? E.sumActive(t) : finalPenalty(t), left = t.maxRolls - t.rolls, nAct = active(t).length;
     const undoable = act && rolled && !ui.rolling && !ui.busy && t.rolls < t.maxRolls;
-    const you = online() && !coveringFor();
 
-    const sub = isStarter
-      ? `${you ? 'You start' : `${esc(pname(p))} starts`} this round with up to ${MAX_ROLLS} rolls. The number of rolls used becomes the limit for everyone else.`
-      : `Up to ${plural(t.maxRolls, 'roll')}, the limit ${esc(pname(g.starter))} set. ${you || !online() ? 'You can' : 'They can'} stop earlier.`;
     const slots = Array.from({length:MAX_ROLLS}, (_, k) => `<span class="slot${k < t.rolls ? ' used' : ''}${k >= t.maxRolls ? ' off' : ''}"></span>`).join('');
-    const rollsLabel = rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : `${plural(t.maxRolls, 'roll')} available`;
+    const rollsLabel = rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : `Up to ${plural(t.maxRolls, 'roll')}`;
 
     let hint = ui.busy ? 'Setting aside the 7s…' : ui.hint;
     if (hint == null){
@@ -1875,45 +1930,40 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
       else hint = '';
     }
 
+    const live = undoable && t.pairs.some(pr => pr.roll === t.rolls);
     const rack = t.pairs.length ? t.pairs.map((pr, i) => {
       const a = t.dice[pr.a].value, b = t.dice[pr.b].value;
       return (pr.roll === t.rolls && undoable)
         ? `<button class="pair" data-act="unpair" data-id="${i}" aria-label="Put ${a} and ${b} back on the table">${mini(a)}${mini(b)}<span class="seven">7</span></button>`
         : `<span class="pair" title="Set aside in roll ${pr.roll}">${mini(a)}${mini(b)}<span class="seven">7</span></span>`;
-    }).join('') : `<p class="empty">Pairs that make 7 land here.</p>`;
-    const liveNote = undoable && t.pairs.some(pr => pr.roll === t.rolls) ? '<small>Tap a pair from this roll to put it back</small>' : '';
+    }).join('') : `<p class="empty">Pairs of 7 land here</p>`;
+    const takeall = act && can.size && !done && !ui.rolling && !ui.busy ? '<button class="btn small" data-act="takeall">Set aside all 7s</button>' : '';
 
+    // the bar: Stop | Roll, End turn when no rolls are left, or who we are waiting for
+    const two = (cls, a, main, sub, off) => `<button class="btn two ${cls}"${off ? ' disabled' : ` data-act="${a}"`}><b>${main}</b> <small>${sub}</small></button>`;
+    const stopBtn = off => ui.armed === 'stop' && !off
+      ? `<button class="btn two stop armed" data-act="stop"><b>Confirm stop<span class="sr"> ·</span></b> <small>+${pen}</small></button>`
+      : two('stop', 'stop', 'Stop', `take +${pen}`, off);
+    const rollsLeft = left === 1 ? 'last roll' : `${plural(left, 'roll')} left`;
     let actions;
-    if (ui.rolling) actions = `<button class="btn primary" disabled>Rolling…</button>`;
-    else if (ui.busy) actions = `<button class="btn primary" disabled>Setting aside 7s…</button>`;
-    else if (!act) actions = waiting(pname(p), rolled ? 'finish their turn' : 'roll');
-    else if (!rolled) actions = `<button class="btn primary" data-act="roll">Roll ${diceWord(nAct)}</button>`;
-    else if (done) actions = `<button class="btn primary" data-act="end">End turn · +${pen}</button>`;
-    else {
-      const sec = [];
-      if (can.size) sec.push(`<button class="btn" data-act="takeall">Set aside all 7s</button>`);
-      sec.push(ui.armed === 'stop'
-        ? `<button class="btn armed" data-act="stop">Confirm stop · +${pen}</button>`
-        : `<button class="btn" data-act="stop">Stop · +${pen}</button>`);
-      actions = `<button class="btn primary" data-act="roll">Roll ${diceWord(nAct)} · ${plural(left, 'roll')} left</button><div class="row">${sec.join('')}</div>`;
-    }
+    if (!act) actions = waiting(pname(p), rolled ? 'finish their turn' : 'roll');
+    else if (ui.rolling || ui.busy) actions = rolled ? `<div class="row">${stopBtn(true)}${two('primary go', 'roll', 'Rolling…', '&nbsp;', true)}</div>`
+      : two('primary go', 'roll', 'Rolling…', '&nbsp;', true);
+    else if (!rolled) actions = two('primary go', 'roll', `Roll ${diceWord(nAct)}`, rollsLeft);
+    else if (done) actions = two('primary go', 'end', `End turn · +${pen}`, nAct ? 'no rolls left' : 'all six dice out');
+    else actions = `<div class="row">${stopBtn(false)}${two('primary go', 'roll', `Roll ${diceWord(nAct)}`, rollsLeft)}</div>`;
 
-    return header(g) + board(g, p) + lastLine(g) + `
-      <section class="turn" aria-label="${esc(pname(p))}'s turn">
-        <div class="turnhead">
-          <div><p class="eyebrow">${isStarter ? `Starts round ${g.round}` : `Turn ${g.pos + 1} of ${n}`}</p><h2 class="who">${nameOf(p)}</h2></div>
-          <div class="rolls"><div class="slots" aria-hidden="true">${slots}</div><small>${rollsLabel}</small></div>
-        </div>
-        <p class="sub">${sub}</p>
-        <div class="tray">
-          <div class="tray-top"><span class="tlabel">${act && !coveringFor() ? 'Counts if you stop' : 'Counts if they stop'}</span><span class="tval">${rolled ? pen : '–'}</span></div>
+    return header(g) + board(g, p) + `
+      <section class="turn felt-turn" aria-label="${esc(pname(p))}'s turn">
+        <div class="turnhead"><h2 class="who">${nameOf(p)}</h2>
+          <div class="rolls"><small>${rollsLabel}</small><div class="slots" aria-hidden="true">${slots}</div></div></div>
+        <div class="tray table">
+          <div class="tray-top"><span class="tlabel">On the table</span><span class="tval">${rolled ? pen : '–'}</span></div>
           <div class="dice">${t.dice.map(d => dieView(d, can, act)).join('')}</div>
+          <div class="rackrow"><div class="rack">${rack}</div>${t.pairs.length ? `<span class="racklabel">${live ? 'Tap a pair to put it back' : 'Set aside'}</span>` : ''}${takeall}</div>
         </div>
         <p class="hint" aria-live="polite">${esc(hint)}</p>
-        <div class="rackhead"><span class="h3">Set aside</span>${liveNote}</div>
-        <div class="rack">${rack}</div>
-        <div class="actions">${actions}</div>
-      </section>`;
+      </section>` + bar(actions, { leather:true });
   }
 
   function viewOver(){
@@ -2275,6 +2325,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
   async function playRace(recap, swap, g = state.game){
     if (document.hidden){ swap(); ui.race = false; return; } // nobody is looking
     ui.race = true; dropMissed();
+    closeSheet(); // the race is the moment everyone shares: an open game menu makes way for it
     await listInView();
     return new Promise(resolve => {
       const nm = i => g.players[i].name, timers = [];
@@ -2303,7 +2354,7 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
         const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
         el = document.createElement('div');
         el.className = 'race';
-        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}" aria-hidden="true">
+        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${list && list.classList.contains('dense') ? ' dense' : ''}" aria-hidden="true">
             <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
             <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
             ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
@@ -2640,6 +2691,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     }
     $app.innerHTML = html;
     $app.classList.toggle('has-bar', !!$app.querySelector(':scope > .bar'));
+    // the dice turn is played on the leather: the whole page takes the table's colours (html.felt)
+    document.documentElement.classList.toggle('felt', !!$app.querySelector(':scope > .felt-turn'));
     renderSheet();
     // the account hint is announced from one region that outlives the redraw
     const said = ui.account.hint || '';

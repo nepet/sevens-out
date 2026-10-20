@@ -42,6 +42,9 @@ test.describe('dice in the app', () => {
     await A.page.click('[data-act=ostart]');
     await expect(A.page.locator('[data-act=roll]')).toBeVisible();
     await expect(B.page.locator('.waiting')).toContainText('Waiting for Anna to roll');
+    // the pinned bar of the phone whose turn it isn't holds the waiting note instead of the controls
+    await expect(B.page.locator('#app > .bar .waiting')).toContainText('Waiting for Anna to roll');
+    await expect(B.page.locator('#app > .bar [data-act]')).toHaveCount(0);
     await expect(B.page.locator('[data-act=roll]')).toHaveCount(0);
     await expect(A.page.locator('.who .you')).toHaveText('you');
 
@@ -58,6 +61,7 @@ test.describe('dice in the app', () => {
     else await stop.click();
     await expect(B.page.locator('[data-act=roll]')).toBeVisible();
     await expect(A.page.locator('.waiting')).toContainText('Waiting for Ben');
+    await expect(A.page.locator('#app > .bar .waiting')).toContainText('Waiting for Ben to roll');
     expect((await live(B.page)).game.turn.maxRolls).toBe(1);
 
     // Ben's phone reloads (screen locked, browser killed...) and gets the same seat back
@@ -85,7 +89,7 @@ test.describe('dice in the app', () => {
     let who = null, pairs = null;
     for (let i = 0; i < 20 && !who; i++) {
       for (const Q of [A, B]) await skipRace(Q.page);
-      const P = (await A.page.locator('.turn .actions [data-act]').count()) ? A : B; // only the player whose turn it is has buttons
+      const P = (await A.page.locator('.bar [data-act]').count()) ? A : B; // only the player whose turn it is has buttons in the bar
       const t = (await live(P.page)).game.turn;
       const found = await P.page.evaluate(() => SevensEngine.matchPairs(SevensDebug.state.game.turn));
       if (!t.rolls) await act(P, '[data-act=roll]');
@@ -114,9 +118,32 @@ test.describe('dice in the app', () => {
     await B.ctx.close();
     await expect(A.page.locator('.pl-away')).toHaveText('Offline');
     await expect(A.page.locator('.hint')).toContainText('Ben is offline');
+    // the host's bar shows the controls for Ben, not the waiting note
+    await expect(A.page.locator('#app > .bar .waiting')).toHaveCount(0);
+    await expect(A.page.locator('#app > .bar [data-act=roll]')).toContainText('Roll 6 dice');
     await A.page.click('[data-act=roll]');
     await expect.poll(async () => (await live(A.page)).game.turn.rolls).toBe(1);
+    await expect(A.page.locator('#app > .bar [data-act=stop]')).toBeVisible();
+    await expect(A.page.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    await expect(A.page.locator('.tlabel')).toHaveText('On the table');
     await A.ctx.close();
+  });
+
+  test('an open game menu makes way for the race when another phone ends the round', async ({ browser }) => {
+    const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
+    const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+    await A.page.click('[data-act=ostart]');
+    await A.page.click('[data-act=roll]');
+    await A.page.click('[data-act=stop]'); await A.page.click('[data-act=stop]');   // one roll: Ben's limit
+    await expect(B.page.locator('[data-act=roll]')).toBeVisible();
+    await openMenu(A.page);                                                         // Anna looks at the menu meanwhile
+    await B.page.click('[data-act=roll]');
+    await B.page.click('[data-act=end]');
+    await expect(A.page.locator('.race')).toBeVisible();
+    await expect(A.page.locator('.sheet-layer')).toBeHidden();
+    await skipRace(A.page);
+    expect((await live(A.page)).game.round).toBe(2);
+    await A.ctx.close(); await B.ctx.close();
   });
 });
 
