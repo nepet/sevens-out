@@ -54,6 +54,7 @@ npm run db:schema                 # load server/d1/schema.sql into the remote D1
 
 - **The page** is served by GitHub Pages from `main`, at the repo root. A push deploys it within about a minute. Check it with `gh api repos/<owner>/sevens-out/pages/builds/latest --jq .status`.
 - **The room server (option 4)** deploys with `npm run worker:deploy`, which needs `npx wrangler login` once.
+  - **Order:** when the page depends on a new engine behaviour, deploy the Worker (`npm run worker:deploy`) before pushing the page. A new page with an old Worker breaks online play; an old cached page with a new Worker is fine.
   - `ALLOWED_ORIGINS` in `server/cloudflare/wrangler.jsonc` must list the page origin, for example `https://<owner>.github.io`.
   - The page finds the server through `<meta name="sevens-out-server" content="wss://sevens-out.<subdomain>.workers.dev">` in `index.html`.
   - An empty `content` hides online play; `same-origin` means "this host", which is what the Node server sets when it serves the page.
@@ -156,7 +157,7 @@ Other storage keys, all per device:
 
 The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template strings.
 
-**The score list** (`board(g, cur)`, one `lineHtml(g, i, opts)` per player) sits at the top of every game screen:
+**The score list** (`board(g, cur)`, one `lineHtml(g, i, opts)` per player) sits at the top of the play screens (dice turn, real-dice keypad, corrections) and under the verdict at game over:
 - During play and corrections the lines follow this round's playing order (`g.order`), with the current player (or the player being corrected) highlighted. At game over they are sorted by total, highest first (equal totals keep seating order), and the loser's line says "Loses".
 - Each line: ▶ marker, name (a die mark for the round's starter, `you` online), a bar towards 101 with the last 15 hatched, the total, and this round's `+N`, `now` or `–`. Offline and rounds of shots paid add a small second row.
 - Real-dice mode: seated players tap a line to correct that player's scores (`data-act="edit"`).
@@ -253,11 +254,12 @@ One `Room` per room code holds the authoritative game.
 - **Between rounds: the race to 101.** When a round's last turn is booked, every phone plays the same race (about 5 s), built from the new state with `E.roundRecap`:
   - **What happens:** if the score list is scrolled away (real-dice players scroll down to Save), the page first scrolls it back into view. Then the list lifts and grows in place ("After round N · Race to 101"), and the rest of the screen fades away. The bars move from each player's total at the start of the round by the round's points while the totals count up, then the lines reorder by total (highest on top, ties in the finished round's order).
   - **The round's best moment** pops up as a badge, the first that applies: Sevens Out with the first roll, Sevens Out, a round of shots paid, new on top, into the danger zone (86 or more), Ouch (a turn of 20 or more). Nothing applies, no badge.
-  - **The curtain:** a leather curtain drops with "Round N+1", "<Name> starts" ("You start" on that player's own phone online; spectators see the name) and the reason ("Highest score: 64", "Tied on 40, got there first", "Tied on 40, next in turn"). The new round is swapped in underneath, and the curtain lifts on it.
+  - **The curtain:** a leather curtain drops with "Round N+1", "<Name> starts" ("You start" on that player's own phone online; spectators see the name) and the reason ("Highest score: 64", "Tied on 40, got there first", "Tied on 40, next in turn"). The new round is swapped in underneath, then the curtain slides down and away. "<Name> starts" and the reason are fully shown about 1 s before it leaves.
   - **Skipping:** a tap on it, Escape, Enter or Space ends it at once.
   - **Sound:** `sound.round()` plays a short sting as the curtain drops, in the jackpot or old-bandit flavour, and nothing when the sound is off.
-  - **Online:** every phone plays it from the same events. A phone that reloads or reconnects meanwhile just shows the new round. A correction emits only `edited`, so it never plays the race. Leaving the room bumps `net.session`, and changes still queued from that room are dropped, so the phone's own saved game stays as it was.
+  - **Online:** every phone plays it from the same events. A phone that reloads or reconnects meanwhile just shows the new round. A correction emits only `edited`, so it never plays the race, and a correction screen open on another phone stays open when the round moves on. Leaving the room bumps `net.session`, and changes still queued from that room are dropped, so the phone's own saved game stays as it was.
   - **Saving:** a one-phone game saves the new state as soon as the race starts, so a reload mid-race keeps the last turn.
+  - **Fallback:** without `E.roundRecap` (an old engine.js in the cache) or when anything in the race fails, the new state shows at once, without a race, and the page is never left busy. A one-phone game that such an old engine leaves in `roundEnd` moves on with `nextround`.
   - **DOM:** `.race` (fixed, outside `#app`) → `.race-card` (the list's `.bhead` and `li.pl` lines from `lineHtml`, plus `.race-badge`) and `.race-curtain` (`.race-round`, `.race-starter`, `.race-why`).
 - **Developer menu.** Play confetti, Play shots alarm, Play missed 7, Play round change (the race for the round just finished, or made-up points before there is one), and End game now (host only when online).
 - **Reduced motion.** Rolls are instant, pairs are set aside without flying, there's no confetti, the shots takeover is shortened, and the missed-7 joke appears without moving. The race between rounds shows the grown list with its final totals, order and badge at once. The curtain then appears without sliding, and the whole race takes about 2.5 s.
@@ -266,6 +268,7 @@ One `Room` per room code holds the authoritative game.
 
 - **Phones first.** 390 px wide, 16 px gutters, no sideways scrolling. Check both looks and light/dark.
 - **Colours only through the CSS tokens.** The shots takeover is the deliberate exception.
+  - **`color-mix()`** needs plain-token fallbacks in an `@supports not (color:color-mix(in srgb,red 50%,blue))` block after it, for Safari before 16.2. A plain declaration placed before it doesn't work: one with `var()` inside falls back to `unset`, not to the declaration before it.
 - **No `alert()` or `confirm()`.** Confirmations are built into the page.
 - **Copy is short, plain and active.** Errors say how to fix the problem.
 - **Artwork stays original.** No branded characters, logos or trademarked designs.
@@ -285,6 +288,7 @@ One `Room` per room code holds the authoritative game.
   - The tests read state through `window.SevensDebug` or `localStorage`.
   - Use `contextOptions: { reducedMotion: 'reduce' }` for instant rolls.
   - To fix the dice, stub `crypto.getRandomValues` for 1-byte arrays (`fixDice` in `tests/e2e/helpers.js`).
+  - To load the page with a changed `engine.js` or CSS (an old cached engine, a browser without `color-mix()`), serve the changed file through `page.route`, as the tests in `local.spec.js` do.
   - After a round's last turn, the race plays for about 2.5 s even with reduced motion. Tests that act right after a round ends call `skipRace(page)` (helpers.js): it waits for a Sevens Out or missed-7 joke that plays first, taps the race away, then waits until the page is idle.
   - `TARGET=worker` points online play at `wrangler dev` through the `?server=` override.
   - `tests/e2e/admin.spec.js` tests the admin page (`npm run test:admin`). Don't run it together with `test:worker`: both reset `.wrangler/e2e`.
