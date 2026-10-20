@@ -12,7 +12,11 @@
   // statistics: finished games (server/d1/schema.sql); the admin Worker reads the same database
   "d1_databases": [{ "binding": "STATS", "database_name": "sevens-out-stats", "database_id": "9d714305-77cc-4e55-b642-ba4c2900a657" }],
   // POST /report: at most 10 one-phone reports per minute per IP
-  "ratelimits": [{ "name": "REPORT_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }],
+  // /auth/*: at most 60 account requests per minute per IP (the page's GET /auth/config probe isn't counted)
+  "ratelimits": [
+    { "name": "REPORT_LIMIT", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } },
+    { "name": "AUTH_LIMIT", "namespace_id": "1002", "simple": { "limit": 60, "period": 60 } }
+  ],
   "vars": {
     // comma-separated list of page origins allowed to connect, e.g. "https://<owner>.github.io".
     // Empty or "*" allows any origin (fine for local development).

@@ -4,6 +4,7 @@
  *   GET /health            -> "ok"
  *   GET /room/<CODE> (WS)  -> the room's Durable Object
  *   POST /report           -> stores a finished one-phone game (see server/core/stats.js checkReport)
+ *   /auth/*                -> player accounts with passkeys (server/core/accounts.js), stored in the same D1
  *
  * The Durable Object uses the WebSocket Hibernation API, so an idle room costs nothing and survives
  * hibernation: each socket remembers its seat in its attachment, and the room data lives in storage.
@@ -17,6 +18,7 @@ import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
 import { fromD1 } from '../d1/db.js';
 import { writeRecord } from '../d1/write.js';
 import { checkReport, summarize, MAX_REPORT_BYTES } from '../core/stats.js';
+import { handleAuth, originsFrom } from '../core/accounts.js';
 
 const E = globalThis.SevensEngine;
 
@@ -65,11 +67,22 @@ async function report(request, env) {
   return reply(204);
 }
 
+// /auth/*: accounts need the database; without it the page's probe (GET /auth/config) gets 404 and hides them
+function auth(request, env) {
+  if (!env.STATS) return new Response(JSON.stringify({ error: 'accounts_off' }), { status: 404, headers: { 'content-type': 'application/json' } });
+  const free = new URL(request.url).pathname === '/auth/config'; // the probe on every page load isn't counted
+  const limit = env.AUTH_LIMIT && !free
+    ? async req => (await env.AUTH_LIMIT.limit({ key: req.headers.get('CF-Connecting-IP') || 'unknown' })).success
+    : null;
+  return handleAuth(request, { db: fromD1(env.STATS), origins: originsFrom(env.ALLOWED_ORIGINS), limit });
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname === '/health') return new Response('ok', { headers: { 'content-type': 'text/plain' } });
     if (url.pathname === '/report') return report(request, env);
+    if (url.pathname.startsWith('/auth/')) return auth(request, env);
     const m = url.pathname.match(/^\/room\/([A-Z0-9]{5})$/);
     if (!m || !CODE_RE.test(m[1])) return new Response('Not found', { status: 404 });
     if (request.headers.get('Upgrade') !== 'websocket') return new Response('Expected a WebSocket', { status: 426 });

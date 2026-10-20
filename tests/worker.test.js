@@ -6,6 +6,7 @@ import { register } from 'node:module';
 import { fakeD1 } from './fake-d1.js';
 import { diceGame, scoreGame } from './games.js';
 import { sheetOf } from '../server/core/stats.js';
+import { softAuthenticator } from './authenticator.js';
 
 // resolve `cloudflare:workers` to a minimal DurableObject base class
 register('data:text/javascript,' + encodeURIComponent(`
@@ -254,6 +255,27 @@ test('report: rate limit, D1 down, and no database configured', async () => {
   env.STATS.down = true;
   assert.equal((await worker.fetch(post(body, { 'CF-Connecting-IP': '198.51.100.2' }), env)).status, 503);
   assert.equal((await worker.fetch(post(body), { ALLOWED_ORIGINS: ORIGIN })).status, 404);
+});
+
+test('auth: routed to the accounts handler on D1, limited per IP, off without a database', async () => {
+  const hits = new Map();
+  const env = { ALLOWED_ORIGINS: ORIGIN, STATS: fakeD1(), AUTH_LIMIT: { limit: async ({ key }) => { hits.set(key, (hits.get(key) || 0) + 1); return { success: hits.get(key) <= 3 }; } } };
+  const call = async (method, path, body, headers = {}) => {
+    const res = await worker.fetch(new Request(`https://x${path}`, { method, body: body && JSON.stringify(body), headers: { Origin: ORIGIN, 'CF-Connecting-IP': '203.0.113.5', ...headers } }), env);
+    return { status: res.status, body: res.body ? JSON.parse(res.body) : null, headers: res.headers };
+  };
+  const auth = await softAuthenticator({ origin: ORIGIN });
+  const o = await call('POST', '/auth/options', { purpose: 'create', name: 'Anna' });
+  assert.equal(o.headers.get('access-control-allow-origin'), ORIGIN);
+  const credential = await auth.create({ challenge: o.body.challenge, userId: o.body.user.id });
+  const created = await call('POST', '/auth/create', { challengeId: o.body.challengeId, credential });
+  assert.equal(created.status, 200);
+  assert.equal(env.STATS.raw.prepare('SELECT name FROM users').get().name, 'Anna');
+  assert.equal((await call('GET', '/auth/me', null, { Authorization: `Bearer ${created.body.token}` })).body.player.name, 'Anna');
+  assert.equal((await call('GET', '/auth/me')).status, 429, 'the fourth counted request from this IP');
+  assert.equal((await call('GET', '/auth/config')).status, 200, 'the probe is not counted');
+  assert.equal((await call('GET', '/auth/config', null, { Origin: 'https://evil.example' })).status, 403);
+  assert.equal((await worker.fetch(new Request('https://x/auth/config'), { ALLOWED_ORIGINS: ORIGIN })).status, 404, 'no database, no accounts');
 });
 
 test.after(() => { globalThis.Response = NodeResponse; });
