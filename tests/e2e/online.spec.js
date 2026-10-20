@@ -221,6 +221,33 @@ test('a move made while another phone plays the race shows when that race is ove
   await A.ctx.close(); await B.ctx.close();
 });
 
+test('a correction open on another phone stays open when the round ends', async ({ browser }) => {
+  const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
+  const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+  await A.page.click('[data-act=omode][data-id="1"]');
+  await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+  await A.page.click('[data-act=ostart]');
+  await enterScore(A.page, 10, 1);
+  await expect(B.page.locator('.pad')).toBeVisible();
+  await enterScore(B.page, 20);                                   // Ben leads, so Ben starts round 2
+  await skipRace(A.page); await skipRace(B.page);
+  await enterScore(B.page, 5, 1);
+  await expect(A.page.locator('.pad')).toBeVisible();
+  // Ben starts correcting Anna's round 1 while Anna enters the last score of round 2
+  await B.page.click('.pl[data-act=edit][data-id="0"]');
+  await B.page.fill('#edit-1', '12');
+  await enterScore(A.page, 8);
+  await expect(B.page.locator('.race')).toBeVisible();
+  await skipRace(B.page);
+  expect((await live(B.page)).game.round).toBe(3);
+  await expect(B.page.locator('#edit-h')).toContainText('Anna');
+  await expect(B.page.locator('#edit-1')).toHaveValue('12');
+  await B.page.click('[data-act=esave]');
+  await skipRace(A.page);
+  await expect.poll(async () => (await live(A.page)).game.players.map(p => p.score)).toEqual([20, 25]);
+  await A.ctx.close(); await B.ctx.close();
+});
+
 test('leaving the room before the race keeps the game saved on this phone', async ({ browser }) => {
   const own = { phase: 'setup', setup: { names: ['Zed', 'Yan'], starter: 1, mode: 'score', pairing: 'manual' }, game: null };
   const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });

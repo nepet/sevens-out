@@ -1210,7 +1210,8 @@ html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;backgroun
     const g = state.game, nm = i => (g && g.players[i] ? g.players[i].name : '');
     for (const e of events){
       switch (e.type){
-        case 'started': resetUi(); break;
+        // a round that moves on keeps a correction another phone has open (online); a new game clears it
+        case 'started': if (events.some(x => x.type === 'roundEnd')){ resetInputs(); ui.reveal = null; } else resetUi(); break;
         case 'turn': resetInputs(); break;
         case 'rolled': {
           dropMissed();
