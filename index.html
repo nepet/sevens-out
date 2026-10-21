@@ -138,7 +138,6 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 button.die:active{transform:translateY(2px)}
 .die.can{box-shadow:0 4px 0 var(--bone-edge),0 0 0 2px var(--stitch),0 8px 14px var(--shade)}
 .die.sel{transform:translateY(-7px);box-shadow:0 4px 0 var(--bone-edge),0 0 0 4px var(--brass),0 14px 18px var(--shade)}
-.die.blank{opacity:.3;box-shadow:none}
 .die.tumble{animation:tumble .5s ease-out}
 .die.nope{animation:nope .3s}
 .die.mini{--die:1.9rem;padding:calc(var(--die) * .12);box-shadow:0 2px 0 var(--bone-edge)}
@@ -245,7 +244,6 @@ html:root[data-look="vegas"] .felt-turn .turnhead.c4 .who{font-size:2rem}
 .mat .dice .die.sel{transform:translate(-50%,calc(-50% - 7px)) rotate(var(--rot,0deg))}
 .mat .dice .die.pairing{transform:translate(-50%,calc(-50% - 8px)) rotate(var(--rot,0deg)) scale(1.07)}
 .mat .dice .die.nope{animation:nope-mat .3s}
-.mat .dice .die.blank{opacity:.45}
 /* a roll: the dice are thrown in from just above the mat's top edge and spin onto their spots (staggered inline) */
 .mat .dice .die.tumble{animation:throw .5s cubic-bezier(.25,.75,.35,1) backwards}
 @keyframes throw{
@@ -1967,7 +1965,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function dieView(d, can, interactive){
     if (d.held !== null) return '';
     if (ui.rolling) return `<span class="die tumble" data-tumble data-id="${d.id}" aria-hidden="true">${face(rnd6())}</span>`;
-    if (d.value === null) return `<span class="die blank" data-id="${d.id}" aria-hidden="true"></span>`;
+    if (d.value === null) return ''; // before the first roll the mat is empty: the throw brings the dice in
     const lit = ui.reveal && ui.reveal.lit && ui.reveal.lit.includes(d.id) ? ' pairing' : ''; // the pair about to fly out
     if (!interactive) return `<span class="die${lit}" data-id="${d.id}" role="img" aria-label="Die showing ${d.value}">${face(d.value)}</span>`;
     const sel = ui.selected === d.id;
@@ -2535,8 +2533,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // ---------- the dice on the mat: random spots, no overlap ----------
   // layoutDice(n, w, h, die, rng, opts) → n spots [{x, y, rot}] for dice of `die` px on a mat of w × h px: x and y are
   // the die's centre as fractions of the mat (0–1), rot its tilt in degrees (−20…20). opts.bottom: the px kept free at
-  // the mat's foot for the hint line; opts.cluster: the dice lie loosely in the middle (before the first roll);
-  // opts.fixed: spots already taken (fractions; a die put back keeps its spot and the new ones go around it).
+  // the mat's foot for the hint line; opts.fixed: spots already taken (fractions; a die put back keeps its spot and the new ones go around it).
   // - Inside: every die's rotated square (its box, half-size halfBox()) stays MAT_EDGE px inside the mat, above the foot.
   // - No overlap: two dice are apart when one of the four edge normals separates their rotated squares by at least
   //   matGap(die) px (the separating axis test, exact for squares; a circle bound would waste the small phones' room).
@@ -2558,21 +2555,17 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
     return false;
   }
-  function layoutDice(n, w, h, die, rng = Math.random, { bottom = 0, cluster = false, fixed = [] } = {}){
+  function layoutDice(n, w, h, die, rng = Math.random, { bottom = 0, fixed = [] } = {}){
     const gap = matGap(die), px = s => ({ x:s.x * w, y:s.y * h, rot:s.rot });
     const frac = s => ({ x:+(s.x / w).toFixed(4), y:+(s.y / h).toFixed(4), rot:+s.rot.toFixed(1) });
-    // the free zone for the centres (before the tilt's extra reach): the whole mat, or a loose middle for the cluster
-    let x0 = MAT_EDGE, x1 = w - MAT_EDGE, y0 = MAT_EDGE, y1 = h - bottom;
-    if (cluster){
-      const cw = Math.min(x1 - x0, die * 5.4), ch = Math.min(y1 - y0, die * 4.2), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
-      x0 = cx - cw / 2; x1 = cx + cw / 2; y0 = cy - ch / 2; y1 = cy + ch / 2;
-    }
+    // the free zone for the centres (before the tilt's extra reach): the whole mat above the foot
+    const x0 = MAT_EDGE, x1 = w - MAT_EDGE, y0 = MAT_EDGE, y1 = h - bottom;
     const pick = () => {
       const rot = (rng() * 2 - 1) * MAX_TILT, e = halfBox(die, rot);
       if (x1 - x0 < 2 * e || y1 - y0 < 2 * e) return null;
       return { x:x0 + e + rng() * (x1 - x0 - 2 * e), y:y0 + e + rng() * (y1 - y0 - 2 * e), rot };
     };
-    const tries = cluster ? 2 : 8; // candidates per die: one is a plain random spot, more spread the dice out
+    const tries = 8; // candidates per die: more spread the dice out
     const taken0 = fixed.map(px);
     for (let round = 0; round < 40; round++){
       const taken = taken0.slice(), out = [];
@@ -2628,7 +2621,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function matSpots(g, t, w, h){
     const bottom = matFoot(g), die = matDie(w, h, bottom), rolls = t.rolls + (ui.rolling ? 1 : 0);
     const key = turnKey(g, rolls), ids = t.dice.filter(d => d.held === null).map(d => d.id);
-    const opts = { bottom, cluster:rolls === 0 };
+    const opts = { bottom };
     let L = ui.layout[key];
     if (L && (L.w !== w || L.h !== h || L.die !== die)){
       const here = ids.filter(id => L.pos[id]).map(id => L.pos[id]);

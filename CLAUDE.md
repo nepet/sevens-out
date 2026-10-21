@@ -232,11 +232,11 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Fit:** at 375×667 with six players and the 101 alert the chip stays on one line, six dice fit on the mat apart, and Stop, Roll and the rack are on screen without scrolling.
 
 **The dice on the mat** ("the dice on the mat" section of the script):
-- **Each roll** places the dice still on the table at random spots inside the mat (`layoutDice(n, w, h, die, rng, {bottom, cluster, fixed})`, pure; `x`, `y` are the die's centre as fractions of the mat, `rot` a tilt from −20° to 20°).
+- **Each roll** places the dice still on the table at random spots inside the mat (`layoutDice(n, w, h, die, rng, {bottom, fixed})`, pure; `x`, `y` are the die's centre as fractions of the mat, `rot` a tilt from −20° to 20°).
   - Each die's rotated box stays 8 px (`MAT_EDGE`) inside the mat and above the foot (`matFoot(g)`: 64 px for the hint, 114 px with automatic pairing).
   - No overlap: an exact separating-axis test on the rotated squares with a gap of `matGap(die)` (max(6 px, 12 % of the die)).
   - Best-candidate sampling spreads the dice over the mat; after 40 failed tries a jittered grid (3 × 2 for six) takes over.
-  - Before the first roll the six dice lie blank (no pips, faded) in a loose cluster in the middle.
+  - Before the first roll the mat is empty; the first throw brings the dice in.
 - **The die size** (`matDie(w, h, bottom)`): min(22 % of the width, height / 4.2, a size where six dice fill at most ~30 % of the free area), clamped to 48–92 px; set inline as `--die` on `.dice`.
 - **Stable spots:** `ui.layout` keeps the spots by the key `<game>:<round>:<player>:<rolls>` (the game is `state.stats.id`, or the seats online; the last 4 keys). Redraws, taps, a selected die, a pair put back (its dice return to their spots) and a remote state update never move the dice. A new roll draws new spots for the rolled dice only; while rolling the key is `rolls + 1`, so the dice are thrown onto the spots the result keeps. Online, each phone draws its own layout; nothing goes over the wire. `resetUi()` clears `ui.layout`.
 - **`placeDice()`** runs after every `render()` (before paint), on resize and when the fonts load: it measures the mat and sets `--die`, inline `left`/`top` (% of the mat) and `--rot` on each `.die[data-id]`. A width change reuses the fractions while they fit; a height-only change keeps the pixel spots while they fit; otherwise the dice that still fit stay and the rest get new spots (`spotsFit()`, `fixed`).

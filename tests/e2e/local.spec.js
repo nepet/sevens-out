@@ -1196,9 +1196,9 @@ test.describe('the dice turn screen', () => {
       const rng = seed => { let a = seed; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
       const out = [];
       for (const [w, h] of [[390, 553], [375, 386], [375, 336], [320, 287], [320, 240]]) for (const bottom of [64, 114]) for (let n = 1; n <= 6; n++)
-        for (const cluster of [false, true]) for (let seed = 1; seed <= 20; seed++) {
-          const die = dieSize(w, h, bottom), s = layout(n, w, h, die, rng(seed), { bottom, cluster });
-          out.push({ w, h, bottom, die, n, s, again:JSON.stringify(layout(n, w, h, die, rng(seed), { bottom, cluster })) === JSON.stringify(s) });
+        for (let seed = 1; seed <= 40; seed++) {
+          const die = dieSize(w, h, bottom), s = layout(n, w, h, die, rng(seed), { bottom });
+          out.push({ w, h, bottom, die, n, s, again:JSON.stringify(layout(n, w, h, die, rng(seed), { bottom })) === JSON.stringify(s) });
         }
       // a die put back: new spots around the ones already lying there
       const fixed = layout(4, 390, 553, 86, rng(7), { bottom:64 });
@@ -1232,9 +1232,9 @@ test.describe('the dice turn screen', () => {
       const seen = new Set();
       for (let rolls = 0; rolls < 20;) {
         if (await page.locator('.bar [data-act=roll]').count()) {
-          const before = await drawnDice(page);
-          expect(before.dice).toHaveLength(6);
-          checkDice(before, `before roll ${rolls + 1}`);
+          const before = await drawnDice(page), fresh = await page.evaluate(() => window.SevensDebug.state.game.turn.rolls === 0);
+          expect(before.dice).toHaveLength(fresh ? 0 : 6);                  // a new turn starts on an empty mat
+          if (!fresh) checkDice(before, `before roll ${rolls + 1}`);
           await page.click('.bar [data-act=roll]');
           rolls++;
           await expect(page.locator('.dice button.die')).toHaveCount(6);   // nothing set aside: you find the 7s
@@ -1275,14 +1275,12 @@ test.describe('the dice turn screen', () => {
     await fixDice(context, [1, 6, 2, 2, 3, 3]);
     await seedRandom(page, 42);
     await startLocal(page, { names: ['Anna', 'Ben'] });
-    const cluster = spots(await drawnDice(page));                       // before the first roll: six blank dice lying loosely
-    expect(Object.keys(cluster)).toHaveLength(6);
-    await expect(page.locator('.dice .die.blank')).toHaveCount(6);
+    await expect(page.locator('.mat .dice')).toBeVisible();
+    await expect(page.locator('.dice .die')).toHaveCount(0);              // before the first roll the mat is empty
     await page.click('.bar [data-act=roll]');
     const first = await drawnDice(page), at = spots(first);
     expect(first.dice.map(x => x.id)).toEqual(['0', '1', '2', '3', '4', '5']);   // DOM order is the dice's order
     for (const x of first.dice) expect(x.left).toMatch(/%$/);
-    expect(at).not.toEqual(cluster);
     const same = async (want, label) => expect(spots(await drawnDice(page)), label).toEqual(want);
     await page.click('.dice [data-act=die][data-id="2"]');               // a die tap selects it
     await expect(page.locator('.dice [data-id="2"]')).toHaveAttribute('aria-pressed', 'true');
@@ -1329,18 +1327,19 @@ test.describe('the dice turn screen', () => {
   test('a new game draws its own spots: it never reuses the last game\'s', async ({ page }) => {
     await seedRandom(page, 9);
     await startLocal(page, { names: ['Anna', 'Ben'] });
+    await page.click('.bar [data-act=roll]');
     const old = await drawnDice(page);
-    expect(old.dice.some(x => x.rot !== '0deg')).toBe(true);             // a loose, tilted cluster
+    expect(old.dice.some(x => x.rot !== '0deg')).toBe(true);             // tilted at random
     await openMenu(page);
     await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
     await expect(page.locator('[data-act=start]')).toBeVisible();
     await page.evaluate(() => { Math.random = () => 0.5; });             // from here every new layout is the untilted grid
     await page.click('[data-act=start]');
-    const cluster = await drawnDice(page);
-    expect(cluster.dice.map(x => x.rot)).toEqual(Array(6).fill('0deg'));   // drawn anew, not the old game's cluster
-    checkDice(cluster, 'the new game');
+    await expect(page.locator('.dice .die')).toHaveCount(0);              // an empty mat, not the old game's dice
     await page.click('.bar [data-act=roll]');
-    expect((await drawnDice(page)).dice.map(x => x.rot)).toEqual(Array(6).fill('0deg'));
+    const fresh = await drawnDice(page);
+    expect(fresh.dice.map(x => x.rot)).toEqual(Array(6).fill('0deg'));   // drawn anew, not the old game's first roll
+    checkDice(fresh, 'the new game');
   });
 
   test('reduced motion: the dice appear on their spots at once, with no throw', async ({ page }) => {
