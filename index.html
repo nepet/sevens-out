@@ -1186,7 +1186,165 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         tone(t, f, 0.13, 'sine', 0.06); tone(t + 0.014, f * 1.5, 0.09, 'sine', 0.03);
       }
     }
+    // ---- the table's sounds: they follow the look (Pub table: cup, felt, bone and chalk; Vegas: an arcade cabinet) ----
+    // a die lands about 350 ms after it leaves (70 % of the throw), each one THROW_STAGGER after the one before
+    const landAt = (k, instant) => instant ? 0.02 + k * 0.03 : (THROW_MS * 0.7 + THROW_STAGGER * k) / 1000;
+    const rnd = (a, b) => a + Math.random() * (b - a);
+    function boneClick(t, vol){ const f = rnd(2800, 4200); tone(t, f, 0.03, 'sine', vol * 0.5); noiseHit(t, 0.008, 'bandpass', f, 4, vol); }
+    function whoosh(t, dur, from, to, vol){
+      const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+      src.buffer = whiteBuf(); f.type = 'bandpass'; f.Q.value = 1.2;
+      f.frequency.setValueAtTime(from, t); f.frequency.exponentialRampToValueAtTime(to, t + dur);
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      src.connect(f); f.connect(g); g.connect(master); src.start(t, Math.random() * 0.2); src.stop(t + dur + 0.02);
+    }
+    function woodKnock(t, pitch, vol){ noiseHit(t, 0.03, 'lowpass', 900, 0.7, vol); tone(t, pitch, 0.07, 'triangle', vol * 0.5); }
+    const TABLE = {
+      // the roll: n dice thrown onto the mat (instant: reduced motion, the dice appear at once)
+      roll:{
+        pub(t0, n, instant){
+          if (!instant){
+            // a leather cup shaken twice, then a whoosh as the dice leave it
+            for (const [a, b] of [[0, 0.11], [0.15, 0.27]]) for (let i = 0; i < 8; i++){
+              const t = t0 + rnd(a, b);
+              noiseHit(t, 0.006, 'bandpass', rnd(2000, 3400), 6, 0.22); noiseHit(t, 0.03, 'bandpass', 480, 9, 0.12);
+            }
+            whoosh(t0 + 0.24, 0.18, 500, 1800, 0.08);
+          }
+          // muffled thuds on the felt, a small bounce, a short roll, and a die knocking another
+          for (let k = 0; k < n; k++){
+            const t = t0 + landAt(k, instant) + rnd(-0.008, 0.008);
+            noiseHit(t, 0.035, 'lowpass', 520, 0.7, 0.7); tone(t, rnd(115, 150), 0.08, 'sine', 0.28);
+            noiseHit(t + 0.07, 0.025, 'lowpass', 600, 0.7, 0.24);
+            noiseHit(t + 0.03, 0.09, 'lowpass', 300, 0.5, 0.07);
+          }
+          for (let i = 0; i < Math.max(1, n - 3); i++) boneClick(t0 + rnd(landAt(Math.min(1, n - 1), instant), landAt(n - 1, instant) + 0.08), 0.07);
+        },
+        vegas(t0, n, instant){
+          if (!instant) for (let i = 0; i < 9; i++) tone(t0 + i * 0.036, 520 * Math.pow(1.09, i), 0.03, 'square', 0.05);
+          // one note of a major pentatonic per die, a soft thump under it, a sparkle at the end
+          const notes = [523.25, 587.33, 659.25, 783.99, 880, 1046.5];
+          for (let k = 0; k < n; k++){
+            const t = t0 + landAt(k, instant), f = notes[Math.round(k * 5 / Math.max(1, n - 1))];
+            tone(t, f, 0.18, 'triangle', 0.11); tone(t, f * 2, 0.09, 'sine', 0.035);
+            noiseHit(t, 0.02, 'lowpass', 400, 0.7, 0.3);
+          }
+          const end = t0 + landAt(n - 1, instant) + 0.12;
+          [1567.98, 2093, 2637].forEach((f, i) => tone(end + i * 0.03, f, 0.25, 'sine', 0.035));
+        }
+      },
+      // a die picked up (on) or put down
+      pick:{
+        pub(t0, on){ boneClick(t0, on ? 0.22 : 0.15); },
+        vegas(t0, on){ tone(t0, on ? 880 : 660, 0.045, 'square', 0.07); }
+      },
+      // the two dice don't make 7
+      nope:{
+        pub(t0){ woodKnock(t0, 150, 0.28); woodKnock(t0 + 0.09, 120, 0.22); },
+        vegas(t0){ [196, 185].forEach((f, i) => tone(t0 + i * 0.1, f, 0.09, 'square', 0.08)); }
+      },
+      // a pair lands in the rack: its two dice 70 ms apart, like the fly-out; k = the pair's place in the rack (0–2)
+      pair:{
+        pub(t0, k){
+          [0, 0.07].forEach((d, i) => {
+            const t = t0 + d;
+            noiseHit(t, 0.01, 'bandpass', 1800 + 120 * k, 2, 0.3); tone(t, 230 + 20 * k + i * 15, 0.05, 'triangle', 0.13); tone(t, 3200, 0.03, 'sine', 0.04);
+          });
+        },
+        vegas(t0, k){
+          const f = [1318.5, 1568, 2093][Math.min(2, k)];
+          tone(t0, f, 0.28, 'triangle', 0.17); tone(t0 + 0.07, f * 1.5, 0.22, 'sine', 0.07);
+          noiseHit(t0, 0.02, 'bandpass', 5200, 1.5, 0.07);
+        }
+      },
+      // a pair put back on the table
+      unpair:{
+        pub(t0){ whoosh(t0, 0.1, 1400, 700, 0.06); woodKnock(t0 + 0.08, 190, 0.16); },
+        vegas(t0){ tone(t0, 1046.5, 0.07, 'triangle', 0.07); tone(t0 + 0.07, 783.99, 0.12, 'triangle', 0.07); }
+      },
+      // points booked for a turn: chalk on the slate (more strokes for more points), or the register
+      bank:{
+        pub(t0, pts){
+          const strokes = pts >= 20 ? 4 : pts >= 10 ? 3 : 2;
+          for (let i = 0; i < strokes; i++){
+            const t = t0 + i * rnd(0.1, 0.13);
+            noiseHit(t, rnd(0.06, 0.09), 'bandpass', rnd(2300, 3000), 1.6, 0.2); tone(t, 420, 0.03, 'triangle', 0.04);
+          }
+        },
+        vegas(t0, pts){
+          tone(t0, 110, 0.08, 'sine', 0.2); noiseHit(t0, 0.03, 'lowpass', 800, 0.7, 0.3); // the drawer
+          noiseHit(t0 + 0.09, 0.02, 'highpass', 4000, 0.7, 0.08);
+          tone(t0 + 0.1, 2637, 0.4, 'sine', 0.07); tone(t0 + 0.1, 3520, 0.25, 'sine', 0.035);
+          if (pts >= 20) tone(t0 + 0.24, 2637, 0.3, 'sine', 0.05);
+        }
+      },
+      // online: it's this phone's turn now
+      yourturn:{
+        pub(t0){ // the bar's bell, struck twice
+          [0, 0.22].forEach(d => [[1, 0.09, 0.9], [2.76, 0.04, 0.5], [5.4, 0.015, 0.25]].forEach(([r, v, dur]) => tone(t0 + d, 1150 * r, dur, 'sine', v)));
+        },
+        vegas(t0){ [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => { tone(t0 + i * 0.07, f, 0.2, 'triangle', 0.09); tone(t0 + i * 0.07, f * 2, 0.1, 'sine', 0.025); }); }
+      },
+      // online: someone joined the lobby
+      knock:{
+        pub(t0){ woodKnock(t0, 180, 0.35); woodKnock(t0 + 0.13, 175, 0.3); },
+        vegas(t0){ tone(t0, 783.99, 0.45, 'triangle', 0.1); tone(t0 + 0.25, 622.25, 0.6, 'triangle', 0.1); }
+      },
+      // real dice: a die hits the floor and bounces to rest
+      floor:{
+        pub(t0){
+          let t = t0, v = 0.5;
+          for (const gap of [0, 0.16, 0.12, 0.09, 0.06, 0.04]){
+            t += gap;
+            noiseHit(t, 0.012, 'bandpass', 2400, 2, v); tone(t, rnd(1900, 2600), 0.03, 'sine', v * 0.25);
+            if (!gap) tone(t, 160, 0.08, 'sine', 0.2);
+            v *= 0.62;
+          }
+        },
+        vegas(t0){ TABLE.floor.pub(t0); tone(t0 + 0.6, 659.25, 0.12, 'triangle', 0.07); tone(t0 + 0.72, 523.25, 0.2, 'triangle', 0.07); }
+      },
+      // the last entry taken back
+      undo:{
+        pub(t0){ whoosh(t0, 0.18, 2200, 500, 0.18); },
+        vegas(t0){
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = 'square'; o.frequency.setValueAtTime(1200, t0); o.frequency.exponentialRampToValueAtTime(300, t0 + 0.16);
+          g.gain.setValueAtTime(0.08, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.18);
+          o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + 0.2);
+        }
+      },
+      // the game is over, lightly: last orders at the bar (Pub table), or the arcade's cheerful finish (Vegas)
+      over:{
+        pub(t0){
+          // the bar's bell rung three times, then a bright "ta-da"
+          [0, 0.16, 0.32].forEach(d => [[1, 0.1, 0.8], [2.76, 0.045, 0.45], [5.4, 0.016, 0.2]].forEach(([r, v, dur]) => tone(t0 + d, 1150 * r, dur, 'sine', v)));
+          [[392, 0.62], [523.25, 0.74], [659.25, 0.86]].forEach(([f, d]) => tone(t0 + d, f, 0.22, 'triangle', 0.13));
+          [523.25, 659.25, 783.99, 1046.5].forEach(f => { tone(t0 + 0.98, f, 0.9, 'triangle', 0.09, 0.01); tone(t0 + 0.98, f * 2, 0.5, 'sine', 0.025, 0.01); });
+        },
+        vegas(t0){
+          // a quick run down, then up again to a bright chord with a sparkle
+          [1046.5, 880, 783.99, 659.25].forEach((f, i) => tone(t0 + i * 0.07, f, 0.09, 'square', 0.06));
+          [783.99, 1046.5, 1318.5].forEach((f, i) => { tone(t0 + 0.34 + i * 0.07, f, 0.14, 'square', 0.06); tone(t0 + 0.34 + i * 0.07, f, 0.18, 'triangle', 0.08); });
+          [523.25, 659.25, 783.99, 1046.5].forEach(f => tone(t0 + 0.6, f, 0.8, 'triangle', 0.09, 0.01));
+          [2093, 2637, 3136].forEach((f, i) => tone(t0 + 0.66 + i * 0.05, f, 0.3, 'sine', 0.035));
+        }
+      }
+    };
+    // every table sound this page has played, for the tests (SevensDebug.sounds)
+    const played = [];
+    // cue(name, args…, { delay }): play the table's sound for this moment in the look's flavour, unless the sound is off
+    function cue(name, ...args){
+      if (soundMode === 'off' || !TABLE[name]) return;
+      const opts = args.length && typeof args[args.length - 1] === 'object' ? args.pop() : {};
+      played.push(`${name}:${look}`); if (played.length > 40) played.shift();
+      try {
+        const c = get(); if (!c) return;
+        TABLE[name][look](c.currentTime + 0.02 + (opts.delay || 0), ...args);
+      } catch (e) {}
+    }
     return {
+      cue,
+      get played(){ return played.slice(); },
       unlock(){ try { get(); } catch (e) {} },
       jackpot(){ try { jackpot(); } catch (e) {} },
       bandit(){ try { bandit(); } catch (e) {} },
@@ -1743,6 +1901,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function receiveRoom(m){
     if (m.room.phase === 'game' && m.state){
       const evs = net.inGame && m.rev === net.rev + 1 ? (m.events || []) : [];
+      // the game starts from the lobby: the starter's phone hears it's their turn (the first state comes without events)
+      const g = m.state.game, begun = !net.inGame && !!net.room && net.room.phase === 'lobby' && m.rev === net.rev + 1;
+      if (begun && g && g.seats && g.seats[current(g)] === net.seat) sound.cue('yourturn');
       net.rev = m.rev;
       if (!net.inGame){ net.inGame = true; resetUi(); ui.open = {}; }
       const ses = net.session;
@@ -1751,7 +1912,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     } else {
       // back in the lobby: wait for any animation that is still playing
       const ses = net.session;
-      const toLobby = () => { if (ses !== net.session) return; net.room = m.room; net.rev = m.rev; net.inGame = false; ui.rolling = false; stopTumble(); render(); };
+      const toLobby = () => {
+        if (ses !== net.session) return;
+        if (net.room && net.room.phase === 'lobby' && net.room.code === m.room.code && m.room.seats.length > net.room.seats.length) sound.cue('knock');
+        net.room = m.room; net.rev = m.rev; net.inGame = false; ui.rolling = false; stopTumble(); render(); };
       if (pending) enqueue(toLobby); else toLobby();
     }
   }
@@ -1760,6 +1924,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const amHost = () => online() && !!net.room && net.room.host === net.seat;
   const seated = () => !online() || !!(net.seat && state.game && state.game.seats && state.game.seats.includes(net.seat));
   const isMe = i => online() && state.game && state.game.seats && state.game.seats[i] === net.seat;
+  const myTurn = () => !!state.game && isMe(current(state.game)); // online: the current player sits at this phone
   // may this phone make the current player's moves? (the host may cover for a player who is offline)
   function canAct(){
     if (!online()) return true;
@@ -1793,7 +1958,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const rolled = events.find(e => e.type === 'rolled');
     const paired = events.find(e => e.type === 'paired');
     if (rolled && !reduceMotion){
-      if (!ui.rolling){ ui.rolling = true; ui.rollStart = Date.now(); render(); startTumble(); }
+      if (!ui.rolling){ sound.cue('roll', active(state.game.turn).length); ui.rolling = true; ui.rollStart = Date.now(); render(); startTumble(); }
       // the faces flicker until the last thrown die has landed on its spot
       const thrown = state.game && state.game.turn ? active(state.game.turn).length : 6;
       await wait(Math.max(0, throwTime(thrown) - (Date.now() - ui.rollStart)));
@@ -1821,6 +1986,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const ses = net.session, left = () => ses !== net.session;
     const so = events.find(e => e.type === 'sevensOut'), miss = events.find(e => e.type === 'missed');
     let rest = events.filter(e => e !== so && e !== miss), swapped = false;
+    const booked = events.find(e => e.type === 'turn');
+    if (booked && booked.pts) sound.cue('bank', booked.pts);
     const swap = () => {
       if (swapped || left()) return;
       swapped = true;
@@ -1851,9 +2018,19 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       switch (e.type){
         // a round that moves on keeps a correction another phone has open (online); a new game clears it
         case 'started': if (events.some(x => x.type === 'roundEnd')){ resetInputs(); ui.reveal = null; } else resetUi(); break;
-        case 'turn': resetInputs(); break;
+        case 'turn': {
+          resetInputs();
+          if (events.some(x => x.type === 'roundEnd')) break; // presentRound booked it; the race's curtain says who starts
+          if (e.pts) sound.cue('bank', e.pts);
+          if (state.phase === 'play' && myTurn()) sound.cue('yourturn', { delay:e.pts ? 0.45 : 0 });
+          break;
+        }
         case 'rolled': {
           dropMissed();
+          if (reduceMotion){ // the dice appear at once: so does the sound, then the pairs set aside
+            sound.cue('roll', active(g.turn).length + 2 * e.auto.length, true);
+            e.auto.forEach((p, i) => sound.cue('pair', g.turn.pairs.length - e.auto.length + i, { delay:0.25 + 0.15 * i }));
+          }
           if (E.byHand(g)){ ui.hint = null; break; }
           const t = g.turn, n = e.auto.length, left = active(t).length;
           if (!left) ui.hint = 'All six dice are out. Nothing counts against you.';
@@ -1862,17 +2039,20 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         }
         case 'paired': {
           const d = g.turn.dice;
+          if (reduceMotion) sound.cue('pair', g.turn.pairs.length - 1); // with motion, the fly-out plays it
           ui.hint = e.pairs.length === 1 ? `${d[e.pairs[0][0]].value} + ${d[e.pairs[0][1]].value} set aside.` : `${plural(e.pairs.length, 'pair')} of 7 set aside.`;
           break;
         }
-        case 'unpaired': ui.selected = null; ui.hint = `${e.values[0]} and ${e.values[1]} are back on the table and will be rolled again.`; break;
+        case 'unpaired': sound.cue('unpair'); ui.selected = null; ui.hint = `${e.values[0]} and ${e.values[1]} are back on the table and will be rolled again.`; break;
         case 'sevensOut': ui.celebrate = nm(e.player); break;
         case 'missed': ui.missed = { name:nm(e.player), me:isMe(e.player), how:e.how, pairs:e.pairs }; break;
-        case 'dropped': ui.hint = `${nm(e.player)} dropped a die. ${e.drops} of 3 on the floor.`; break;
+        case 'dropped': sound.cue('floor'); ui.hint = `${nm(e.player)} dropped a die. ${e.drops} of 3 on the floor.`; break;
         case 'shots': ui.doom = nm(e.player); ui.hint = `${nm(e.player)} pays a round of shots.`; break;
-        case 'undone': resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
+        case 'undone': sound.cue('undo'); resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
         case 'edited': ui.hint = `${nm(e.player)}'s scores were corrected.`; break;
-        case 'gameOver': case 'ended': ui.open.sheet = true; ui.confirmEnd = false; ui.scoresOpen = false; break;
+        case 'gameOver': case 'ended':
+          sound.cue('over', { delay:events.some(x => x.type === 'sevensOut' || x.type === 'missed') ? 3 : 0.6 }); // after the booked points, the fanfare or the trombone
+          ui.open.sheet = true; ui.confirmEnd = false; ui.scoresOpen = false; break;
       }
     }
   }
@@ -2753,6 +2933,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (!from[0] || !from[1] || minis.length < 2){ landed(); return; }
     const vals = [state.game.turn.dice[a].value, state.game.turn.dice[b].value];
     const to = [...minis].map(m => m.getBoundingClientRect());
+    sound.cue('pair', packs.length - 1, { delay:0.5 });
     await Promise.all(from.map((r, k) => {
       const t = to[k], s = t.width / r.size;
       const dx = (t.left + t.width / 2) - r.cx, dy = (t.top + t.height / 2) - r.cy;
@@ -2939,19 +3120,20 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (!d || d.held !== null || d.value === null || ui.rolling || !canAct()) return;
     if (ui.selected === null){
       const hand = E.byHand(state.game);
-      if (!hand && !pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; return; }
+      if (!hand && !pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; sound.cue('nope'); return; }
+      sound.cue('pick', true);
       ui.selected = id; ui.hint = hand ? `Now tap a ${7 - d.value}, or tap the ${d.value} again to put it down.` : `Now tap a ${7 - d.value}.`; return;
     }
-    if (ui.selected === id){ ui.selected = null; ui.hint = null; return; }
+    if (ui.selected === id){ ui.selected = null; ui.hint = null; sound.cue('pick', false); return; }
     const s = t.dice[ui.selected];
     if (s.value + d.value === 7){ ui.selected = null; ui.hint = null; dispatch({ type:'pair', a:s.id, b:d.id }); return; }
-    ui.hint = `${s.value} + ${d.value} makes ${s.value + d.value}, not 7.`; ui.nope = id;
+    ui.hint = `${s.value} + ${d.value} makes ${s.value + d.value}, not 7.`; ui.nope = id; sound.cue('nope');
   }
   function startRoll(){
     const g = state.game;
     if (!g || state.phase !== 'play' || E.isScore(g) || ui.rolling || ui.busy || !canRoll(g.turn) || !canAct()) return;
     resetInputs();
-    if (!reduceMotion){ ui.rolling = true; ui.rollStart = Date.now(); }
+    if (!reduceMotion){ ui.rolling = true; ui.rollStart = Date.now(); sound.cue('roll', active(g.turn).length); }
     dispatch({ type:'roll' }); // roll first, then show the tumbling dice until the result is revealed
     if (ui.rolling){ render(); startTumble(); }
   }
@@ -3098,6 +3280,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         look = opt[0];
         try { localStorage.setItem(LOOK_KEY, look); } catch (e) {}
         applyLook();
+        sound.cue('roll', 6, true); // a taste of the look's table sounds
         break;
       }
       case 'sound': {
@@ -3435,6 +3618,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     get state(){ return E.clone(state); },
     get net(){ return { code:net.code, seat:net.seat, status:net.status, rev:net.rev, room:net.room && E.clone(net.room) }; },
     get busy(){ return ui.busy || ui.rolling || ui.race; },
+    get sounds(){ return sound.played; }, // the table sounds played so far ("roll:pub", …), newest last; nothing while the sound is off
     layout:layoutDice, // layoutDice(n, w, h, die, rng, opts): the dice's random spots on the mat (pure; tests seed rng)
     dieSize:matDie,    // matDie(w, h, bottom): the die size the page uses for a mat of w × h
     get account(){ return { available:accountsAvailable(), signedIn:!!account, id:account ? account.id : null, name:account ? account.name : null }; }

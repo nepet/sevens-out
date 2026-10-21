@@ -287,7 +287,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Online:** `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
 - **Account:** `acreate`, `asignin`, `arename`/`arenamesave`/`arenamecancel`, `aadd`, `asignout`, `adelete`/`adeleteyes`/`adeleteno`
 
-**Debugging:** `window.SevensDebug` gives read-only `state`, `net`, `busy` and `account` views (`busy` is also true during the race between rounds; `account` is `{available, signedIn, id, name}`, never the token), plus `layout` (`layoutDice`) and `dieSize` (`matDie`), so tests check the mat with the page's own code. The tests use it.
+**Debugging:** `window.SevensDebug` gives read-only `state`, `net`, `busy` and `account` views (`busy` is also true during the race between rounds; `account` is `{available, signedIn, id, name}`, never the token), plus `layout` (`layoutDice`) and `dieSize` (`matDie`), so tests check the mat with the page's own code, and `sounds` (the table sounds played since the page loaded, `"roll:pub"`, …, newest last; nothing while the sound is off). The tests use it.
 
 ### The room server (`server/core/room.js` + adapters)
 
@@ -359,7 +359,10 @@ One `Room` per room code holds the authoritative game.
 ## Features worth knowing
 
 - **Looks.** Chosen in the Settings sheet (home) or the game menu. "Pub table" follows the system's light/dark setting. "Vegas" is dark-only and scoped under `html:root[data-look="vegas"]`. All colours are CSS custom properties.
-- **Sounds.** Chosen in the Settings sheet (home) or the game menu. They are synthesized with Web Audio and unlocked on the first tap.
+- **Sounds.** Chosen in the Settings sheet (home) or the game menu. They are synthesized with Web Audio and unlocked on the first tap. The Sound setting (`off` | `jackpot` | `bandit`) switches everything off and picks the flavour of the Sevens Out fanfare and the round sting.
+  - **Table sounds** follow the look (`sound.cue(name, …args, {delay})` → `TABLE[name][look]`): Pub table is a leather cup, felt, bone dice, wood and chalk; Vegas is an arcade cabinet (blips, coins, a register). Choosing a look plays its roll.
+  - **The moments:** `roll` (with the throw: cup rattle, then one landing per die at the throw's timing, 350 ms + 40 ms apart; with reduced motion it lands at once), `pick` (a die picked up or put down), `nope` (not a 7), `pair` (a pair lands in the rack, timed to the fly-out; in Vegas its pitch rises with the pair's place), `unpair`, `bank` (a booked turn with points: Stop, End, Save; chalk strokes grow with the points), `floor` (a dropped die), `undo`, `over` (game over or ended early, after the fanfare or the trombone), and online only `yourturn` (only on the phone whose turn it now is, including the first turn of a game; never after the race between rounds, whose curtain says who starts) and `knock` (someone sits down in the lobby).
+  - Online, every phone plays the same table sounds from the same events (a watcher hears the roll too); a phone that skipped a revision hears nothing for it.
 - **Shake to roll.**
   - **When the setting shows** (Off/On in the Settings sheet and the game menu): only when the page is the top-level window and the phone has a coarse pointer.
   - **iPhone permission:** iOS needs `DeviceMotionEvent.requestPermission()` called directly inside a tap. The result shows as a hint line (`.shake-hint`) under the settings in the Settings sheet and in the game menu (`ui.shakeNote`, cleared when the sheet closes).

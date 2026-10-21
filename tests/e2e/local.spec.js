@@ -2177,3 +2177,62 @@ test.describe('twelve players', () => {
     expect(await noSideScroll(page)).toBe(true);
   });
 });
+
+// the table's sounds follow the look; SevensDebug.sounds lists what played ("roll:pub", …)
+test.describe('table sounds', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const sounds = page => page.evaluate(() => window.SevensDebug.sounds);
+
+  test('Pub table: the roll, picking dice, not a 7, a pair, putting it back and the booked points', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 2, 3, 3]);
+    await startLocal(page, { names: ['Anna', 'Ben'] });
+    expect(await sounds(page)).toEqual([]);
+    await page.click('.bar [data-act=roll]');
+    await page.click('.dice [data-id="2"]');                              // a 2
+    await page.click('.dice [data-id="4"]');                              // and a 3: not a 7
+    await page.click('.dice [data-id="2"]');                              // the 2 put down
+    await page.click('.dice [data-id="0"]'); await page.click('.dice [data-id="1"]');   // 1 + 6 set aside
+    await page.click('.rack [data-act=unpair]');
+    await page.click('.dice [data-id="0"]'); await page.click('.dice [data-id="1"]');
+    await page.click('[data-act=stop]'); await page.click('[data-act=stop]');           // 2 + 2 + 3 + 3 booked
+    await expect(page.locator('.turnhead h2.who')).toHaveText('Ben');
+    expect(await sounds(page)).toEqual(['roll:pub', 'pick:pub', 'nope:pub', 'pick:pub', 'pick:pub', 'pair:pub', 'unpair:pub', 'pick:pub', 'pair:pub', 'bank:pub']);
+  });
+
+  test('Vegas: choosing the look plays its roll, and Sound off silences the table', async ({ page }) => {
+    await page.goto('/');
+    await openSettings(page);
+    await page.click('.sheet-layer [data-act=look][data-id="1"]');
+    expect(await sounds(page)).toEqual(['roll:vegas']);
+    await startLocal(page, { names: ['Anna', 'Ben'] });                  // a new page load: the look stays
+    await page.click('.bar [data-act=roll]');
+    expect(await sounds(page)).toEqual(['roll:vegas']);
+    await openMenu(page);
+    await page.click('.sheet-layer [data-act=sound][data-id="0"]');      // Off
+    await closeMenu(page);
+    await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+    await expect(page.locator('.turnhead h2.who')).toHaveText('Ben');
+    expect(await sounds(page)).toEqual(['roll:vegas']);                  // no booked points
+  });
+
+  test('real dice: the booked points, a die on the floor, undo and game over', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben'], mode: 'score' });
+    await enterScore(page, 12, 2);
+    await page.click('[data-act=drop]');
+    await page.click('[data-act=undo]');
+    await openMenu(page, 'dev');
+    await page.click('[data-act=endearly]'); await page.click('[data-act=endyes]');
+    await expect(page.locator('.verdict')).toBeVisible();
+    expect(await sounds(page)).toEqual(['bank:pub', 'floor:pub', 'undo:pub', 'over:pub']);
+  });
+
+  test('with motion: one roll sound for the throw, then one for each pair landing in the rack', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 5, 3, 3]);                         // two pairs come out on the first roll
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await startLocal(page, { names: ['Anna', 'Ben'], pairing: 'auto' });
+    await page.click('.bar [data-act=roll]');
+    await idle(page);
+    await expect(page.locator('.rack .pair')).toHaveCount(2);
+    expect(await sounds(page)).toEqual(['roll:pub', 'pair:pub', 'pair:pub']);
+  });
+});

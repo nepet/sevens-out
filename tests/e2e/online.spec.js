@@ -37,6 +37,24 @@ async function join(browser, code, name, opts = {}) {
 test.describe('dice in the app', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
+  test('table sounds: a knock when someone joins, "your turn" only on that phone, and everyone hears the roll', async ({ browser }) => {
+    const sounds = page => page.evaluate(() => window.SevensDebug.sounds);
+    const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
+    const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+    await expect.poll(() => sounds(A.page)).toEqual(['knock:pub']);
+    expect(await sounds(B.page)).toEqual([]);                          // the newcomer hears no knock for themself
+    await A.page.click('[data-act=ostart]');
+    await expect(A.page.locator('[data-act=roll]')).toBeVisible();
+    await expect.poll(() => sounds(A.page)).toEqual(['knock:pub', 'yourturn:pub']);
+    await A.page.click('[data-act=roll]');
+    await expect.poll(() => sounds(B.page)).toEqual(['roll:pub']);   // the watcher hears the throw too
+    await A.page.click('[data-act=stop]'); await A.page.click('[data-act=stop]');
+    await expect(B.page.locator('[data-act=roll]')).toBeVisible();
+    await expect.poll(async () => (await sounds(B.page)).filter(x => x === 'yourturn:pub')).toHaveLength(1);
+    expect((await sounds(A.page)).filter(x => x === 'yourturn:pub')).toHaveLength(1);   // not on Anna's phone again
+    await A.ctx.close(); await B.ctx.close();
+  });
+
   test('two phones: lobby, turns, a spectator view, and rejoining after a reload', async ({ browser }) => {
     const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
     const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
