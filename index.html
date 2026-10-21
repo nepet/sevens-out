@@ -2011,7 +2011,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   // ----- table talk -----
   // the quick reactions: ordinary messages, one tap each in the chat sheet
-  const REACTIONS = ['😂', '🔥', '😬', '👏', '💀', '🎲', 'Nice roll!', 'Haha', 'Ouch!', 'Come on!', 'So close', 'Too easy'];
+  const REACTIONS = ['😂', '🔥', '😬', '👏', '💀', '🎲', '🖕', 'Nice roll!', 'Haha', 'Ouch!', 'Come on!', 'So close', 'Too easy'];
   const CHAT_KEEP = 50; // the server keeps the last 50 too
   const chatMine = msg => msg.from === (net.seat || net.viewer) || net.chat.mine.has(msg.from);
   // {log}: right after welcome, the room's recent messages (replaces the list, so a reconnect never shows one twice);
@@ -2974,7 +2974,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the chat sheet: the quick reactions, the log (newest at the bottom; `you` for this phone, the #tag of signed-in players,
   // "watching" for spectators), and the text field with Send pinned at the bottom. Every string from the wire goes through esc()
   function chatBody(){
-    const reacts = REACTIONS.map((r, i) => `<button class="reactbtn${i < 6 ? ' emoji' : ''}" data-act="creact" data-id="${i}">${esc(r)}</button>`).join('');
+    const reacts = REACTIONS.map((r, i) => `<button class="reactbtn${emojiOnly(r) ? ' emoji' : ''}" data-act="creact" data-id="${i}">${esc(r)}</button>`).join('');
     const items = net.chat.log.map(m => {
       const mine = chatMine(m);
       return `<li class="chat-msg${mine ? ' mine' : ''}" data-id="${esc(m.id)}"><b class="chat-name"><bdi>${esc(m.name)}</bdi></b>`

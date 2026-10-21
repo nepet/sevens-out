@@ -964,7 +964,7 @@ test.describe('chat', () => {
     const B = await join(browser, A.code, 'Ben', rm);
     await openChat(B.page);
     await expect(B.page.locator('.chat-empty')).toHaveText('Nothing said yet. Say something.');
-    await expect(B.page.locator('[data-act=creact]')).toHaveCount(12);
+    await expect(B.page.locator('[data-act=creact]')).toHaveCount(13);
     for (const r of await B.page.locator('[data-act=creact]').all()) {
       const box = await r.boundingBox();
       expect(box.height).toBeGreaterThanOrEqual(44); expect(box.width).toBeGreaterThanOrEqual(44);
@@ -1064,7 +1064,7 @@ test.describe('chat', () => {
     await expect(C.page.locator('#app .scorechip')).toBeVisible();
     expect((await net(C.page)).seat).toBe(null);
     await openChat(C.page);
-    await C.page.click('[data-act=creact][data-id="7"]');          // Haha
+    await C.page.click('[data-act=creact][data-id="8"]');          // Haha
     await logHas(A.page, 1);
     await openChat(A.page);
     const line = A.page.locator('.chat-log li').last();
