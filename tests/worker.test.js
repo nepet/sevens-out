@@ -11,7 +11,7 @@ import { softAuthenticator } from './authenticator.js';
 // resolve `cloudflare:workers` to a minimal DurableObject base class
 register('data:text/javascript,' + encodeURIComponent(`
   export async function resolve(spec, ctx, next) {
-    if (spec === 'cloudflare:workers') return { shortCircuit: true, url: 'data:text/javascript,' + encodeURIComponent('export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') };
+    if (spec === 'cloudflare:workers') return { shortCircuit: true, url: 'data:text/javascript,' + encodeURIComponent('export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } } export class WorkerEntrypoint { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }') };
     return next(spec, ctx);
   }`));
 
@@ -31,7 +31,7 @@ globalThis.Response = class {
   json() { return Promise.resolve(JSON.parse(this.body)); }
 };
 
-const { default: worker, GameRoom } = await import('../server/cloudflare/worker.js');
+const { default: worker, GameRoom, AdminApi } = await import('../server/cloudflare/worker.js');
 
 function fakeCtx() {
   const kv = new Map(), sockets = [];
@@ -337,3 +337,65 @@ test('report: a signed-in phone owner\'s line counts for them, only under their 
 });
 
 test.after(() => { globalThis.Response = NodeResponse; });
+
+// ----- the admin page's rooms -----
+const roomRows = d1 => d1.raw.prepare('SELECT * FROM rooms').all().map(r => ({ ...r }));
+const roomEvents = d1 => d1.raw.prepare('SELECT kind FROM room_events ORDER BY seq').all().map(r => r.kind);
+
+test('rooms: a room writes its row and timeline to D1, and a write while D1 is down is healed by the next', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  const { ctx, a, b } = await startedGame(env);
+  const [row] = roomRows(d1);
+  assert.deepEqual([row.code, row.phase, row.seats, row.connected, row.games_started], ['K7QPM', 'playing', 2, 2, 1]);
+  assert.equal(row.id, ctx.kv.get('room').rid);
+  assert.deepEqual(roomEvents(d1), ['created', 'joined', 'started']);
+
+  d1.down = true;
+  const obj = new GameRoom(ctx, env); // after hibernation
+  b.readyState = 3;
+  await obj.webSocketClose(b, 1001);
+  assert.equal(roomRows(d1)[0].connected, 2, 'not written while D1 is down');
+  d1.down = false;
+  await say(obj, a, { t: 'lobby', op: 'reopen' });
+  assert.deepEqual([roomRows(d1)[0].connected, roomRows(d1)[0].phase], [1, 'lobby']);
+  assert.deepEqual(roomEvents(d1), ['created', 'joined', 'started', 'reopened']);
+});
+
+test('rooms: AdminApi looks inside a live room and closes it; the phones are told and the room is gone', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  const { ctx, a, b } = await startedGame(env);
+  const objects = new Map([['K7QPM', ctx]]);
+  env.ROOMS = { idFromName: n => n, get: id => new GameRoom(objects.get(id) || fakeCtx(), env) }; // each call: a woken object
+  const api = new AdminApi({}, env);
+  const id = roomRows(d1)[0].id;
+
+  const v = await api.room('K7QPM');
+  assert.equal(v.id, id);
+  assert.deepEqual(v.room.seats.map(s => s.name), ['Anna', 'Ben']);
+  assert.equal(v.state.game.round, 1);
+  assert.equal(await api.room('ZZZZZ'), null, 'no room under this code');
+  assert.equal(await api.room('bad'), null);
+
+  assert.equal(await api.close('K7QPM', 'ffffffffffffffff'), false, 'another room under this code');
+  assert.equal(await api.close('K7QPM', id), true);
+  for (const ws of [a, b]) {
+    assert.equal(last(ws, 'error').code, 'closed');
+    assert.equal(ws.readyState, 3);
+  }
+  assert.equal(ctx.kv.get('room'), undefined);
+  assert.deepEqual([roomRows(d1)[0].close_reason, roomRows(d1)[0].connected], ['admin', 0]);
+  assert.deepEqual(gameRow(d1).map(r => r.status), ['abandoned']);
+  assert.equal(await api.room('K7QPM'), null);
+  assert.equal(await api.close('K7QPM', id), false, 'closing twice');
+});
+
+test('rooms: an expired room closes its row', async () => {
+  const d1 = fakeD1(), env = { STATS: d1 };
+  const { ctx } = await startedGame(env);
+  const room = ctx.kv.get('room');
+  room.updated = Date.now() - 15 * DAY;
+  ctx.kv.set('room', room);
+  await new GameRoom(ctx, env).alarm();
+  assert.equal(roomRows(d1)[0].close_reason, 'expired');
+  assert.equal(roomEvents(d1).at(-1), 'closed');
+});

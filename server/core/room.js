@@ -11,6 +11,9 @@
  *   stats:   { record(rec) } (optional): gets a stats record (server/core/stats.js summarize) whenever a game starts, ends or is abandoned
  *   accounts: { resolve(session) -> Promise<{ id, name } | null> } (optional): the signed-in player behind hello.session
  *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user
+ *   sessions: { track(row, events) } (optional): the admin page's view of the room (sessionRow) and its new timeline events,
+ *            sent when seats, connections or the game change (at most once a minute for moves and chat alone);
+ *            a failed call keeps the events for the next one
  * server/cloudflare/worker.js (Durable Object) and server/node/server.js (plain Node) are the two adapters.
  * The wire protocol is documented in CLAUDE.md.
  * Table talk: a seated phone or a spectator sends {t:'chat', text}; everyone gets {t:'chat', msg:{id, at, from, seat, name, user, text}}
@@ -29,6 +32,9 @@ export const CHAT_MAX = 140; // characters per message
 export const CHAT_KEEP = 50; // messages kept and replayed
 export const CHAT_BURST = 8; // messages allowed per CHAT_WINDOW_MS and sender
 export const CHAT_WINDOW_MS = 10000;
+
+export const TRACK_EVERY_MS = 60_000; // moves and chat alone update the admin page's row at most this often
+const MAX_EVENTS = 500; // timeline events per room
 
 // actions only the player whose turn it is may make (or the host, when that player is offline)
 const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'stop', 'end', 'score']);
@@ -49,12 +55,13 @@ const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, ''
 const whoami = (user, known) => (known ? { user: user ? user.id : null } : {});
 
 export class Room {
-  constructor({ engine, storage, net, stats = null, accounts = null, now = () => Date.now() }) {
-    this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.accounts = accounts; this.now = now;
+  constructor({ engine, storage, net, stats = null, accounts = null, sessions = null, now = () => Date.now() }) {
+    this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.accounts = accounts; this.sessions = sessions; this.now = now;
     this.data = undefined; // undefined = not loaded yet, null = no room
     this.greeted = new WeakSet(); // connections that have said hello (each looks a session up at most once)
     this.loading = null;
     this.chatTimes = new Map(); // sender -> recent message times (not saved)
+    this.unsent = []; this.trackedAt = 0; // timeline events not yet tracked, and when the row was last sent
   }
 
   async load() {
@@ -123,6 +130,7 @@ export class Room {
   async closed(conn) {
     await this.load();
     if (this.data && this.net.seatOf(conn)) this.broadcast();
+    if (this.data) await this.track({ force: true });
   }
 
   // the signed-in player behind a session, null (a guest or an ended session), or undefined when the
@@ -143,7 +151,7 @@ export class Room {
     if (d && user) {
       // a player gets their seat back from any phone, even mid-game
       const seat = d.seats.find(s => s.user === user.id);
-      if (seat) return this.seat(conn, seat, user, known);
+      if (seat) return this.seat(conn, seat, user, known, 'back');
     }
     if (d && m.token) {
       const seat = d.seats.find(s => s.token === m.token);
@@ -155,20 +163,20 @@ export class Room {
           d.rev++;
           await this.save();
         }
-        return this.seat(conn, seat, user, known);
+        return this.seat(conn, seat, user, known, 'back');
       }
     }
     if (!d) {
       if (!m.create) { this.error(conn, 'no_room', 'There is no room with this code.'); return this.net.close(conn, 4404, 'no_room'); }
       if (!CODE_RE.test(code || '')) return this.error(conn, 'bad_message', 'Bad room code.');
       d = this.data = {
-        v: 1, code, created: this.now(), updated: this.now(), rev: 1,
+        v: 1, rid: hex(8), code, created: this.now(), updated: this.now(), rev: 1,
         phase: 'lobby', host: null, settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: [], state: null
       };
       const seat = this.addSeat(m.name, user);
       d.host = seat.id;
       await this.save();
-      return this.seat(conn, seat, user, known);
+      return this.seat(conn, seat, user, known, 'created');
     }
     if (m.create) return this.error(conn, 'room_taken', 'That code is in use.');
     if (d.phase === 'lobby') {
@@ -176,14 +184,16 @@ export class Room {
       const seat = this.addSeat(m.name, user);
       d.rev++;
       await this.save();
-      return this.seat(conn, seat, user, known);
+      return this.seat(conn, seat, user, known, 'joined');
     }
     // a game is running: watch it
-    const viewer = 'w' + hex(4);
-    this.net.bind(conn, null, { viewer, name: cleanName(user ? user.name : m.name) || 'Guest', user: user ? user.id : null });
+    const viewer = 'w' + hex(4), name = cleanName(user ? user.name : m.name) || 'Guest';
+    this.net.bind(conn, null, { viewer, name, user: user ? user.id : null });
     this.net.send(conn, { t: 'welcome', seat: null, viewer, ...whoami(user, known) });
     this.net.send(conn, { t: 'chat', log: this.data.chat || [] });
     this.net.send(conn, this.roomMessage());
+    this.count('connects'); this.count('spectators'); this.note('watching', { name });
+    await this.track();
   }
   // a signed-in player sits under their player name
   addSeat(name, user = null) {
@@ -198,11 +208,16 @@ export class Room {
     while (d.seats.some(s => s !== self && s.name.toLowerCase() === nm.toLowerCase())) nm = `${base.slice(0, 13)} ${k++}`;
     return nm;
   }
-  seat(conn, seat, user = null, known = true) {
+  // how: 'created' the room, 'joined' a new seat, or got their seat 'back'
+  async seat(conn, seat, user = null, known = true, how = 'back') {
     this.net.bind(conn, seat.id);
     this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token, ...whoami(user, known) });
     this.net.send(conn, { t: 'chat', log: this.data.chat || [] });
     this.broadcast();
+    this.count('connects');
+    if (how === 'back') this.count('rejoins');
+    else this.note(how, { name: seat.name });
+    await this.track({ force: true });
   }
 
   // ----- table talk -----
@@ -222,8 +237,10 @@ export class Room {
     d.chatSeq = (d.chatSeq || 0) + 1;
     const msg = { id: d.chatSeq, at, from: id, seat: who.seat, name: who.name, user: who.user || null, text };
     d.chat = [...(d.chat || []), msg].slice(-CHAT_KEEP);
+    this.count('chat');
     await this.save();
     for (const c of this.net.conns()) this.net.send(c, { t: 'chat', msg });
+    await this.track();
   }
 
   // ----- game actions -----
@@ -241,15 +258,25 @@ export class Room {
     } else if (!TABLE_ACTIONS.has(action.type)) {
       return this.error(conn, 'bad_message', 'Unknown action.');
     }
-    const was = d.state.phase;
+    const was = d.state.phase, round = g.round;
     const r = this.E.apply(d.state, action);
     if (r.error) return this.error(conn, r.error, 'That move is not allowed.');
     d.state = r.state;
     d.rev++;
+    const over = d.state.phase === 'over' && was !== 'over', undone = was === 'over' && d.state.phase !== 'over';
+    if (over) {
+      const ng = d.state.game;
+      this.count('finished');
+      this.note('over', { game: d.stats && d.stats.id, loser: ng.players[ng.loser] ? ng.players[ng.loser].name : null, rounds: ng.round, early: !!ng.early });
+    } else if (undone) {
+      this.count('finished', -1);
+      this.note('undone', { game: d.stats && d.stats.id });
+    }
     await this.save();
     this.broadcast(r.events);
     if (d.state.phase === 'over') await this.recordStats('over');
     else if (was === 'over') await this.recordStats('playing');
+    await this.track({ force: d.state.game.round !== round });
   }
 
   // ----- lobby -----
@@ -279,13 +306,18 @@ export class Room {
         if (r.error) return this.error(conn, r.error, 'Could not start.');
         d.state = r.state; d.phase = 'game'; d.rev++;
         d.stats = { id: hex(8), startedAt: this.now() };
+        this.count('games');
+        if (!d.tally.firstStart) d.tally.firstStart = d.stats.startedAt;
+        this.note('started', { game: d.stats.id, players: n, mode: d.settings.mode, pairing: d.settings.pairing });
         await this.save();
         this.broadcast(r.events);
-        return this.recordStats('playing');
+        await this.recordStats('playing');
+        return this.track({ force: true });
       }
       case 'reopen': {
         if (!isHost) return this.error(conn, 'host_only', 'Only the host can start a new game.');
         if (d.phase === 'game' && d.state && d.state.phase !== 'over') abandoned = this.statsRecord('abandoned');
+        if (d.phase === 'game') this.note('reopened', { game: d.stats && d.stats.id, abandoned: !!abandoned });
         d.phase = 'lobby'; d.state = null; d.stats = null;
         break;
       }
@@ -300,6 +332,7 @@ export class Room {
         if (d.phase !== 'lobby' || m.seat === me) return this.error(conn, 'phase', 'Players can only be removed before the game starts.');
         const i = d.seats.findIndex(s => s.id === m.seat);
         if (i < 0) return;
+        this.note('kicked', { name: d.seats[i].name });
         d.seats.splice(i, 1);
         for (const c of this.net.conns()) if (this.net.seatOf(c) === m.seat) { this.error(c, 'kicked', 'The host removed you.'); this.net.bind(c, null); this.net.close(c, 4403, 'kicked'); }
         this.fixStarter();
@@ -309,10 +342,16 @@ export class Room {
         // in the lobby the seat is freed; during a game the player keeps their seat and can rejoin
         this.net.bind(conn, null);
         if (d.phase === 'lobby') {
+          const gone = d.seats.find(s => s.id === me);
+          if (gone) this.note('left', { name: gone.name });
           d.seats = d.seats.filter(s => s.id !== me);
           if (d.host === me && d.seats.length) d.host = d.seats[0].id;
           this.fixStarter();
-          if (!d.seats.length) { await this.storage.remove(); this.data = null; return; }
+          if (!d.seats.length) {
+            this.note('closed', { reason: 'empty' });
+            await this.track({ closed: 'empty' });
+            await this.storage.remove(); this.data = null; return;
+          }
         }
         this.net.close(conn, 1000, 'left');
         break;
@@ -323,6 +362,7 @@ export class Room {
     await this.save();
     this.broadcast();
     if (abandoned) await this.sendStats(abandoned);
+    await this.track({ force: true });
   }
   fixStarter() {
     const d = this.data;
@@ -331,10 +371,78 @@ export class Room {
 
   // ----- housekeeping -----
   expired() { return !!this.data && this.now() - this.data.updated > ROOM_TTL_MS; }
-  // an unfinished game in a room that is being deleted
-  async expire() {
+  // a room that is being deleted: an unfinished game counts as abandoned, and the room's row is closed
+  async expire(reason = 'expired') {
     const d = this.data;
-    if (d && d.phase === 'game' && d.state && d.state.phase !== 'over') await this.recordStats('abandoned');
+    if (!d) return;
+    if (d.phase === 'game' && d.state && d.state.phase !== 'over') await this.recordStats('abandoned');
+    this.note('closed', { reason });
+    await this.track({ closed: reason });
+  }
+  // the owner closes the room from the admin page: every phone is told and sent home, then the room is deleted.
+  // rid: the room the admin page means (a code can be reused); false when that room isn't here any more
+  async shutdown(rid = null) {
+    await this.load();
+    const d = this.data;
+    if (!d || (rid && d.rid && d.rid !== rid)) return false;
+    await this.expire('admin');
+    for (const c of this.net.conns()) { this.error(c, 'closed', 'This room was closed.'); this.net.bind(c, null); this.net.close(c, 4410, 'closed'); }
+    await this.storage.remove();
+    this.data = null;
+    return true;
+  }
+
+  // ----- the admin page's view (server/admin): the room's row, its timeline and a live look inside -----
+  count(k, n = 1) { const t = this.data.tally || (this.data.tally = {}); t[k] = Math.max(0, (t[k] || 0) + n); }
+  note(kind, detail = null) {
+    const d = this.data;
+    if (!this.sessions || (d.evSeq || 0) >= MAX_EVENTS) return;
+    d.evSeq = (d.evSeq || 0) + 1;
+    this.unsent.push({ seq: d.evSeq, at: this.now(), kind, ...(detail ? { detail } : {}) });
+  }
+  watchers() {
+    return this.net.conns().filter(c => !this.net.seatOf(c)).map(c => this.net.infoOf(c)).filter(Boolean);
+  }
+  // force: send now (seats, connections, a new round); otherwise only with new events or once TRACK_EVERY_MS has passed.
+  // closed: the room is closing for this reason ('empty', 'expired', 'admin'). Tracking never breaks play.
+  async track({ force = false, closed = null } = {}) {
+    const d = this.data, at = this.now();
+    if (!this.sessions || !d) return;
+    if (!force && !closed && !this.unsent.length && at - this.trackedAt < TRACK_EVERY_MS) return;
+    this.trackedAt = at;
+    if (!d.rid) d.rid = hex(8); // a room created before the admin page's rooms (stored with the next save)
+    const events = this.unsent;
+    this.unsent = [];
+    try { await this.sessions.track(this.sessionRow(closed), events); }
+    catch (err) { console.error('sessions', err); this.unsent = events.concat(this.unsent); }
+  }
+  sessionRow(closed = null) {
+    const d = this.data, on = closed ? new Set() : this.connectedSeats(), watching = closed ? 0 : this.watchers().length;
+    const st = d.state, g = d.phase === 'game' && st && st.game, t = d.tally || (d.tally = {});
+    t.peak = Math.max(t.peak || 0, closed ? 0 : this.net.conns().length);
+    const host = d.seats.find(s => s.id === this.effectiveHost(on));
+    return {
+      id: d.rid, code: d.code, created_at: d.created, active_at: d.updated,
+      closed_at: closed ? this.now() : null, close_reason: closed,
+      phase: !g ? 'lobby' : st.phase === 'over' ? 'over' : 'playing',
+      mode: g ? g.mode : d.settings.mode, pairing: g ? (g.pairing || 'auto') : d.settings.pairing, round: g ? g.round : null,
+      seats: d.seats.length, connected: on.size, watching, signed_in: d.seats.filter(s => s.user).length,
+      host: host ? host.name : null, names: JSON.stringify(d.seats.map(s => s.name)), game_id: g && d.stats ? d.stats.id : null,
+      first_start_at: t.firstStart || null, games_started: t.games || 0, games_finished: t.finished || 0,
+      connects: t.connects || 0, rejoins: t.rejoins || 0, spectators: t.spectators || 0, chat: t.chat || 0, peak: t.peak
+    };
+  }
+  // what the owner sees when watching the room: never tokens, the undo history or the chat text
+  adminView() {
+    const d = this.data;
+    if (!d) return null;
+    const st = d.state ? { ...d.state, game: d.state.game ? { ...d.state.game, history: [] } : d.state.game } : null;
+    return {
+      id: d.rid || null, room: this.publicRoom(), rev: d.rev, created: d.created, updated: d.updated,
+      game: d.stats ? d.stats.id : null, startedAt: d.stats ? d.stats.startedAt : null,
+      watching: this.watchers().map(w => ({ name: w.name, user: w.user || null })),
+      chat: (d.chat || []).length, connections: this.net.conns().length, state: st
+    };
   }
 
   // ----- statistics -----

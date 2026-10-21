@@ -1955,13 +1955,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
     ui.rolling = false; stopTumble();
     if (m.code === 'room_taken' && net.creating){ net.code = newCode(); netConnect(); return; }
-    if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked'){
+    if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked' || m.code === 'closed'){
       const code = net.code;
       netLeave();
       // back to home (over a saved one-phone game too), with the code still in the code row
-      ui.screen = 'home'; ui.joinCode = m.code === 'kicked' ? '' : code; ui.online = {};
+      ui.screen = 'home'; ui.joinCode = m.code === 'kicked' || m.code === 'closed' ? '' : code; ui.online = {};
       ui.hint = m.code === 'no_room' ? `There's no room with the code ${code}. Check the code and try again.`
         : m.code === 'room_full' ? `Room ${code} is full. A room holds up to 12 players.`
+        : m.code === 'closed' ? `Room ${code} was closed. Create a new room to play on.`
         : 'The host removed you from the room.';
       return;
     }

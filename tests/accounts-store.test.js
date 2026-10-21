@@ -187,7 +187,7 @@ test('players.user_id has no foreign key', async () => {
 });
 
 // the migration brings a database made from the old schema to the same tables, columns and indexes as schema.sql
-test('migration 0001 turns the old schema into the new one', () => {
+test('migrations 0001 and 0002 turn the old schema into the new one', () => {
   const sql = path => readFileSync(new URL(path, import.meta.url), 'utf8');
   const shape = db => db.prepare("SELECT type, name, tbl_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name").all()
     .map(o => ({ ...o, cols: o.type === 'table' ? db.prepare(`PRAGMA table_xinfo(${o.name})`).all().map(c => ({ ...c })) : undefined,
@@ -195,11 +195,14 @@ test('migration 0001 turns the old schema into the new one', () => {
       idx: o.type === 'index' ? db.prepare(`PRAGMA index_info(${o.name})`).all().map(c => c.name) : undefined }));
   const open = (...files) => { const db = new DatabaseSync(':memory:'); for (const f of files) db.exec(sql(f)); return db; };
 
-  const migrated = open('./fixtures/schema-v1.sql', '../server/d1/migrations/0001-accounts.sql');
+  const migrated = open('./fixtures/schema-v1.sql', '../server/d1/migrations/0001-accounts.sql', '../server/d1/migrations/0002-rooms.sql');
   const fresh = open('../server/d1/schema.sql');
   assert.deepEqual(shape(migrated), shape(fresh));
   assert.ok(shape(fresh).some(o => o.name === 'users'));
   const text = db => db.prepare("SELECT name, sql FROM sqlite_master WHERE name IN ('users', 'passkeys', 'sessions', 'auth_challenges')").all().map(o => ({ ...o }));
   assert.deepEqual(text(migrated), text(fresh), 'the new tables match, CHECK included');
   assert.throws(() => migrated.exec(sql('../server/d1/migrations/0001-accounts.sql')), /duplicate column/, 'runs once');
+  migrated.exec(sql('../server/d1/migrations/0002-rooms.sql')); // safe to run again
+  const rooms = db => db.prepare("SELECT name, sql FROM sqlite_master WHERE name IN ('rooms', 'room_events')").all().map(o => ({ ...o }));
+  assert.deepEqual(rooms(migrated), rooms(fresh));
 });

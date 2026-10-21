@@ -37,3 +37,23 @@ export async function writeRecord(db, { game, players, turns }) {
 export async function deleteGame(db, id) {
   await db.batch([...clearChildren(id), ['DELETE FROM games WHERE id = ?', [id]]]);
 }
+
+// ----- rooms (the admin page's live and past rooms) -----
+const ROOM_COLS = ['id', 'code', 'created_at', 'active_at', 'closed_at', 'close_reason', 'phase', 'mode', 'pairing', 'round', 'seats', 'connected',
+  'watching', 'signed_in', 'host', 'names', 'game_id', 'first_start_at', 'games_started', 'games_finished', 'connects', 'rejoins', 'spectators', 'chat', 'peak'];
+const EVENT_COLS = ['room_id', 'seq', 'at', 'kind', 'detail'];
+const UPSERT_ROOM = `${insert('rooms', ROOM_COLS)} ON CONFLICT (id) DO UPDATE SET ${ROOM_COLS.slice(1).map(c => `${c} = excluded.${c}`).join(', ')}`;
+
+// a room's row (server/core/room.js sessionRow) and its timeline events since the last write; an event sent twice is kept once
+export async function writeRoom(db, row, events = []) {
+  const evs = events.map(e => ({ room_id: row.id, seq: e.seq, at: e.at, kind: e.kind, detail: e.detail ? JSON.stringify(e.detail) : null }));
+  await db.batch([
+    [UPSERT_ROOM, values(row, ROOM_COLS)],
+    ...insertRows('room_events', EVENT_COLS, evs).map(([sql, p]) => [sql.replace(/^INSERT/, 'INSERT OR IGNORE'), p])
+  ]);
+}
+
+// a room that no longer exists in the game Worker (closed before the room could say so)
+export async function markRoomGone(db, id, now = Date.now()) {
+  await db.batch([["UPDATE rooms SET closed_at = ?, close_reason = 'gone', connected = 0, watching = 0 WHERE id = ? AND closed_at IS NULL", [now, id]]]);
+}

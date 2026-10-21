@@ -16,8 +16,8 @@ server/core/room.js        one game room: seats, host, turn authority, persisten
 server/core/stats.js       game summaries for the statistics, and the rule check for one-phone reports
 server/core/accounts.js    player accounts: the /auth handler (Fetch API) and resolveSession for rooms (no runtime code)
 server/core/webauthn.js    passkey checks with WebCrypto only (registration, sign-in, DER, base64url)
-server/d1/                 schema.sql (stats + accounts), db.js (D1 adapter), write.js (store/replace/delete a game),
-                           accounts.js (account store), migrations/0001-accounts.sql (once, for the pre-accounts live database)
+server/d1/                 schema.sql (stats + accounts + rooms), db.js (D1 adapter), write.js (store/replace/delete a game, write a room),
+                           accounts.js (account store), migrations/0001-accounts.sql, 0002-rooms.sql (once each, for the live database)
 server/admin/              the owner's admin page: worker.js, access.js (Access token check), queries.js, page.html, wrangler.jsonc
 server/cloudflare/         option 4: worker.js (Worker + Durable Object adapter), wrangler.jsonc
 server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files + /auth), ws.js (built-in WebSocket server),
@@ -54,6 +54,7 @@ npm run admin:dev                 # admin Worker locally on :8789 (no sign-in on
 npm run admin:deploy              # deploy the admin Worker
 npm run db:schema                 # load server/d1/schema.sql into the remote D1 database (fresh database)
 npm run db:accounts               # once: add the accounts tables and players.user_id to the live database
+npm run db:rooms                  # once: add the rooms tables (admin page's live and past rooms) to the live database
 ```
 
 ## Deploy
@@ -67,6 +68,7 @@ npm run db:accounts               # once: add the accounts tables and players.us
   - An empty `content` hides online play; `same-origin` means "this host", which is what the Node server sets when it serves the page.
   - `?server=wss://…` in the page URL overrides the meta tag, which is useful for testing.
 - **The admin page** is the separate Worker `sevens-out-admin` behind Cloudflare Access; see `docs/admin.md`. Never put the game Worker `sevens-out` behind Access.
+  - It reaches live rooms through the service binding `GAME` → the game Worker's `AdminApi` entrypoint, so deploy the game Worker first. Rooms need `npm run db:rooms` first (until then their row writes fail quietly; games are unaffected).
 - **Option 4 by hand:** see `docs/cloudflare.md` (account, subdomain, login, dashboard, limits, troubleshooting).
 - **Option 5:** see `docs/self-hosting.md`.
 
@@ -308,7 +310,7 @@ One `Room` per room code holds the authoritative game.
 | server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings:{mode, pairing, starter}, seats:[{id,name,connected,user}]}, state, events}` |
 | server → client | `{t:'chat', msg:{id, at, from, seat, name, user, text}}` to every phone (`from`: the seat ID or the spectator's `viewer`; `seat`: `null` for a spectator; `id`: `data.chatSeq`, counting up) |
 | server → client | `{t:'chat', log:[msg..]}` right after `welcome`, to seated phones and spectators: the last 50 messages |
-| server → client | `{t:'error', code, message}` |
+| server → client | `{t:'error', code, message}` (`closed`: the owner closed the room from the admin page; the socket then closes with 4410 and the page goes home with "Room ABCDE was closed.") |
 | server → client | `{t:'pong'}` |
 
 - **Chat:** the last 50 messages (`CHAT_KEEP`) live in `data.chat` with the counter `data.chatSeq`, saved with the room; the rate-limit times are kept in memory only. Chat never bumps `rev`, so it never triggers game animations. Spectators chat under the name they joined with (or their player name).
@@ -319,6 +321,14 @@ One `Room` per room code holds the authoritative game.
 - The Cloudflare adapter writes to D1 and keeps failed writes in `pendingStats`, retried from the alarm (1 min doubling to 1 h, dropped after 24 h). Writes in one room run one after another. When an empty room is removed, `pendingStats` stays and is retried; storage is cleared only once nothing is waiting.
 - `POST /report` takes a finished one-phone game, with an optional `owner` (line index) and `Authorization: Bearer <token>`: the line counts for the signed-in player only when the session is valid and the line carries the player's name (case and spaces ignored). `checkReport` rebuilds it with the engine (dice games: full rules; scoreboard games skip the starter and 101-round checks because corrections can change past rounds). 10 per minute per IP, 32 KB max (`MAX_REPORT_BYTES`; a long, low-scoring game of 12 fits).
 - The admin page reads the same database. `/api/games?before=` takes the opaque cursor `<finishedAt>_<id>`.
+
+**Rooms for the admin page** (`sessions` adapter in `room.js`, `rooms` + `room_events` in D1, `server/admin/`; see `docs/admin.md`):
+- Each room has its own id `data.rid` (16 hex; a room saved before gets one on its first write), counters in `data.tally` (`connects`, `rejoins`, `spectators`, `chat`, `games`, `finished`, `peak`, `firstStart`) and a timeline counter `data.evSeq` (at most 500 events).
+- `track({force, closed})` sends `sessionRow()` and the new timeline events (`note(kind, detail)`): at once for seats, connections, lobby changes, a new round, game start/over/undo and closing; at most once a minute (`TRACK_EVERY_MS`) for moves and chat alone. A failed call keeps the events in memory for the next one; tracking never breaks play. Writes in one room run one after another.
+- Closing: the last player leaving the lobby (`empty`), expiry (`expired`, `expire()`), or the owner (`shutdown(rid)`, reason `admin`: abandoned stats, `error closed` + close 4410 to every phone, storage removed). `shutdown` with another room's `rid` (a reused code) does nothing.
+- `adminView()`: the public room, watchers, the game state with an empty `history`, the chat count and the connection count; never tokens or chat text.
+- `AdminApi` (named `WorkerEntrypoint` in `server/cloudflare/worker.js`): `room(code)` and `close(code, rid)`, via the Durable Object's RPC methods `adminView()` and `adminClose(rid)`. The admin Worker marks a row whose room has gone `gone`. Its open-rooms list only asks rooms that may be busy (someone connected or active within the hour); each ask is a Durable Object request.
+- The Node server has no `sessions` adapter (it records nothing).
 
 **Player accounts** (`server/core/accounts.js`, `server/core/webauthn.js`, store in `server/d1/accounts.js`; see `docs/accounts.md`):
 - `/auth/*` on both servers: `config` (probe), `options` → `create` | `signin` | `passkeys` (add), `me` (GET, PATCH name, DELETE), `passkeys/<id>` (DELETE; ends the player's other sessions), `signout[?everywhere=1]`. The route table is in the file header.
@@ -352,6 +362,7 @@ One `Room` per room code holds the authoritative game.
   - The room data is stored in the object's storage under `room`.
   - An origin allowlist comes from `ALLOWED_ORIGINS`.
   - `/auth/*` uses the `STATS` D1 database; without it accounts are off (`/auth/config` answers 404).
+  - With `STATS`, rooms also write their `rooms` row and timeline (see "Rooms for the admin page"); `AdminApi` is the admin Worker's way in.
 - **Node (`server/node/server.js`):**
   - Accounts live in `DATA_DIR/sevens-out.db` (`node:sqlite`). Its rate limit takes the client IP from `X-Forwarded-For` only when the proxy connects from this machine or a private network.
   - Rooms are kept in memory while someone is connected, and messages for a room are handled one at a time.

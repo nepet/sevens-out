@@ -11,12 +11,17 @@
  *
  * Statistics: when env.STATS (D1) is bound, each room records its games (server/core/stats.js);
  * a failed write waits in the object's storage under `pendingStats` and is retried from the alarm.
+ * It also keeps its row in `rooms` and its timeline in `room_events` up to date for the admin page (best effort:
+ * a failed write is healed by the next one).
+ *
+ * AdminApi: a named entrypoint for the admin Worker's service binding (server/admin/wrangler.jsonc), never reachable
+ * from the internet: room(code) looks inside a live room, close(code, id) closes it.
  */
-import { DurableObject } from 'cloudflare:workers';
+import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import '../../engine.js';
 import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
 import { fromD1 } from '../d1/db.js';
-import { writeRecord } from '../d1/write.js';
+import { writeRecord, writeRoom } from '../d1/write.js';
 import { checkReport, summarize, nameKey, MAX_REPORT_BYTES } from '../core/stats.js';
 import { handleAuth, originsFrom, resolveSession } from '../core/accounts.js';
 
@@ -134,7 +139,23 @@ export class GameRoom extends DurableObject {
     };
     const stats = env && env.STATS ? { record: rec => this.recordStats(rec) } : null;
     const accounts = env && env.STATS ? { resolve: session => resolveSession(fromD1(env.STATS), session) } : null;
-    this.room = new Room({ engine: E, storage, net, stats, accounts });
+    // writes run one after another, so an older row never lands after a newer one
+    const sessions = env && env.STATS ? { track: (row, events) => this.serialRooms(() => writeRoom(fromD1(env.STATS), row, events)) } : null;
+    this.room = new Room({ engine: E, storage, net, stats, accounts, sessions });
+  }
+  serialRooms(fn) {
+    const run = (this.roomsChain || Promise.resolve()).then(fn);
+    this.roomsChain = run.catch(() => {});
+    return run;
+  }
+
+  // ----- the admin page (through AdminApi) -----
+  async adminView() {
+    await this.room.load();
+    return this.room.adminView();
+  }
+  async adminClose(id) {
+    return this.room.shutdown(id);
   }
 
   async fetch(request) {
@@ -173,7 +194,7 @@ export class GameRoom extends DurableObject {
     await this.room.load();
     if (this.room.data && !this.room.expired()) return this.scheduleAlarm();
     if (this.room.data) {
-      await this.room.expire(); // an unfinished game counts as abandoned
+      await this.room.expire(); // an unfinished game counts as abandoned, and the room's row is closed
       await this.ctx.storage.delete('room');
       this.room.data = null;
     }
@@ -236,5 +257,18 @@ export class GameRoom extends DurableObject {
       }
       await this.updatePending(q => { for (const k of Object.keys(q)) delete q[k]; Object.assign(q, p); });
     });
+  }
+}
+
+// the admin Worker's door into the rooms: only a service binding with entrypoint "AdminApi" reaches it
+export class AdminApi extends WorkerEntrypoint {
+  stub(code) { return this.env.ROOMS.get(this.env.ROOMS.idFromName(code)); }
+  // a live look inside the room, or null when there is no room with this code
+  async room(code) {
+    return CODE_RE.test(code || '') ? this.stub(code).adminView() : null;
+  }
+  // closes room `id` (its code is `code`); false when that room is gone already
+  async close(code, id) {
+    return CODE_RE.test(code || '') ? this.stub(code).adminClose(id) : false;
   }
 }

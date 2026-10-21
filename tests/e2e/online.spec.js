@@ -1544,3 +1544,17 @@ test.describe('chat on a stand-in room', () => {
     await expect(page.locator('.chat-log li').last().locator('.you')).toHaveText('you');
   });
 });
+
+test('a room the owner closes from the admin page sends its phones home, and they stay there', async ({ page }) => {
+  const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben']), state: begin(['Anna', 'Ben']), seat: 's1', log: [] });
+  await inRoom(page);
+  await page.goto(url('/'));
+  await expect(page.locator('[data-act=roll]')).toBeVisible();
+  fake.push({ t: 'error', code: 'closed', message: 'This room was closed.' });
+  fake.close();
+  await expect(page.locator('.home-hint')).toHaveText('Room ABCDE was closed. Create a new room to play on.');
+  await expect(page.locator('#ocode')).toHaveValue('');
+  expect(await page.evaluate(() => localStorage.getItem('sevens-out-online'))).toBeNull();
+  await page.waitForTimeout(1500);
+  expect(fake.hellos(), 'no reconnect').toBe(1);
+});

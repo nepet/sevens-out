@@ -152,3 +152,46 @@ test('when the API cannot be reached, the page says how to fix it', async ({ pag
   await expect(page.locator('#activity .err')).toHaveText("Couldn't reach the admin page. Reload to sign in again.");
   await expect(page.locator('#games .err')).toHaveText("Couldn't reach the admin page. Reload to sign in again.");
 });
+
+test('rooms: an open room shows live, the room dialog follows the game, and closing the room sends its phones home', async ({ browser, page }) => {
+  const A = await browser.newContext(phone), B = await browser.newContext(phone);
+  const a = await A.newPage(), b = await B.newPage();
+  await a.goto(gameUrl('/'));
+  await a.click('[data-act=play]'); await a.click('[data-act=where][data-id="1"]');
+  await a.fill('.sheet-layer #oname', 'Anna'); await a.click('.sheet-layer [data-act=ocreate]');
+  await expect(a.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
+  const code = await a.locator('.roomcode').innerText();
+  await b.goto(gameUrl(`/?join=${code}`));
+  await b.fill('.sheet-layer #oname', 'Ben'); await b.click('.sheet-layer [data-act=ojoin]');
+  await expect(a.locator('.seat')).toHaveCount(2);
+  await a.click('[data-act=ostart]');
+  await expect(a.locator('[data-act=roll]')).toBeVisible();
+
+  const item = page.locator('#rooms .games li', { hasText: code });
+  await adminShows(page, async () => { await expect(item).toContainText('Round 1'); });
+  await expect(item).toContainText('2 of 2 online');
+  await expect(item).toContainText('Anna, Ben');
+  await item.locator('button').click();
+  const sheet = page.locator('#sheet');
+  await expect(sheet.locator('h2')).toHaveText(`Room ${code}`);
+  await expect(sheet.locator('.seats li')).toHaveCount(2);
+  await expect(sheet.locator('.timeline')).toContainText('Anna made the room');
+  await expect(sheet.locator('.timeline')).toContainText('Ben joined');
+  await expect(sheet.locator('.timeline')).toContainText('Game started: 2 players');
+  // the dialog follows the game while it is open
+  await a.click('[data-act=roll]');
+  await expect(sheet.locator('.note')).toContainText('Anna: roll 1 of 3', { timeout: 10_000 });
+  expect(await noSideScroll(page)).toBe(true);
+
+  await sheet.locator('[data-act=room-close]').click();
+  await sheet.locator('[data-act=room-close-no]').click();
+  await sheet.locator('[data-act=room-close]').click();
+  await sheet.locator('[data-act=room-close-yes]').click();
+  await expect(sheet.locator('.meta').first()).toContainText('closed here');
+  for (const P of [a, b]) await expect(P.locator('.home-hint')).toHaveText(`Room ${code} was closed. Create a new room to play on.`);
+  await sheet.locator('[data-close]').click();
+  await expect(item).toHaveCount(0);
+  await page.click('[data-rooms=closed]');
+  await expect(item).toContainText('closed here');
+  await A.close(); await B.close();
+});

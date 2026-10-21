@@ -5,6 +5,8 @@
   "main": "worker.js",
   "compatibility_date": "2025-09-01",
   "d1_databases": [{ "binding": "STATS", "database_name": "sevens-out-stats", "database_id": "9d714305-77cc-4e55-b642-ba4c2900a657" }],
+  // live rooms: the game Worker's AdminApi entrypoint (server/cloudflare/worker.js), which looks inside and closes rooms
+  "services": [{ "binding": "GAME", "service": "sevens-out", "entrypoint": "AdminApi" }],
   "vars": {
     // Zero Trust team name (<team>.cloudflareaccess.com) and the Access application's audience tag (docs/admin.md)
     "ACCESS_TEAM": "peterslab",

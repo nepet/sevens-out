@@ -13,7 +13,7 @@
 :root{
   --paper:#ECEEF1; --card:#F9FAFB; --ink:#18202C; --ink-soft:#586273; --line:#CBD1DA;
   --leather:#6A2129; --brass:#B5832A; --danger:#B3261E; --danger-ink:#FFFFFF;
-  --online:#6A2129; --phone:#B5832A;
+  --online:#6A2129; --phone:#B5832A; --ok:#2E7D4F;
   --font-display:"Big Shoulders Display","Arial Narrow","Roboto Condensed",sans-serif;
   --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   color-scheme:light;
@@ -22,13 +22,13 @@
   :root:not([data-theme="light"]){
     --paper:#111318; --card:#191C23; --ink:#E8EAEE; --ink-soft:#9CA4B1; --line:#2B303A;
     --leather:#58171F; --brass:#D4A24C; --danger:#FF8A80; --danger-ink:#2A0606;
-    --online:#E07A86; --phone:#D4A24C; color-scheme:dark;
+    --online:#E07A86; --phone:#D4A24C; --ok:#5CC88A; color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
   --paper:#111318; --card:#191C23; --ink:#E8EAEE; --ink-soft:#9CA4B1; --line:#2B303A;
   --leather:#58171F; --brass:#D4A24C; --danger:#FF8A80; --danger-ink:#2A0606;
-  --online:#E07A86; --phone:#D4A24C; color-scheme:dark;
+  --online:#E07A86; --phone:#D4A24C; --ok:#5CC88A; color-scheme:dark;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.45 var(--font-body)}
@@ -85,17 +85,41 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .sheet th,.sheet td{padding:6px 5px}
 .confirm{margin-top:14px;padding:10px 12px;border:1px solid var(--danger);border-radius:12px}
 .confirm p{margin:0}
+.tabs{display:flex;gap:6px;margin:0 0 12px}
+.tabs button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:6px 12px;font-weight:600;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.rooms .top{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.code{font:800 1.15rem/1 var(--font-display);letter-spacing:.06em}
+.badge{display:inline-block;font-size:.75rem;font-weight:700;border:1px solid var(--line);border-radius:999px;padding:1px 8px;color:var(--ink-soft)}
+.badge.idle{border-color:var(--brass);color:var(--ink)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line);margin-right:6px;vertical-align:1px}
+.dot.on{background:var(--ok)}
+.seats{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:4px}
+.timeline{list-style:none;margin:0;padding:0;font-size:.9rem;max-height:240px;overflow-y:auto}
+.timeline li{display:grid;grid-template-columns:5.5rem 1fr;gap:8px;padding:3px 0;border-bottom:1px solid var(--line)}
+.timeline time{color:var(--ink-soft);font-variant-numeric:tabular-nums}
+.die{display:inline-grid;place-items:center;width:1.6em;height:1.6em;border:1px solid var(--line);border-radius:5px;margin-right:3px;font-weight:700;font-variant-numeric:tabular-nums;background:var(--paper)}
+.live tr.now td{font-weight:700}
+.live tr.now td:first-child::before{content:"▶ ";color:var(--brass)}
+.note{font-size:.85rem;color:var(--ink-soft);margin:8px 0 0}
+.heat svg{display:block;width:100%;height:auto}
+.heat .cell{fill:var(--brass)} .heat .none{fill:var(--paper)} .heat text{fill:var(--ink-soft);font-size:18px}
+dialog h3,#usage h3{margin-top:16px}
 </style>
 </head>
 <body>
 <main>
   <h1>Sevens Out <span>stats</span></h1>
+  <section id="rooms" class="rooms" aria-labelledby="h-rooms"><h2 id="h-rooms">Rooms</h2>
+    <div class="tabs" role="tablist" aria-label="Rooms"><button role="tab" id="t-open" data-rooms="open" aria-selected="true">Open now</button><button role="tab" id="t-closed" data-rooms="closed" aria-selected="false">Closed</button></div>
+    <div class="body"></div></section>
   <form class="filters" id="filters" onsubmit="return false">
     <label>Period<select id="f-period"><option value="7d">7 days</option><option value="30d">30 days</option><option value="12m">12 months</option><option value="all">All time</option></select></label>
     <label>Where<select id="f-source"><option value="">Everywhere</option><option value="online">Online</option><option value="phone">One phone</option></select></label>
     <label>Mode<select id="f-mode"><option value="">Both modes</option><option value="dice">Dice in the app</option><option value="score">Real dice</option></select></label>
   </form>
   <section id="activity" aria-labelledby="h-activity"><h2 id="h-activity">Activity</h2><div class="body"></div></section>
+  <section id="usage" aria-labelledby="h-usage"><h2 id="h-usage">Usage</h2><div class="body"></div></section>
   <section id="facts" aria-labelledby="h-facts"><h2 id="h-facts">Game facts</h2><div class="body"></div></section>
   <section id="leaderboard" aria-labelledby="h-board"><h2 id="h-board">Leaderboard</h2><div class="body"></div></section>
   <section id="games" aria-labelledby="h-games"><h2 id="h-games">Recent games</h2><div class="body"></div></section>
@@ -112,9 +136,14 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const SOURCE = { online: 'Online', phone: 'One phone' }, MODE = { dice: 'Dice in the app', score: 'Real dice' };
   const NO_GAMES = '<p class="empty">No games yet in this period.</p>';
-  const view = { stats: null, games: [], next: null, sort: { key: 'games', dir: -1 }, all: false, open: null, confirm: false, sheetError: null };
+  const view = { stats: null, games: [], next: null, sort: { key: 'games', dir: -1 }, all: false, open: null, confirm: false, sheetError: null,
+    usage: null, rooms: { tab: 'open', list: [], next: null, live: true, binding: true, idleConfirm: false, error: null }, room: null };
   const retries = {};
-  let statsSeq = 0, gamesSeq = 0;
+  let statsSeq = 0, gamesSeq = 0, usageSeq = 0, roomsSeq = 0, roomSeq = 0;
+  const IDLE_HOURS = 6, HOUR = 3_600_000, LIST_EVERY = 10_000, ROOM_EVERY = 3_000;
+  const ago = ms => { const m = Math.round((Date.now() - ms) / 60000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`; };
+  const dur = ms => { const m = Math.max(0, Math.round(ms / 60000)); return m < 60 ? `${m} min` : m < 48 * 60 ? `${Math.round(m / 6) / 10} h` : `${Math.round(m / 1440)} days`; };
+  const pct = (n, of) => of ? `${Math.round(n / of * 100)}%` : '–';
 
   // ---------- filters (kept in the address, so a view can be bookmarked) ----------
   function filters() {
@@ -156,6 +185,32 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       renderActivity(); renderFacts(); renderBoard();
     } catch (e) {
       if (seq === statsSeq) for (const id of ['activity', 'facts', 'leaderboard']) failed(id, e.message, loadStats);
+    }
+  }
+  async function loadUsage() {
+    const seq = ++usageSeq;
+    body('usage').innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const u = await getJson('/api/usage?' + query());
+      if (seq !== usageSeq) return;
+      view.usage = u; renderUsage();
+    } catch (e) { if (seq === usageSeq) failed('usage', e.message, loadUsage); }
+  }
+  // open rooms reload every few seconds while the page is visible; closed rooms page like the games
+  async function loadRooms(more, quiet) {
+    const seq = ++roomsSeq, r = view.rooms;
+    if (!quiet && !more) body('rooms').innerHTML = '<p class="empty">Loading…</p>';
+    try {
+      const q = new URLSearchParams({ status: r.tab });
+      if (more && r.next) q.set('before', r.next);
+      const res = await getJson('/api/rooms?' + q);
+      if (seq !== roomsSeq) return;
+      r.list = more ? r.list.concat(res.rooms) : res.rooms; r.next = res.next; r.error = null;
+      if (r.tab === 'open') { r.live = res.live; r.binding = res.binding; }
+      renderRooms();
+    } catch (e) {
+      if (seq !== roomsSeq) return;
+      if (quiet && r.list.length) { r.error = e.message; renderRooms(); } else failed('rooms', e.message, () => loadRooms(more));
     }
   }
   async function loadGames(more) {
@@ -281,6 +336,185 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       </button></li>`).join('')}</ul>${view.next ? '<div class="row start"><button class="btn" data-more>Load more</button></div>' : ''}`;
   }
 
+  // ---------- usage ----------
+  function funnel(rows) {
+    const first = rows[0].n || 0, max = Math.max(1, first);
+    return rows.map(r => `<div class="hb"><span>${esc(r.label)}</span><span class="track"><span style="width:${(r.n / max * 100).toFixed(1)}%"></span></span><span class="pct" title="${r.n} of ${first}">${num(r.n)}</span></div>`).join('');
+  }
+  const DAYS = [1, 2, 3, 4, 5, 6, 0], DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function heatmap(grid) {
+    const left = 46, top = 4, cw = 22, ch = 24, W = left + 24 * cw, H = top + 7 * ch + 24, max = Math.max(1, ...grid.flat());
+    const cells = DAYS.map((d, row) => grid[d].map((n, h) =>
+      `<rect class="${n ? 'cell' : 'none'}" x="${left + h * cw + 1}" y="${top + row * ch + 1}" width="${cw - 2}" height="${ch - 2}" rx="3"${n ? ` fill-opacity="${(0.18 + 0.82 * n / max).toFixed(2)}"` : ''}><title>${DAY_NAMES[d]} ${String(h).padStart(2, '0')}:00: ${plural(n, 'game', 'games')}</title></rect>`).join('')).join('');
+    const days = DAYS.map((d, row) => `<text x="0" y="${top + row * ch + ch - 6}">${DAY_NAMES[d]}</text>`).join('');
+    const hours = [0, 6, 12, 18].map(h => `<text x="${left + h * cw + 1}" y="${H - 2}">${h}:00</text>`).join('');
+    return `<div class="heat"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Games by weekday and hour, busiest: ${max}">${days}${cells}${hours}</svg></div>`;
+  }
+  function renderUsage() {
+    const u = view.usage, r = u.rooms, p = u.people, a = u.accounts, t = u.turns, st = u.stops;
+    const games = u.sizes.reduce((x, s) => x + s.n, 0), online = u.filters.source !== 'phone';
+    const roomsPart = online ? (r.created ? `<h3>Online rooms made in this period</h3><div class="tiles">
+        ${tile('roomsCreated', num(r.created), 'rooms made')}
+        ${tile('roomsStarted', pct(r.started, r.created), 'started a game')}
+        ${tile('lobbyMinutes', r.lobbyMinutes == null ? '–' : `${num(r.lobbyMinutes, 1)} min`, 'in the lobby before the first game')}
+        ${tile('roomMinutes', r.roomMinutes == null ? '–' : dur(r.roomMinutes * 60000), 'a room stays in use')}
+        ${tile('gamesPerRoom', num(r.gamesPerRoom, 1), 'games per room')}
+        ${tile('rejoins', num(r.rejoinsPerSeat, 1), 'reconnects per player')}
+        ${tile('chatted', pct(r.chatted, r.created), `rooms with chat (${plural(r.messages, 'message', 'messages')})`)}
+        ${tile('watched', pct(r.watched, r.created), 'rooms with someone watching')}
+      </div>
+      <div class="two"><div><h3>From room to finished game</h3>${funnel([
+        { label: 'Made', n: r.created }, { label: '2+ players', n: r.twoPlus }, { label: 'Started', n: r.started }, { label: 'Finished', n: r.finished }])}</div>
+      <div><h3>How rooms closed</h3>${hbars([{ label: 'All left', n: r.closed.empty }, { label: 'Expired', n: r.closed.expired },
+        { label: 'By you', n: r.closed.admin + r.closed.gone }, { label: 'Still open', n: r.created - r.closed.empty - r.closed.expired - r.closed.admin - r.closed.gone }])}
+        <p class="note">Expired: unused for two weeks. By you: closed on this page, or found gone.</p></div></div>`
+      : '<h3>Online rooms</h3><p class="empty">No rooms made in this period.</p>') : '';
+    const playPart = games ? `<h3>Players</h3><div class="tiles">
+        ${tile('people', num(p.total), 'different players')}
+        ${tile('fresh', num(p.fresh), 'played their first game')}
+        ${tile('returning', num(p.total - p.fresh), 'came back')}
+        ${tile('twoDays', num(p.twoDays), 'played on 2 or more days')}
+        ${tile('fiveGames', num(p.fiveGames), 'played 5 or more games')}
+      </div>
+      <div class="two"><div><h3>When games are played</h3>${heatmap(u.when)}</div>
+      <div><h3>Players per game</h3>${hbars(u.sizes.map(s => ({ label: plural(s.players, 'player', 'players'), n: s.n })))}</div></div>
+      <h3>Turns</h3><ul class="records">
+        <li>Starters score ${num(t.starter.avgPoints, 1)} points a turn on average, everyone else ${num(t.others.avgPoints, 1)}.</li>
+        <li>Sevens Out: ${pct(t.starter.sevensOuts, t.starter.turns)} of starters' turns, ${pct(t.others.sevensOuts, t.others.turns)} of the others'.</li>
+        ${st.early + st.full ? `<li>In dice games, players after the starter stopped before the limit in ${pct(st.early, st.early + st.full)} of their turns (${num(st.earlyAvg, 1)} points on average, against ${num(st.fullAvg, 1)} using every roll).</li>` : ''}
+      </ul>` : `<h3>Players</h3>${NO_GAMES}`;
+    const accountsPart = `<h3>Player accounts</h3><div class="tiles">
+        ${tile('accounts', num(a.total), 'accounts in all')}
+        ${tile('accountsNew', num(a.fresh), 'made in this period')}
+        ${tile('accountsActive', num(a.active), 'signed in during this period')}
+        ${tile('passkeys', num(a.passkeys), `passkeys (${pct(a.synced, a.passkeys)} synced)`)}
+      </div>`;
+    body('usage').innerHTML = roomsPart + playPart + accountsPart;
+  }
+
+  // ---------- rooms ----------
+  const MODE_SHORT = { dice: 'Dice in the app', score: 'Real dice' };
+  const phaseText = r => r.phase === 'lobby' ? 'Lobby' : r.phase === 'over' ? 'Game over' : r.round ? `Round ${r.round}` : 'Playing';
+  const idle = r => !(r.live && r.live.connections) && r.connected === 0 && r.watching === 0 && Date.now() - r.activeAt > IDLE_HOURS * HOUR;
+  const CLOSED = { empty: 'everyone left', expired: 'unused for two weeks', admin: 'closed here', gone: 'gone without a word' };
+  function renderRooms() {
+    const r = view.rooms;
+    for (const tab of ['open', 'closed']) $('t-' + tab).setAttribute('aria-selected', String(r.tab === tab));
+    const note = r.tab === 'open' && !r.binding ? '<p class="note">The game Worker isn\'t connected (service binding GAME), so this is what the rooms last saved and rooms can\'t be closed here.</p>'
+      : r.tab === 'open' && !r.live ? '<p class="note">The game Worker didn\'t answer for every room. Those show what they last saved.</p>' : '';
+    const err = r.error ? `<p class="err">${esc(r.error)}</p>` : '';
+    if (!r.list.length) { body('rooms').innerHTML = err + `<p class="empty">${r.tab === 'open' ? 'No rooms are open right now.' : 'No closed rooms yet.'}</p>` + note; return; }
+    const items = r.list.map(x => r.tab === 'open'
+      ? `<li data-id="${x.id}"><button data-room="${x.id}">
+          <span class="top"><span><span class="code">${esc(x.code)}</span> · ${phaseText(x)} · ${MODE_SHORT[x.mode] || ''}</span>
+          <span><span class="dot${x.connected ? ' on' : ''}"></span>${x.connected} of ${x.seats} online${x.watching ? ` · ${x.watching} watching` : ''}${idle(x) ? ' <span class="badge idle">idle</span>' : ''}</span></span>
+          <span class="meta">${esc(x.names.join(', '))} · active ${esc(ago(x.activeAt))} · open ${esc(dur(Date.now() - x.createdAt))}</span>
+        </button></li>`
+      : `<li data-id="${x.id}"><button data-room="${x.id}">
+          <span class="top"><span><span class="code">${esc(x.code)}</span> · ${esc(CLOSED[x.closeReason] || 'closed')}</span><span>${plural(x.gamesFinished, 'game', 'games')} finished</span></span>
+          <span class="meta">${esc(when(x.closedAt))} · ${esc(x.names.join(', '))} · open ${esc(dur(x.closedAt - x.createdAt))}</span>
+        </button></li>`).join('');
+    const stale = r.tab === 'open' ? r.list.filter(idle).length : 0;
+    const idleRow = !stale ? '' : r.idleConfirm
+      ? `<div class="confirm"><p>Close ${plural(stale, 'room', 'rooms')} nobody has used for ${IDLE_HOURS} hours? Their phones go back to the home screen.</p><div class="row"><button class="btn" data-act="idle-no">Keep them</button><button class="btn danger" data-act="idle-yes">Close ${plural(stale, 'room', 'rooms')}</button></div></div>`
+      : `<div class="row start"><button class="btn" data-act="idle">Close idle rooms (${stale})</button></div>`;
+    body('rooms').innerHTML = err + `<ul class="games">${items}</ul>` + (r.next ? '<div class="row start"><button class="btn" data-rooms-more>Load more</button></div>' : '') + idleRow + note;
+  }
+  async function closeIdle() {
+    const r = view.rooms;
+    r.idleConfirm = false;
+    try { await getJson(`/api/rooms/close-idle?hours=${IDLE_HOURS}`, { method: 'POST' }); r.error = null; }
+    catch (e) { r.error = e.message; }
+    loadRooms(false, true);
+  }
+
+  // ---------- one room: live look, timeline, close ----------
+  let roomTimer = null;
+  async function openRoom(id, quiet) {
+    const dlg = $('sheet'), seq = ++roomSeq;
+    clearTimeout(roomTimer);
+    if (!quiet) { view.room = null; view.confirm = false; view.sheetError = null; dlg.innerHTML = '<p class="empty">Loading…</p>'; if (!dlg.open) dlg.showModal(); }
+    try {
+      const room = await getJson('/api/rooms/' + id);
+      if (seq !== roomSeq || !dlg.open) return;
+      view.room = room; view.open = null; renderRoom();
+    } catch (e) {
+      if (seq !== roomSeq || !dlg.open) return;
+      if (quiet) { view.sheetError = e.message; renderRoom(); }
+      else dlg.innerHTML = `<p class="err">${esc(e.message)}</p><div class="row"><button class="btn" data-close>Close</button></div>`;
+    }
+    if (view.room && view.room.live && dlg.open) roomTimer = setTimeout(() => { if (document.visibilityState === 'visible' && view.room && view.room.id === id) openRoom(id, true); }, ROOM_EVERY);
+  }
+  function eventText(e) {
+    const d = e.detail || {};
+    switch (e.kind) {
+      case 'created': return `${esc(d.name)} made the room`;
+      case 'joined': return `${esc(d.name)} joined`;
+      case 'left': return `${esc(d.name)} left`;
+      case 'kicked': return `${esc(d.name)} was removed by the host`;
+      case 'watching': return `${esc(d.name)} came to watch`;
+      case 'started': return `Game started: ${plural(d.players, 'player', 'players')}, ${MODE_SHORT[d.mode] || ''}${d.mode === 'dice' ? (d.pairing === 'auto' ? ', the app finds the 7s' : ', find the 7s yourself') : ''}`;
+      case 'over': return `${d.early ? 'Game ended early' : `Game over after ${plural(d.rounds, 'round', 'rounds')}`}: ${esc(d.loser)} lost`;
+      case 'undone': return 'Game over undone';
+      case 'reopened': return `Back to the lobby${d.abandoned ? ' (game abandoned)' : ''}`;
+      case 'closed': return `Closed: ${CLOSED[d.reason] || esc(d.reason)}`;
+      default: return esc(e.kind);
+    }
+  }
+  function liveGame(v) {
+    const g = v.state && v.state.game;
+    if (!g) return '';
+    const seats = v.room.seats, cur = v.state.phase === 'play' ? g.order[g.pos] : -1;
+    const rd = (g.rounds || []).find(x => x.no === g.round) || { results: {} };
+    const rows = g.order.map(i => {
+      const res = rd.results[i], seat = seats.find(s => s.id === (g.seats || [])[i]);
+      return `<tr class="${i === cur ? 'now' : ''}"><td><span class="dot${seat && seat.connected ? ' on' : ''}"></span>${esc(g.players[i].name)}${i === g.starter ? ' <span class="meta">▸</span>' : ''}</td>
+        <td>${res ? `+${res.pts}` : i === cur ? 'now' : '–'}</td><td><strong>${g.players[i].score}</strong></td></tr>`;
+    }).join('');
+    let turn = '';
+    if (v.state.phase === 'over') turn = `<p class="note">${g.players[g.loser] ? `${esc(g.players[g.loser].name)} lost.` : 'Game over.'}</p>`;
+    else if (g.mode === 'dice' && g.turn) {
+      const t = g.turn, table = (t.dice || []).filter(d => !d.held);
+      turn = `<p class="note">${esc(g.players[cur].name)}: roll ${t.rolls} of ${t.maxRolls || g.mark || 3}${t.rolls ? ` · on the table ${table.map(d => `<span class="die">${d.value}</span>`).join('')}` : ''}${(t.pairs || []).length ? ` · ${plural(t.pairs.length, 'pair', 'pairs')} set aside` : ''}</p>`;
+    } else if (cur >= 0) turn = `<p class="note">Waiting for ${esc(g.players[cur].name)} to enter their points.</p>`;
+    return `<h3>Round ${g.round}${g.mark ? ` · up to ${plural(g.mark, 'roll', 'rolls')}` : ''}</h3>
+      <div class="tablewrap"><table class="live sheet"><thead><tr><th scope="col">Player</th><th scope="col">This round</th><th scope="col">Total</th></tr></thead><tbody>${rows}</tbody></table></div>${turn}`;
+  }
+  function renderRoom() {
+    const r = view.room, v = r.live;
+    const head = `<h2 id="sheet-title">Room ${esc(r.code)}</h2>
+      <p class="meta">${r.closedAt ? `Closed ${esc(when(r.closedAt))}: ${esc(CLOSED[r.closeReason] || 'closed')}` : `${phaseText(r)} · active ${esc(ago(r.activeAt))}`}
+        · ${MODE_SHORT[r.mode] || ''} · made ${esc(when(r.createdAt))}${v ? ' · <strong>live</strong>' : ''}</p>`;
+    const seats = v ? `<h3>Seats</h3><ul class="seats">${v.room.seats.map(s => `<li><span class="dot${s.connected ? ' on' : ''}"></span>${who({ name: s.name, tag: s.user ? s.user.slice(0, 4) : null })}${s.id === v.room.host ? ' <span class="badge">host</span>' : ''}</li>`).join('')}
+        ${v.watching.map(w => `<li><span class="dot on"></span>${who({ name: w.name, tag: w.user ? w.user.slice(0, 4) : null })} <span class="badge">watching</span></li>`).join('')}</ul>` + liveGame(v)
+      : r.liveError ? '<p class="note">The game Worker didn\'t answer, so there is no live look right now.</p>' : '';
+    const counts = `<h3>In numbers</h3><div class="tiles">
+        ${tile('rGames', `${r.gamesFinished}/${r.gamesStarted}`, 'games finished / started')}
+        ${tile('rConnects', num(r.connects), 'phones joined')}
+        ${tile('rRejoins', num(r.rejoins), 'reconnects')}
+        ${tile('rSpectators', num(r.spectators), 'came to watch')}
+        ${tile('rChat', num(r.chat), 'chat messages')}
+        ${tile('rPeak', num(r.peak), 'phones at once, at most')}
+      </div>`;
+    const games = r.games.length ? `<h3>Games here</h3><ul class="records">${r.games.map(g => `<li>${g.status === 'over'
+        ? `<button class="link" data-game="${g.id}">${esc(when(g.finishedAt))}: ${esc(g.loser)} lost after ${plural(g.rounds, 'round', 'rounds')}</button>`
+        : `${esc(when(g.startedAt))}: ${g.status === 'abandoned' ? 'abandoned' : 'playing'}`}</li>`).join('')}</ul>` : '';
+    const events = `<h3>Timeline</h3>${r.events.length ? `<ol class="timeline">${r.events.slice().reverse().map(e => `<li><time>${esc(new Date(e.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }))}</time><span>${eventText(e)}</span></li>`).join('')}</ol>` : '<p class="empty">Nothing recorded yet.</p>'}`;
+    const actions = r.closedAt ? '<div class="row"><button class="btn" data-close>Close</button></div>'
+      : view.confirm ? `<div class="confirm"><p>Close room ${esc(r.code)}? Everyone in it goes back to the home screen, and an unfinished game counts as abandoned.</p><div class="row"><button class="btn" data-act="room-close-no">Keep it</button><button class="btn danger" data-act="room-close-yes">Close room</button></div></div>`
+      : `<div class="row"><button class="btn" data-close>Close</button><button class="btn danger" data-act="room-close">Close room</button></div>`;
+    $('sheet').innerHTML = head + seats + counts + games + events + (view.sheetError ? `<p class="err">${esc(view.sheetError)}</p>` : '') + actions;
+  }
+  async function closeOpenRoom() {
+    const r = view.room;
+    try {
+      await getJson(`/api/rooms/${r.id}/close`, { method: 'POST' });
+      view.confirm = false; view.sheetError = null;
+      openRoom(r.id, true);
+      loadRooms(false, true);
+    } catch (e) { view.confirm = false; view.sheetError = e.message; renderRoom(); }
+  }
+
   // ---------- one game: score sheet and delete ----------
   async function openGame(id) {
     const dlg = $('sheet');
@@ -331,8 +565,17 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       view.sort = view.sort.key === k ? { key: k, dir: -view.sort.dir } : { key: k, dir: k === 'name' ? 1 : -1 };
       return renderBoard();
     }
-    if (b.dataset.game) return openGame(b.dataset.game);
+    if (b.dataset.game) { view.room = null; clearTimeout(roomTimer); return openGame(b.dataset.game); }
     if (b.hasAttribute('data-more')) return loadGames(true);
+    if (b.dataset.rooms) { view.rooms.tab = b.dataset.rooms; view.rooms.list = []; view.rooms.idleConfirm = false; return loadRooms(false); }
+    if (b.hasAttribute('data-rooms-more')) return loadRooms(true);
+    if (b.dataset.room) return openRoom(b.dataset.room);
+    if (b.dataset.act === 'idle') { view.rooms.idleConfirm = true; return renderRooms(); }
+    if (b.dataset.act === 'idle-no') { view.rooms.idleConfirm = false; return renderRooms(); }
+    if (b.dataset.act === 'idle-yes') return closeIdle();
+    if (b.dataset.act === 'room-close') { view.confirm = true; return renderRoom(); }
+    if (b.dataset.act === 'room-close-no') { view.confirm = false; return renderRoom(); }
+    if (b.dataset.act === 'room-close-yes') return closeOpenRoom();
     if (b.hasAttribute('data-close')) return $('sheet').close();
     if (b.dataset.act === 'delete') { view.confirm = true; renderSheet(); }
     else if (b.dataset.act === 'delete-no') { view.confirm = false; renderSheet(); }
@@ -346,12 +589,17 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
     if ($('f-source').value) q.set('source', $('f-source').value);
     if ($('f-mode').value) q.set('mode', $('f-mode').value);
     history.replaceState(null, '', q.toString() ? `?${q}` : location.pathname);
-    loadStats(); loadGames(false);
+    loadStats(); loadUsage(); loadGames(false);
   });
+  $('sheet').addEventListener('close', () => { clearTimeout(roomTimer); view.room = null; roomSeq++; });
+  // open rooms keep themselves current while the page is in view
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && view.rooms.tab === 'open' && !view.rooms.idleConfirm) loadRooms(false, true);
+  }, LIST_EVERY);
 
   const f = filters();
   $('f-period').value = f.period; $('f-source').value = f.source; $('f-mode').value = f.mode;
-  loadStats(); loadGames(false);
+  loadRooms(false); loadStats(); loadUsage(); loadGames(false);
 })();
 </script>
 </body>

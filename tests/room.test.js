@@ -3,12 +3,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../engine.js';
 import { legacyRoundEnd } from './games.js';
-import { Room } from '../server/core/room.js';
+import { Room, TRACK_EVERY_MS } from '../server/core/room.js';
 
 const E = globalThis.SevensEngine;
 
 // an in-memory room: conns are plain objects that collect what the server sends them
-function makeRoom(stats = null, accounts = null, now = undefined) {
+function makeRoom(stats = null, accounts = null, now = undefined, sessions = null) {
   let stored = null;
   const conns = new Set();
   const net = {
@@ -20,7 +20,7 @@ function makeRoom(stats = null, accounts = null, now = undefined) {
     close: c => { c.open = false; conns.delete(c); }
   };
   const storage = { get: async () => stored && JSON.parse(stored), put: async d => { stored = JSON.stringify(d); }, remove: async () => { stored = null; } };
-  const room = new Room({ engine: E, storage, net, stats, accounts, ...(now ? { now } : {}) });
+  const room = new Room({ engine: E, storage, net, stats, accounts, sessions, ...(now ? { now } : {}) });
   const connect = () => { const c = { inbox: [], open: true, seat: null }; conns.add(c); return c; };
   const drop = async c => { c.open = false; conns.delete(c); await room.closed(c); };
   return { room, connect, drop, setStored: d => { stored = JSON.stringify(d); }, stored: () => stored && JSON.parse(stored), fresh: () => new Room({ engine: E, storage, net, stats }) };
@@ -29,7 +29,7 @@ const send = (room, c, m) => room.message(c, JSON.stringify(m), 'K7QPM');
 const last = (c, t) => [...c.inbox].reverse().find(m => m.t === t);
 
 async function lobbyOf2(opts = {}) {
-  const r = makeRoom(opts.stats);
+  const r = makeRoom(opts.stats, null, opts.now, opts.sessions);
   const a = r.connect(), b = r.connect();
   await send(r.room, a, { t: 'hello', name: 'Anna', create: true });
   await send(r.room, b, { t: 'hello', name: 'Ben' });
@@ -576,4 +576,152 @@ test('chat: a spectator chats under their name', async () => {
   await send(room, c, { t: 'chat', text: 'ninth' });
   assert.equal(last(c, 'error').code, 'rate');
   assert.ok(!last(a, 'chat').msg || last(a, 'chat').msg.text !== 'ninth');
+});
+
+// ----- the admin page's rooms -----
+const tracker = () => {
+  const rows = [], events = [];
+  return { rows, events, kinds: () => events.map(e => e.kind), row: () => rows.at(-1), track: async (row, evs) => { rows.push(row); events.push(...evs); } };
+};
+
+test('sessions: the room keeps its row and timeline up to date through a game', async () => {
+  const sessions = tracker(), stats = recorder();
+  const { room, a, b, connect, drop } = await lobbyOf2({ mode: 'score', sessions, stats });
+  const id = sessions.row().id;
+  assert.match(id, /^[0-9a-f]{16}$/);
+  assert.deepEqual(sessions.kinds(), ['created', 'joined']);
+  assert.deepEqual(sessions.events.map(e => e.detail.name), ['Anna', 'Ben']);
+  assert.deepEqual(sessions.events.map(e => e.seq), [1, 2]);
+  assert.deepEqual([sessions.row().phase, sessions.row().seats, sessions.row().connected, sessions.row().host, JSON.parse(sessions.row().names)],
+    ['lobby', 2, 2, 'Anna', ['Anna', 'Ben']]);
+  assert.equal(sessions.row().mode, 'score');
+
+  await send(room, a, { t: 'lobby', op: 'start' });
+  const started = sessions.events.at(-1);
+  assert.equal(started.kind, 'started');
+  assert.deepEqual(started.detail, { game: stats.records.at(-1).game.id, players: 2, mode: 'score', pairing: 'manual' });
+  assert.deepEqual([sessions.row().phase, sessions.row().round, sessions.row().games_started, sessions.row().game_id],
+    ['playing', 1, 1, started.detail.game]);
+  assert.ok(sessions.row().first_start_at >= sessions.row().created_at);
+
+  // a stranger watches, a player drops out and comes back
+  const w = connect();
+  await send(room, w, { t: 'hello', name: 'Cleo' });
+  assert.deepEqual([sessions.events.at(-1).kind, sessions.events.at(-1).detail], ['watching', { name: 'Cleo' }]);
+  assert.equal(sessions.row().watching, 1);
+  await drop(b);
+  assert.equal(sessions.row().connected, 1);
+  const b2 = connect();
+  await send(room, b2, { t: 'hello', token: last(b, 'welcome').token });
+  assert.deepEqual([sessions.row().connected, sessions.row().rejoins, sessions.row().connects, sessions.row().spectators, sessions.row().peak], [2, 1, 4, 1, 3]);
+
+  await send(room, a, { t: 'chat', text: 'hi' });
+  await playToEnd(room, a, b2);
+  const over = sessions.events.at(-1);
+  assert.equal(over.kind, 'over');
+  assert.equal(over.detail.loser, stats.records.at(-1).game.loser);
+  assert.deepEqual([sessions.row().phase, sessions.row().games_finished, sessions.row().chat], ['over', 1, 1]);
+  await send(room, a, { t: 'act', action: { type: 'undo' } });
+  assert.deepEqual([sessions.events.at(-1).kind, sessions.row().phase, sessions.row().games_finished], ['undone', 'playing', 0]);
+  await send(room, a, { t: 'lobby', op: 'reopen' });
+  assert.deepEqual(sessions.events.at(-1).detail, { game: started.detail.game, abandoned: true });
+  assert.ok(sessions.rows.every(r => r.id === id), 'one row per room');
+  assert.ok(!JSON.stringify(sessions.rows).includes(last(a, 'welcome').token), 'no tokens');
+});
+
+test('sessions: moves and chat alone write at most once a minute; seats, connections and rounds at once', async () => {
+  let t = 1_000_000;
+  const sessions = tracker();
+  const { room, a, b } = await lobbyOf2({ sessions, now: () => t });
+  await send(room, a, { t: 'lobby', op: 'start' });
+  const n = sessions.rows.length;
+  await send(room, a, { t: 'act', action: { type: 'roll' } });
+  await send(room, a, { t: 'chat', text: 'go' });
+  assert.equal(sessions.rows.length, n, 'within the minute: nothing');
+  t += TRACK_EVERY_MS;
+  await send(room, a, { t: 'act', action: { type: 'roll' } });
+  assert.equal(sessions.rows.length, n + 1);
+  assert.equal(sessions.row().chat, 1);
+  await send(room, a, { t: 'act', action: { type: 'stop' } });
+  if (last(a, 'room').state.game.turn.rolls) await send(room, a, { t: 'act', action: { type: 'stop' } }); // Stop asks twice only on the page
+  await send(room, b, { t: 'act', action: { type: 'roll' } });
+  await send(room, b, { t: 'act', action: { type: 'stop' } });
+  assert.equal(last(a, 'room').state.game.round, 2);
+  assert.equal(sessions.row().round, 2, 'a new round writes at once');
+});
+
+test('sessions: a failed write keeps its events for the next one, and play goes on', async () => {
+  const sessions = tracker();
+  let down = true;
+  const flaky = { track: async (row, evs) => { if (down) throw new Error('D1 is down'); return sessions.track(row, evs); } };
+  const { room, a, b } = await lobbyOf2({ sessions: flaky });
+  await send(room, a, { t: 'lobby', op: 'start' });
+  assert.equal(last(b, 'room').room.phase, 'game');
+  down = false;
+  await send(room, a, { t: 'lobby', op: 'reopen' });
+  assert.deepEqual(sessions.kinds(), ['created', 'joined', 'started', 'reopened']);
+  assert.deepEqual(sessions.events.map(e => e.seq), [1, 2, 3, 4]);
+});
+
+test('sessions: a room closes its row when the last player leaves, when it expires, and when the owner closes it', async () => {
+  const s1 = tracker(), r1 = makeRoom(null, null, undefined, s1), x = r1.connect();
+  await send(r1.room, x, { t: 'hello', name: 'Solo', create: true });
+  await send(r1.room, x, { t: 'lobby', op: 'leave' });
+  assert.deepEqual([s1.events.at(-2).kind, s1.events.at(-1).kind, s1.events.at(-1).detail], ['left', 'closed', { reason: 'empty' }]);
+  assert.deepEqual([s1.row().close_reason, s1.row().connected], ['empty', 0]);
+  assert.ok(s1.row().closed_at);
+
+  const s2 = tracker(), stats = recorder();
+  const two = await lobbyOf2({ sessions: s2, stats });
+  await send(two.room, two.a, { t: 'lobby', op: 'start' });
+  await two.room.expire();
+  assert.equal(s2.row().close_reason, 'expired');
+  assert.equal(stats.records.at(-1).game.status, 'abandoned');
+
+  const s3 = tracker(), stats3 = recorder();
+  const three = await lobbyOf2({ sessions: s3, stats: stats3 });
+  await send(three.room, three.a, { t: 'lobby', op: 'start' });
+  assert.equal(await three.room.shutdown('ffffffffffffffff'), false, 'another room under this code is left alone');
+  assert.ok(three.stored());
+  assert.equal(await three.room.shutdown(s3.row().id), true);
+  for (const c of [three.a, three.b]) {
+    assert.equal(last(c, 'error').code, 'closed');
+    assert.equal(c.open, false);
+  }
+  assert.equal(three.stored(), null, 'the room is deleted');
+  assert.deepEqual([s3.row().close_reason, s3.events.at(-1).kind], ['admin', 'closed']);
+  assert.equal(stats3.records.at(-1).game.status, 'abandoned');
+  assert.equal(await three.room.shutdown(), false, 'closing twice');
+});
+
+test('sessions: the admin view shows seats, watchers and the game, never tokens, the history or chat text', async () => {
+  const sessions = tracker();
+  const { room, a, b, connect } = await lobbyOf2({ mode: 'score', sessions });
+  await send(room, a, { t: 'chat', text: 'secret plans' });
+  await send(room, a, { t: 'lobby', op: 'start' });
+  await send(room, a, { t: 'act', action: { type: 'score', pts: 12, rolls: 2 } });
+  const w = connect();
+  await send(room, w, { t: 'hello', name: 'Cleo' });
+  const v = room.adminView();
+  assert.equal(v.id, sessions.row().id);
+  assert.deepEqual(v.room.seats.map(s => [s.name, s.connected]), [['Anna', true], ['Ben', true]]);
+  assert.deepEqual(v.watching, [{ name: 'Cleo', user: null }]);
+  assert.equal(v.state.game.players[0].score, 12);
+  assert.deepEqual(v.state.game.history, []);
+  assert.equal(v.chat, 1);
+  assert.equal(v.connections, 3);
+  const text = JSON.stringify(v);
+  assert.ok(!text.includes(last(a, 'welcome').token) && !text.includes(last(b, 'welcome').token), 'no tokens');
+  assert.ok(!text.includes('secret plans'), 'no chat text');
+});
+
+test('sessions: a room saved before the admin page\'s rooms gets its id on its first write', async () => {
+  const sessions = tracker(), r = makeRoom(null, null, undefined, sessions);
+  r.setStored({ v: 1, code: 'K7QPM', created: 1, updated: 1, rev: 3, phase: 'lobby', host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 },
+    seats: [{ id: 's1', name: 'Anna', token: 't'.repeat(32), user: null }], state: null });
+  const c = r.connect();
+  await send(r.room, c, { t: 'hello', token: 't'.repeat(32) });
+  assert.match(sessions.row().id, /^[0-9a-f]{16}$/);
+  await send(r.room, c, { t: 'lobby', op: 'rename', name: 'Anne' });
+  assert.equal(r.stored().rid, sessions.row().id, 'kept with the next save');
 });

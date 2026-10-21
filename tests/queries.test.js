@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import '../engine.js';
 import { fakeD1 } from './fake-d1.js';
 import { fromD1 } from '../server/d1/db.js';
-import { writeRecord } from '../server/d1/write.js';
+import { writeRecord, writeRoom, markRoomGone } from '../server/d1/write.js';
 import { summarize } from '../server/core/stats.js';
-import { parseFilters, stats, recentGames, gameDetail, PAGE_SIZE } from '../server/admin/queries.js';
+import { parseFilters, stats, recentGames, gameDetail, PAGE_SIZE, parseRoomFilters, roomList, roomDetail, usage, ROOMS_PAGE } from '../server/admin/queries.js';
 import { diceGame, scoreGame, quickGame } from './games.js';
 
 const DAY = 86_400_000, NOW = Date.UTC(2026, 9, 19, 12);
@@ -144,4 +144,73 @@ test('paging does not skip games that finished at the same time', async () => {
   assert.equal(p1.games.length, PAGE_SIZE);
   assert.equal(p2.next, null);
   assert.deepEqual([...p1.games, ...p2.games].map(g => g.id).sort(), [...ids].sort());
+});
+
+// ----- rooms and usage -----
+const roomRow = (o = {}) => ({
+  id: nextId(), code: 'K7QPM', created_at: NOW - DAY, active_at: NOW - DAY, closed_at: null, close_reason: null, phase: 'lobby', mode: 'dice',
+  pairing: 'manual', round: null, seats: 2, connected: 2, watching: 0, signed_in: 0, host: 'Anna', names: '["Anna","Ben"]', game_id: null,
+  first_start_at: null, games_started: 0, games_finished: 0, connects: 2, rejoins: 0, spectators: 0, chat: 0, peak: 2, ...o
+});
+
+test('rooms: open rooms by last activity, closed rooms paged by when they closed, one room with its timeline and games', async () => {
+  const db = fromD1(fakeD1());
+  const older = roomRow({ active_at: NOW - 2 * DAY }), newer = roomRow({ code: 'ABCDE', active_at: NOW - 1000 });
+  await writeRoom(db, older, [{ seq: 1, at: NOW - 2 * DAY, kind: 'created', detail: { name: 'Anna' } }]);
+  await writeRoom(db, newer);
+  for (let i = 0; i < ROOMS_PAGE + 2; i++) await writeRoom(db, roomRow({ closed_at: NOW - i * 1000, close_reason: 'empty' }));
+  const open = await roomList(db, parseRoomFilters(new URLSearchParams('')));
+  assert.deepEqual(open.rooms.map(r => r.code), ['ABCDE', 'K7QPM']);
+  assert.deepEqual(open.rooms[1].names, ['Anna', 'Ben']);
+  const p1 = await roomList(db, parseRoomFilters(new URLSearchParams('status=closed')));
+  assert.equal(p1.rooms.length, ROOMS_PAGE);
+  const p2 = await roomList(db, parseRoomFilters(new URLSearchParams(`status=closed&before=${p1.next}`)));
+  assert.equal(p2.rooms.length, 2);
+  assert.equal(p2.next, null);
+  assert.ok(p1.rooms.every(r => r.closeReason === 'empty'));
+
+  // the same event again (a retried write) is kept once; a game played in the room is listed
+  await writeRoom(db, { ...older, phase: 'over', games_started: 1 }, [{ seq: 1, at: 0, kind: 'created' }, { seq: 2, at: NOW - DAY, kind: 'started', detail: { players: 2 } }]);
+  await put(db, diceGame(3), { finishedAt: NOW - DAY / 2 });
+  const one = await roomDetail(db, older.id);
+  assert.deepEqual(one.events.map(e => [e.seq, e.kind]), [[1, 'created'], [2, 'started']]);
+  assert.deepEqual(one.events[0].detail, { name: 'Anna' });
+  assert.equal(one.phase, 'over');
+  assert.equal(one.games.length, 1);
+  assert.equal(await roomDetail(db, 'nope'), null);
+  assert.equal(await roomDetail(db, 'ffffffffffffffff'), null);
+
+  await markRoomGone(db, newer.id, NOW);
+  assert.deepEqual((await roomList(db, parseRoomFilters(new URLSearchParams('')))).rooms.map(r => r.code), ['K7QPM']);
+  assert.equal((await roomDetail(db, newer.id)).closeReason, 'gone');
+});
+
+test('usage: the rooms funnel, when people play, game sizes, new and returning players, accounts, turns', async () => {
+  const d1 = fakeD1(), db = fromD1(d1);
+  await writeRoom(db, roomRow({ seats: 1 }));
+  await writeRoom(db, roomRow({ created_at: NOW - DAY, first_start_at: NOW - DAY + 120_000, games_started: 2, games_finished: 1, spectators: 1, chat: 4, rejoins: 2, closed_at: NOW, close_reason: 'admin' }));
+  await writeRoom(db, roomRow({ created_at: NOW - 60 * DAY })); // before the period
+  // Anna and Ben played 40 days ago, then twice in the period on two days; Cleo is new
+  await put(db, quickGame(['Anna', 'Ben']), { finishedAt: NOW - 40 * DAY });
+  await put(db, quickGame(['Anna', 'Ben']), { finishedAt: Date.UTC(2026, 9, 18, 20), startedAt: Date.UTC(2026, 9, 18, 19, 30) }); // a Sunday, 19:30 UTC
+  await put(db, quickGame(['Anna', 'Cleo', 'Ben']), { finishedAt: NOW - 3 * DAY, source: 'phone' });
+  d1.raw.prepare("INSERT INTO users (id, name, created_at, updated_at) VALUES ('aaaaaaaaaaaaaaaa', 'Anna', ?, ?), ('bbbbbbbbbbbbbbbb', 'Ben', 0, 0)").run(NOW - DAY, NOW - DAY);
+  d1.raw.prepare("INSERT INTO sessions (hash, user_id, created_at, expires_at, last_used_at) VALUES ('h1', 'aaaaaaaaaaaaaaaa', 0, ?, ?)").run(NOW + DAY, NOW - DAY);
+
+  const u = await usage(db, q(''));
+  assert.deepEqual([u.rooms.created, u.rooms.twoPlus, u.rooms.started, u.rooms.finished, u.rooms.watched, u.rooms.chatted, u.rooms.messages], [2, 1, 1, 1, 1, 1, 4]);
+  assert.equal(u.rooms.lobbyMinutes, 2);
+  assert.equal(u.rooms.closed.admin, 1);
+  assert.equal(u.rooms.rejoinsPerSeat, 1);
+  assert.equal(u.when.length, 7);
+  assert.equal(u.when[0][19], 1, 'Sunday 19:00 in UTC');
+  assert.equal(u.when.flat().reduce((a, b) => a + b, 0), 2);
+  assert.equal((await usage(db, q('tz=-120'))).when[0][21], 1, 'and 21:00 two hours east');
+  assert.deepEqual(u.sizes, [{ players: 2, n: 1 }, { players: 3, n: 1 }]);
+  assert.deepEqual(u.people, { total: 3, fresh: 1, twoDays: 2, fiveGames: 0 });
+  assert.deepEqual(u.accounts, { total: 2, fresh: 1, active: 1, passkeys: 0, synced: 0 });
+  assert.ok(u.turns.starter.turns > 0 && u.turns.others.turns > 0);
+  assert.equal(u.turns.starter.turns + u.turns.others.turns, d1.raw.prepare('SELECT COUNT(*) AS n FROM turns t JOIN games g ON g.id = t.game_id WHERE g.finished_at >= ?').get(NOW - 30 * DAY).n);
+  const phoneOnly = await usage(db, q('source=phone'));
+  assert.deepEqual(phoneOnly.sizes, [{ players: 3, n: 1 }]);
 });
