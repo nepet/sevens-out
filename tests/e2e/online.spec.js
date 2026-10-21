@@ -1038,6 +1038,31 @@ test.describe('chat', () => {
     await expect(page.locator('#app [data-act=chat]')).toHaveAttribute('aria-label', 'Chat');
   });
 
+  test('typing in the chat: a redraw from another phone keeps the same field, its text, focus and caret', async ({ page }) => {
+    const seats = [{ id: 's1', name: 'Anna', connected: true, user: null }, { id: 's2', name: 'Ben', connected: true, user: null }];
+    const room = { code: 'ABCDE', phase: 'lobby', host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats };
+    const msg = (id, text) => ({ id, at: Date.now(), from: 's2', seat: 's2', name: 'Ben', user: null, text });
+    const fake = await fakeRoom(page, { room, seat: 's1', log: [msg(1, 'one')] });
+    await page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Anna', server: '' })));
+    await page.goto(url('/'));
+    await page.click('#app [data-act=chat]');
+    await page.fill('#chattext', 'hello world');
+    // the caret in the middle of the draft, and the field marked so a rebuilt one would show
+    await page.evaluate(() => { const el = document.getElementById('chattext'); el.focus(); el.setSelectionRange(3, 5); el.marked = true; });
+    fake.push({ t: 'chat', msg: msg(2, 'two') });
+    fake.push({ t: 'room', rev: 2, room: { ...room, seats: [seats[0], { ...seats[1], connected: false }] }, state: null, events: [] });
+    await expect(page.locator('.chat-log li')).toHaveCount(2);
+    await expect(page.locator('#app .seat .dot.on')).toHaveCount(1);
+    expect(await page.evaluate(() => { const el = document.getElementById('chattext');
+      return { same: el.marked === true, value: el.value, start: el.selectionStart, end: el.selectionEnd, focused: document.activeElement === el }; }))
+      .toEqual({ same: true, value: 'hello world', start: 3, end: 5, focused: true });
+    // sending still clears the field, and the hint still updates
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#chattext')).toHaveValue('');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.sheet-foot .hint')).toHaveText('Type something first.');
+  });
+
   test('an old server: no chat button, and the chip keeps its online dot', async ({ page }) => {
     const E = globalThis.SevensEngine;
     const seats = [{ id: 's1', name: 'Anna', connected: true, user: null }, { id: 's2', name: 'Ben', connected: true, user: null }];

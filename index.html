@@ -2755,6 +2755,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   };
   let focusNext = null; // an element id to focus after the next render
   let sheetReturn = null; // the opener to focus after the next render
+  let sheetShown = null;  // the kind whose body the sheet shows now
   function openSheet(kind, from){
     if (!SHEETS[kind]) return;
     ui.sheet = kind; ui.sheetFrom = from || null;
@@ -2776,6 +2777,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     $app.inert = !!def;
     if (!def){
       if (!$sheet.hidden){ $sheet.hidden = true; $sheet.querySelector('.sheet-body').innerHTML = ''; }
+      sheetShown = null;
       return;
     }
     const body = $sheet.querySelector('.sheet-body'), f = document.activeElement;
@@ -2788,11 +2790,25 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const logEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 8;
     const t = typeof def.title === 'function' ? def.title() : def.title;
     if (title.textContent !== t) title.textContent = t;
-    body.innerHTML = def.body();
+    // the open chat redraws whenever the room changes or a message arrives, often mid-word: its foot stays the same element,
+    // so the text field keeps its focus, caret and a word being composed. Only the reactions, the log and the hint change
+    const foot = ui.sheet === 'chat' && sheetShown === 'chat' && body.querySelector(':scope > .sheet-foot');
+    if (foot){
+      const tpl = document.createElement('template'); tpl.innerHTML = def.body();
+      const next = [...tpl.content.children].find(el => el.classList.contains('sheet-foot'));
+      [...body.children].forEach(el => { if (el !== foot) el.remove(); });
+      foot.before(...[...tpl.content.children].filter(el => el !== next));
+      const hint = foot.querySelector('.hint'), said = next.querySelector('.hint').textContent;
+      if (hint.textContent !== said) hint.textContent = said;
+      const inp = foot.querySelector('#chattext'), draft = ui.chatDraft || '';
+      if (inp.value !== draft) inp.value = draft; // sent: the field empties
+    } else body.innerHTML = def.body();
+    sheetShown = ui.sheet;
     $sheet.hidden = false;
     body.scrollTop = top;
     const newLog = body.querySelector('.chat-log'); if (newLog) newLog.scrollTop = logEnd ? newLog.scrollHeight : logTop;
-    if (typing){ const el = document.getElementById(typing); if (el){ el.focus({ preventScroll:true }); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } }
+    if (f && body.contains(f)){} // still there (the chat's foot): its focus and caret are untouched
+    else if (typing){ const el = document.getElementById(typing); if (el){ el.focus({ preventScroll:true }); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } }
     else if (fold){
       const el = body.querySelector(`details[data-fold="${fold}"] > summary`);
       (el || $sheet.querySelector('.sheet')).focus({ preventScroll:true });
