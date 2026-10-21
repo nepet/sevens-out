@@ -1013,6 +1013,8 @@ test.describe('the dice turn screen', () => {
       expect(b.x).toBeGreaterThanOrEqual(cell.x - 0.5); expect(b.x + b.width).toBeLessThanOrEqual(cell.x + cell.width + 0.5);
       expect(b.y).toBeGreaterThanOrEqual(cell.y - 0.5); expect(b.y + b.height).toBeLessThanOrEqual(cell.y + cell.height + 0.5);
     }
+    // three pairs use the small minis, the put-back buttons too
+    expect(await page.locator('.bar .rackcell .die.mini').evaluateAll(ms => ms.map(m => m.getBoundingClientRect().width))).toEqual(Array(6).fill(16));
     await expect(page.locator('.bar [data-act=end]')).toHaveText('End turn +0');   // all six out: End, in the middle
     await onScreen(page, '.bar .rackcell');
     expect(await noSideScroll(page)).toBe(true);
@@ -1080,6 +1082,234 @@ test.describe('the dice turn screen', () => {
     await page.click('.bar [data-act=roll]');
     await expect(page.locator('.rack span.pair[role=img]')).toHaveCount(1);
     await expect(page.locator('.rack span.pair')).toHaveAttribute('aria-label', '1 and 6, set aside in roll 1');
+  });
+
+  // ---------- the dice lie at random spots on the mat ----------
+  // Math.random from a seed (the dice's spots use it; the dice faces come from crypto)
+  const seedRandom = (page, seed) => page.addInitScript(sd => {
+    let a = sd;
+    Math.random = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  }, seed);
+  // two rotated squares {cx, cy, s, a (radians)}: the gap along the best separating axis (negative: they overlap)
+  const sepGap = (p, q) => {
+    const reach = (ux, uy, d) => d.s / 2 * (Math.abs(ux * Math.cos(d.a) + uy * Math.sin(d.a)) + Math.abs(-ux * Math.sin(d.a) + uy * Math.cos(d.a)));
+    let best = -Infinity;
+    for (const a of [p.a, q.a]) for (const [ux, uy] of [[Math.cos(a), Math.sin(a)], [-Math.sin(a), Math.cos(a)]])
+      best = Math.max(best, Math.abs((q.cx - p.cx) * ux + (q.cy - p.cy) * uy) - reach(ux, uy, p) - reach(ux, uy, q));
+    return best;
+  };
+  // the dice as drawn: their boxes, size and tilt, the mat and the hint line
+  const drawnDice = page => page.evaluate(() => {
+    const box = el => { const r = el.getBoundingClientRect(); return { x:r.left, y:r.top, w:r.width, h:r.height }; };
+    const mat = box(document.querySelector('#app .mat')), hint = box(document.querySelector('#app .mat .hint'));
+    const dice = [...document.querySelectorAll('#app .mat .dice .die')].map(el => {
+      const b = box(el), m = new DOMMatrix(getComputedStyle(el).transform);
+      return { id:el.dataset.id, box:b, cx:b.x + b.w / 2, cy:b.y + b.h / 2, s:el.offsetWidth, a:Math.atan2(m.b, m.a),
+        left:el.style.left, top:el.style.top, rot:el.style.getPropertyValue('--rot') };
+    });
+    return { mat, hint, dice, scrolled:scrollY };
+  });
+  // no overlap, at least 8 px inside the mat, above the hint line, tilted at most 20°
+  const checkDice = (d, label) => {
+    for (const x of d.dice) {
+      expect(x.box.x, `${label}: die ${x.id} left`).toBeGreaterThanOrEqual(d.mat.x + 8 - 0.5);
+      expect(x.box.x + x.box.w, `${label}: die ${x.id} right`).toBeLessThanOrEqual(d.mat.x + d.mat.w - 8 + 0.5);
+      expect(x.box.y, `${label}: die ${x.id} top`).toBeGreaterThanOrEqual(d.mat.y + 8 - 0.5);
+      expect(x.box.y + x.box.h, `${label}: die ${x.id} above the hint`).toBeLessThanOrEqual(d.hint.y + 0.5);
+      expect(Math.abs(x.a), `${label}: die ${x.id} tilt`).toBeLessThanOrEqual(20 * Math.PI / 180 + 1e-6);
+      expect(x.s, `${label}: die ${x.id} size`).toBeGreaterThanOrEqual(48);
+    }
+    d.dice.forEach((p, i) => d.dice.slice(i + 1).forEach(q => expect(sepGap(p, q), `${label}: dice ${p.id} and ${q.id} apart`).toBeGreaterThanOrEqual(0)));
+  };
+  const spots = d => Object.fromEntries(d.dice.map(x => [x.id, `${x.left} ${x.top} ${x.rot}`]));
+
+  test('the layout helper: seeded spots never overlap and stay inside the mat, above the foot; the same seed gives the same spots', async ({ page }) => {
+    await page.goto('/');
+    const r = await page.evaluate(() => {
+      const { layout, dieSize } = window.SevensDebug;
+      const rng = seed => { let a = seed; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+      const out = [];
+      for (const [w, h] of [[390, 553], [375, 386], [375, 336], [320, 287], [320, 240]]) for (const bottom of [64, 114]) for (let n = 1; n <= 6; n++)
+        for (const cluster of [false, true]) for (let seed = 1; seed <= 20; seed++) {
+          const die = dieSize(w, h, bottom), s = layout(n, w, h, die, rng(seed), { bottom, cluster });
+          out.push({ w, h, bottom, die, n, s, again:JSON.stringify(layout(n, w, h, die, rng(seed), { bottom, cluster })) === JSON.stringify(s) });
+        }
+      // a die put back: new spots around the ones already lying there
+      const fixed = layout(4, 390, 553, 86, rng(7), { bottom:64 });
+      const more = layout(2, 390, 553, 86, rng(8), { bottom:64, fixed });
+      out.push({ w:390, h:553, bottom:64, die:86, n:6, s:[...fixed, ...more], again:true });
+      return out;
+    });
+    expect(r.length).toBeGreaterThan(2000);
+    const bad = [];                                                     // collected, so 2000+ layouts check quickly
+    for (const c of r) {
+      const label = `${c.n} dice on ${c.w}×${c.h} (foot ${c.bottom})`;
+      if (c.s.length !== c.n) bad.push(`${label}: ${c.s.length} spots`);
+      if (!c.again) bad.push(`${label}: the same seed gave other spots`);
+      const sq = c.s.map(p => ({ cx:p.x * c.w, cy:p.y * c.h, s:c.die, a:p.rot * Math.PI / 180, rot:p.rot }));
+      for (const q of sq) {
+        const e = c.die / 2 * (Math.abs(Math.cos(q.a)) + Math.abs(Math.sin(q.a))), eps = 0.01;
+        if (Math.abs(q.rot) > 20) bad.push(`${label}: tilt ${q.rot}`);
+        if (q.cx - e < 8 - eps || q.cx + e > c.w - 8 + eps || q.cy - e < 8 - eps || q.cy + e > c.h - c.bottom + eps) bad.push(`${label}: outside at ${q.cx},${q.cy}`);
+      }
+      const gap = Math.max(6, Math.round(c.die * 0.12));
+      sq.forEach((p, i) => sq.slice(i + 1).forEach(q => { if (sepGap(p, q) < gap - 0.01) bad.push(`${label}: overlap`); }));
+    }
+    expect(bad).toEqual([]);
+  });
+
+  for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }, { width: 320, height: 568 }]) {
+    test(`six dice never overlap and stay inside the mat at ${vp.width}×${vp.height}, over 20 seeded rolls`, async ({ page }) => {
+      await seedRandom(page, vp.width);
+      await page.setViewportSize(vp);
+      await startLocal(page, { names: six });
+      const seen = new Set();
+      for (let rolls = 0; rolls < 20;) {
+        if (await page.locator('.bar [data-act=roll]').count()) {
+          const before = await drawnDice(page);
+          expect(before.dice).toHaveLength(6);
+          checkDice(before, `before roll ${rolls + 1}`);
+          await page.click('.bar [data-act=roll]');
+          rolls++;
+          await expect(page.locator('.dice button.die')).toHaveCount(6);   // nothing set aside: you find the 7s
+          const d = await drawnDice(page);
+          checkDice(d, `roll ${rolls}`);
+          seen.add(JSON.stringify(spots(d)));
+          expect(d.scrolled).toBe(0);
+        } else {
+          await page.click('.bar [data-act=end]');
+          await skipRace(page);
+        }
+      }
+      expect(seen.size).toBe(20);                                        // every roll lands somewhere new
+    });
+  }
+
+  test('six players at 375×667 with the 101 alert: the chip on one line, six dice apart inside the mat, Stop, Roll and the rack on screen', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await seedRandom(page, 375);
+    await load(page, saveWith(['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'], [88, 104, 95, 100, 79, 99]));
+    await page.goto('/');
+    await expect(page.locator('.turnhead .alert')).toBeVisible();
+    for (let i = 1; i <= 3; i++) {
+      await page.click('.bar [data-act=roll]');
+      await expect(page.locator('.turnhead .eyebrow')).toHaveText(`Round 1 · Roll ${i} of 3`);
+      const d = await drawnDice(page);
+      expect(d.dice).toHaveLength(6);
+      checkDice(d, `roll ${i}`);
+      await chipFits(page);
+      for (const sel of [i < 3 ? '.bar [data-act=stop]' : '.bar [data-act=end]', '.bar .rackcell', '#app .scorechip']) await onScreen(page, sel);
+      if (i < 3) await onScreen(page, '.bar [data-act=roll]');
+      expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+      expect(await noSideScroll(page)).toBe(true);
+    }
+  });
+
+  test('the dice stay on their spots through a die tap, a pair put back, the score list and a resize; the next roll draws new spots', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 2, 3, 3]);
+    await seedRandom(page, 42);
+    await startLocal(page, { names: ['Anna', 'Ben'] });
+    const cluster = spots(await drawnDice(page));                       // before the first roll: six blank dice lying loosely
+    expect(Object.keys(cluster)).toHaveLength(6);
+    await expect(page.locator('.dice .die.blank')).toHaveCount(6);
+    await page.click('.bar [data-act=roll]');
+    const first = await drawnDice(page), at = spots(first);
+    expect(first.dice.map(x => x.id)).toEqual(['0', '1', '2', '3', '4', '5']);   // DOM order is the dice's order
+    for (const x of first.dice) expect(x.left).toMatch(/%$/);
+    expect(at).not.toEqual(cluster);
+    const same = async (want, label) => expect(spots(await drawnDice(page)), label).toEqual(want);
+    await page.click('.dice [data-act=die][data-id="2"]');               // a die tap selects it
+    await expect(page.locator('.dice [data-id="2"]')).toHaveAttribute('aria-pressed', 'true');
+    await same(at, 'a die selected');
+    await page.click('.dice [data-act=die][data-id="2"]');
+    await page.click('.dice [data-act=die][data-id="0"]'); await page.click('.dice [data-act=die][data-id="1"]');   // 1 + 6 set aside
+    await expect(page.locator('.dice .die')).toHaveCount(4);             // held dice aren't drawn on the mat
+    const rest = Object.fromEntries(Object.entries(at).filter(([id]) => id !== '0' && id !== '1'));
+    await same(rest, 'a pair set aside');
+    await page.click('.rack [data-act=unpair]');                         // put back: both return to their spots
+    await expect(page.locator('.dice .die')).toHaveCount(6);
+    await same(at, 'a pair put back');
+    await page.click('#app .scorechip');                                 // the score list over the mat, closed with a tap on the mat
+    await expect(page.locator('#app .scores-pop .board')).toBeVisible();
+    await same(at, 'the list open');
+    const m = await page.locator('.mat').boundingBox();
+    await page.mouse.click(m.x + 4, m.y + m.height - 4);
+    await expect(page.locator('#app .scores-pop')).toHaveCount(0);
+    await expect(page.locator('#app .scorechip')).toBeFocused();         // like Escape, the focus goes back to the chip
+    await same(at, 'the list closed');
+    await page.evaluate(() => window.dispatchEvent(new Event('resize'))); // a resize that changes nothing
+    await same(at, 'a resize event');
+    await page.setViewportSize({ width: 390, height: 900 });            // a taller mat: the same fractions still fit
+    await same(at, 'a taller screen');
+    await page.click('.bar [data-act=roll]');
+    const next = spots(await drawnDice(page));
+    expect(Object.keys(next)).toHaveLength(6);
+    expect(Object.keys(next).filter(id => next[id] === at[id])).toHaveLength(0);   // every rolled die lands on a new spot
+  });
+
+  test('reduced motion: the dice appear on their spots at once, with no throw', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben'] });
+    await page.evaluate(() => {
+      window.__tumbles = 0;
+      new MutationObserver(ms => { for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && n.querySelector && (n.matches('.tumble') || n.querySelector('.tumble'))) window.__tumbles++; })
+        .observe(document.getElementById('app'), { childList: true, subtree: true });
+    });
+    await page.click('.bar [data-act=roll]');
+    await expect(page.locator('.dice button.die')).toHaveCount(6);
+    expect(await page.evaluate(() => window.__tumbles)).toBe(0);
+    expect(await page.locator('.dice .die').evaluateAll(ds => ds.map(d => d.getAnimations().length + (getComputedStyle(d).animationName === 'none' ? 0 : 1)))).toEqual(Array(6).fill(0));
+  });
+});
+
+// normal motion: the throw from above the mat, and the pairs flying from their spots into the rack
+test.describe('the dice thrown on the mat', () => {
+  test('a roll throws the dice from above the mat onto the spots they keep, 40 ms apart', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await startLocal(page, { names: ['Anna', 'Ben'] });
+    await page.click('.bar [data-act=roll]');
+    const flying = await page.evaluate(() => [...document.querySelectorAll('#app .mat .dice .die.tumble')].map(el => ({
+      id:el.dataset.id, name:getComputedStyle(el).animationName, delay:parseFloat(el.style.animationDelay), left:el.style.left, top:el.style.top, rot:el.style.getPropertyValue('--rot') })));
+    expect(flying).toHaveLength(6);
+    for (const f of flying) expect(f.name).toBe('throw');
+    flying.slice(1).forEach((f, k) => expect(f.delay - flying[k].delay).toBe(40));   // staggered by 40 ms, in the dice's order
+    await idle(page);
+    const landed = await page.evaluate(() => [...document.querySelectorAll('#app .mat .dice .die')].map(el => ({
+      id:el.dataset.id, tumble:el.classList.contains('tumble'), anims:el.getAnimations().length, left:el.style.left, top:el.style.top, rot:el.style.getPropertyValue('--rot') })));
+    expect(landed.map(l => [l.id, l.left, l.top, l.rot])).toEqual(flying.map(f => [f.id, f.left, f.top, f.rot]));   // they land where they flew to
+    for (const l of landed) { expect(l.tumble).toBe(false); expect(l.anims).toBe(0); }
+  });
+
+  test('taps on the score chip while the pairs fly out: every pair still flies from its spot on the mat into the rack', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 5, 3, 3]);                         // two pairs come out on the first roll
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await startLocal(page, { pairing: 'auto' });
+    await page.evaluate(() => {
+      window.__fly = []; window.__spots = {};
+      new MutationObserver(ms => {
+        const mat = document.querySelector('#app .mat');
+        if (mat) {
+          const r = mat.getBoundingClientRect();
+          for (const el of mat.querySelectorAll('.dice .die[data-id]:not(.tumble)'))
+            window.__spots[el.dataset.id] = [r.left + parseFloat(el.style.left) / 100 * r.width, r.top + parseFloat(el.style.top) / 100 * r.height];
+        }
+        for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1 && n.classList.contains('fly')) {
+          const s = parseFloat(n.style.getPropertyValue('--die'));
+          window.__fly.push([parseFloat(n.style.left) + s / 2, parseFloat(n.style.top) + s / 2]);
+        }
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    await page.click('.bar [data-act=roll]');
+    const chip = page.locator('#app .scorechip');
+    for (let i = 0; i < 12; i++) { await chip.click(); await page.waitForTimeout(110); }   // redraws during the throw, the pause and the flights
+    await idle(page);
+    await expect(page.locator('.rack .pair')).toHaveCount(2);
+    await expect(page.locator('.rack .pair.landing')).toHaveCount(0);
+    const { fly, spots } = await page.evaluate(() => ({ fly:window.__fly, spots:window.__spots }));
+    expect(fly).toHaveLength(4);
+    const pts = ['0', '1', '2', '3'].map(id => spots[id]);
+    for (const p of pts) expect(p).toBeTruthy();
+    // each die flies from its own spot (a lit die is lifted by 8 px), never from a corner
+    for (const p of pts) expect(Math.min(...fly.map(f => Math.hypot(f[0] - p[0], f[1] - p[1])))).toBeLessThanOrEqual(10);
   });
 });
 

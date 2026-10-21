@@ -73,6 +73,19 @@ test.describe('dice in the app', () => {
     const a1 = await live(A.page), b1 = await live(B.page);
     expect(b1.game.turn.dice).toEqual(a1.game.turn.dice);       // the same roll on both phones
     await expect(B.page.locator('.dice button.die')).toHaveCount(0); // Ben can only watch
+    // each phone scatters the dice over its own mat; a remote change (Anna sets a 7-pair aside) doesn't move Ben's dice
+    const spotsOf = P => P.page.locator('#app .mat .dice .die[data-id]').evaluateAll(ds => Object.fromEntries(ds.map(d => [d.dataset.id, `${d.style.left} ${d.style.top} ${d.style.getPropertyValue('--rot')}`])));
+    const bSpots = await spotsOf(B);
+    expect(Object.keys(bSpots)).toHaveLength(6);
+    for (const v of Object.values(bSpots)) expect(v).toMatch(/^[\d.]+% [\d.]+% -?[\d.]+deg$/);
+    const vals = a1.game.turn.dice.map(d => d.value);
+    const pr = [0, 1, 2, 3, 4, 5].flatMap(i => [0, 1, 2, 3, 4, 5].filter(j => j > i && vals[i] + vals[j] === 7).map(j => [i, j]))[0];
+    if (pr) {
+      await A.page.click(`.dice [data-act=die][data-id="${pr[0]}"]`); await A.page.click(`.dice [data-act=die][data-id="${pr[1]}"]`);
+      await expect(B.page.locator('#app .mat .dice .die')).toHaveCount(4);
+      const rest = Object.fromEntries(Object.entries(bSpots).filter(([id]) => !pr.includes(+id)));
+      expect(await spotsOf(B)).toEqual(rest);
+    }
 
     // Anna stops: it's Ben's turn on Ben's phone, with Anna's limit
     const stop = A.page.locator('[data-act=stop], [data-act=end]').first();

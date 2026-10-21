@@ -251,9 +251,26 @@ html:root[data-look="vegas"] .felt-turn .turnhead.c4 .who{font-size:2rem}
 .turnhead.c4 .who .you{text-transform:none;vertical-align:middle}
 .turnhead.c4 .alert{margin-top:10px;text-align:left}
 .diceturn{gap:0;--die:clamp(3.25rem,min(20vw,9vh),5.25rem)}
-.mat{position:relative;flex:1 1 auto;display:flex;flex-direction:column;margin-inline:-16px;padding:8px 16px 12px}
-.mat .dice{flex:1 1 auto;align-content:center;gap:16px 20px;padding-block:8px}
-.mat-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 12px}
+.mat{position:relative;flex:1 1 auto;margin-inline:-16px;min-height:240px}
+/* the dice lie at random spots (placeDice(): inline left/top in % of the mat for the centre, --rot, and --die on the
+   layer); the foot keeps the hint line and "Set aside all 7s" clear of them (matFoot()) */
+.mat .dice{position:absolute;left:0;top:0;width:100%;height:100%;display:block;padding:0;--die:56px}
+.mat .dice .die{position:absolute;left:50%;top:50%;margin:0;transform:translate(-50%,-50%) rotate(var(--rot,0deg))}
+.mat .dice button.die:active{transform:translate(-50%,calc(-50% + 2px)) rotate(var(--rot,0deg))}
+.mat .dice .die.sel{transform:translate(-50%,calc(-50% - 7px)) rotate(var(--rot,0deg))}
+.mat .dice .die.pairing{transform:translate(-50%,calc(-50% - 8px)) rotate(var(--rot,0deg)) scale(1.07)}
+.mat .dice .die.nope{animation:nope-mat .3s}
+.mat .dice .die.blank{opacity:.45}
+/* a roll: the dice are thrown in from just above the mat's top edge and spin onto their spots (staggered inline) */
+.mat .dice .die.tumble{animation:throw .5s cubic-bezier(.25,.75,.35,1) backwards}
+@keyframes throw{
+  from{top:calc(var(--die) * -.7);left:var(--fx,50%);transform:translate(-50%,-50%) rotate(calc(var(--rot,0deg) - var(--spin,300deg))) scale(1.15)}
+  70%{transform:translate(-50%,-50%) rotate(calc(var(--rot,0deg) + 5deg)) scale(.97)}
+}
+@keyframes nope-mat{25%{transform:translate(calc(-50% - 5px),-50%) rotate(var(--rot,0deg))}75%{transform:translate(calc(-50% + 5px),-50%) rotate(var(--rot,0deg))}}
+@media (prefers-reduced-motion:reduce){.mat .dice .die.tumble,.mat .dice .die.nope{animation:none}}
+.mat-foot{position:absolute;z-index:1;left:16px;right:16px;bottom:12px;display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 12px;pointer-events:none}
+.mat-foot>*{pointer-events:auto}
 .mat .hint{text-align:center;font-size:15px}
 .mat .btn.small{min-height:44px;border-color:currentColor;color:inherit}
 .bar.c4bar{display:grid;grid-template-columns:minmax(0,1fr) 104px minmax(0,1fr);align-items:center;gap:12px;padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));border-top:0;border-radius:28px 28px 0 0;background:var(--leather-deep)}
@@ -276,7 +293,9 @@ html:root[data-look="vegas"] .rollbtn small{text-transform:none;letter-spacing:0
 .rackcell button.pair{min-width:44px;min-height:44px;padding:3px;border:1.5px solid var(--brass)}
 .rackcell .die.mini{--die:20px;padding:calc(var(--die) * .14);border-radius:5px}
 .rackcell button.pair .die.mini{--die:18px}
-.rackcell.full .die.mini{--die:16px}
+/* three pairs: smaller minis, the put-back buttons too (they stay 44 px tall) */
+.rackcell.full .pair .die.mini,.rackcell.full button.pair .die.mini{--die:16px}
+.rackcell .pair.landing .die.mini{visibility:hidden}
 .rackcell .racklabel{font-size:12px;line-height:1.2;opacity:.8;text-align:center}
 #app.racing-c4 .scorechip{opacity:0}
 @supports not (color:color-mix(in srgb,red 50%,blue)){
@@ -1319,7 +1338,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
-  Object.assign(ui, { reveal:null, rollStart:0, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false });
+  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false });
 
   // ---------- online play: one WebSocket per phone to the room server ----------
   const ONLINE_KEY = 'sevens-out-online';
@@ -1777,7 +1796,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const paired = events.find(e => e.type === 'paired');
     if (rolled && !reduceMotion){
       if (!ui.rolling){ ui.rolling = true; ui.rollStart = Date.now(); render(); startTumble(); }
-      await wait(Math.max(0, 520 - (Date.now() - ui.rollStart)));
+      // the faces flicker until the last thrown die has landed on its spot
+      const thrown = state.game && state.game.turn ? active(state.game.turn).length : 6;
+      await wait(Math.max(0, throwTime(thrown) - (Date.now() - ui.rollStart)));
     }
     stopTumble(); ui.rolling = false;
     if (left()) return;
@@ -1960,13 +1981,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     d.pairs = d.pairs.filter(p => !(ids.has(p.a) && ids.has(p.b)));
     return d;
   }
+  // a die on the mat (held dice aren't drawn); placeDice() puts it on its spot after the render
   function dieView(d, can, interactive){
-    if (d.held !== null) return `<span class="die gone" aria-hidden="true"></span>`;
-    if (ui.rolling) return `<span class="die tumble" data-tumble aria-hidden="true">${face(rnd6())}</span>`;
-    if (d.value === null) return `<span class="die blank" aria-hidden="true"></span>`;
-    if (!interactive) return `<span class="die" data-id="${d.id}" role="img" aria-label="Die showing ${d.value}">${face(d.value)}</span>`;
+    if (d.held !== null) return '';
+    if (ui.rolling) return `<span class="die tumble" data-tumble data-id="${d.id}" aria-hidden="true">${face(rnd6())}</span>`;
+    if (d.value === null) return `<span class="die blank" data-id="${d.id}" aria-hidden="true"></span>`;
+    const lit = ui.reveal && ui.reveal.lit && ui.reveal.lit.includes(d.id) ? ' pairing' : ''; // the pair about to fly out
+    if (!interactive) return `<span class="die${lit}" data-id="${d.id}" role="img" aria-label="Die showing ${d.value}">${face(d.value)}</span>`;
     const sel = ui.selected === d.id;
-    return `<button class="die${sel ? ' sel' : ''}${can.has(d.id) ? ' can' : ''}${ui.nope === d.id ? ' nope' : ''}" data-act="die" data-id="${d.id}" aria-pressed="${sel}" aria-label="Die showing ${d.value}">${face(d.value)}</button>`;
+    return `<button class="die${sel ? ' sel' : ''}${can.has(d.id) ? ' can' : ''}${ui.nope === d.id ? ' nope' : ''}${lit}" data-act="die" data-id="${d.id}" aria-pressed="${sel}" aria-label="Die showing ${d.value}">${face(d.value)}</button>`;
   }
 
   const undoLink = g => isScore(g) && seated() && g.history && g.history.length ? '<button class="link" data-act="undo">Undo last entry</button>' : '';
@@ -2080,6 +2103,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     for (const step of ['short', 'tight', 'tiny']) if (over()) c.classList.add(step);
   }
   addEventListener('resize', fitChip);
+  // Escape or a tap on the mat closes the score list; the focus goes back to the chip
+  function closeScores(){
+    ui.scoresOpen = false; render();
+    const c = $app.querySelector('.scorechip'); if (c) c.focus({ preventScroll:true });
+  }
   try { document.fonts.addEventListener('loadingdone', fitChip); } catch (e) {} // the display font changes the widths
 
   // the dice turn (C4): the chip header, the eyebrow and the big name, the mat with the dice and the hint at its
@@ -2109,9 +2137,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     // the rack cell: the pairs set aside as mini dice; a pair from this roll can be put back
     const rack = t.pairs.map((pr, i) => {
       const a = t.dice[pr.a].value, b = t.dice[pr.b].value;
+      const land = ui.reveal && ui.reveal.landing && i === t.pairs.length - 1 ? ' landing' : ''; // its dice are still in flight
       return (pr.roll === t.rolls && undoable)
-        ? `<button class="pair" data-act="unpair" data-id="${i}" aria-label="Put ${a} and ${b} back on the table">${mini(a)}${mini(b)}</button>`
-        : `<span class="pair" role="img" aria-label="${a} and ${b}, set aside in roll ${pr.roll}">${mini(a)}${mini(b)}</span>`;
+        ? `<button class="pair${land}" data-act="unpair" data-id="${i}" aria-label="Put ${a} and ${b} back on the table">${mini(a)}${mini(b)}</button>`
+        : `<span class="pair${land}" role="img" aria-label="${a} and ${b}, set aside in roll ${pr.roll}">${mini(a)}${mini(b)}</span>`;
     }).join('');
     const rackCell = `<div class="rackcell${t.pairs.length > 2 ? ' full' : ''}"><div class="rack">${rack}</div><small class="racklabel">${t.pairs.length ? 'set aside' : '7s land here'}</small></div>`;
 
@@ -2507,10 +2536,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // Escape closes the sheet. Tab stays inside it: a guard at each end sends the focus round to the other end
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && ui.sheet && !$sheet.hidden){ e.preventDefault(); closeSheet(); }
-    else if (e.key === 'Escape' && ui.scoresOpen && !ui.race && !ui.sheet){
-      e.preventDefault(); ui.scoresOpen = false; render();
-      const c = $app.querySelector('.scorechip'); if (c) c.focus({ preventScroll:true });
-    }
+    else if (e.key === 'Escape' && ui.scoresOpen && !ui.race && !ui.sheet && $app.querySelector('.scorechip')){ e.preventDefault(); closeScores(); }
   });
   $sheet.addEventListener('focusin', e => {
     const g = e.target.dataset && e.target.dataset.guard; if (!g) return;
@@ -2518,6 +2544,152 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const to = g === 'last' ? items[items.length - 1] : items[0];
     if (to) to.focus();
   });
+
+  // ---------- the dice on the mat: random spots, no overlap ----------
+  // layoutDice(n, w, h, die, rng, opts) → n spots [{x, y, rot}] for dice of `die` px on a mat of w × h px: x and y are
+  // the die's centre as fractions of the mat (0–1), rot its tilt in degrees (−20…20). opts.bottom: the px kept free at
+  // the mat's foot for the hint line; opts.cluster: the dice lie loosely in the middle (before the first roll);
+  // opts.fixed: spots already taken (fractions; a die put back keeps its spot and the new ones go around it).
+  // - Inside: every die's rotated square (its box, half-size halfBox()) stays MAT_EDGE px inside the mat, above the foot.
+  // - No overlap: two dice are apart when one of the four edge normals separates their rotated squares by at least
+  //   matGap(die) px (the separating axis test, exact for squares; a circle bound would waste the small phones' room).
+  // - Spread: best-candidate sampling (several random spots per die, the one farthest from the dice already down wins),
+  //   so the dice cover the whole mat instead of lining up. rng() → [0, 1) (Math.random in play, seeded in tests).
+  // - Fallback: after a bounded number of tries, a jittered grid (3 × 2 for six), which fits by construction. With
+  //   opts.fixed it returns null instead, and the caller lays out every die again.
+  const MAT_EDGE = 8, MAX_TILT = 20;
+  const matGap = die => Math.max(6, Math.round(die * 0.12));
+  const rad = deg => deg * Math.PI / 180;
+  const halfBox = (die, rot) => die / 2 * (Math.abs(Math.cos(rad(rot))) + Math.abs(Math.sin(rad(rot))));
+  // a and b in px ({x, y, rot}): is there a gap of at least `gap` px between the two rotated squares?
+  function diceApart(a, b, die, gap){
+    const dx = b.x - a.x, dy = b.y - a.y, h = die / 2;
+    const reach = (ux, uy, rot) => { const c = Math.cos(rad(rot)), s = Math.sin(rad(rot)); return h * (Math.abs(ux * c + uy * s) + Math.abs(-ux * s + uy * c)); };
+    for (const rot of [a.rot, b.rot]){
+      const c = Math.cos(rad(rot)), s = Math.sin(rad(rot));
+      for (const [ux, uy] of [[c, s], [-s, c]]) if (Math.abs(dx * ux + dy * uy) >= reach(ux, uy, a.rot) + reach(ux, uy, b.rot) + gap) return true;
+    }
+    return false;
+  }
+  function layoutDice(n, w, h, die, rng = Math.random, { bottom = 0, cluster = false, fixed = [] } = {}){
+    const gap = matGap(die), px = s => ({ x:s.x * w, y:s.y * h, rot:s.rot });
+    const frac = s => ({ x:+(s.x / w).toFixed(4), y:+(s.y / h).toFixed(4), rot:+s.rot.toFixed(1) });
+    // the free zone for the centres (before the tilt's extra reach): the whole mat, or a loose middle for the cluster
+    let x0 = MAT_EDGE, x1 = w - MAT_EDGE, y0 = MAT_EDGE, y1 = h - bottom;
+    if (cluster){
+      const cw = Math.min(x1 - x0, die * 5.4), ch = Math.min(y1 - y0, die * 4.2), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+      x0 = cx - cw / 2; x1 = cx + cw / 2; y0 = cy - ch / 2; y1 = cy + ch / 2;
+    }
+    const pick = () => {
+      const rot = (rng() * 2 - 1) * MAX_TILT, e = halfBox(die, rot);
+      if (x1 - x0 < 2 * e || y1 - y0 < 2 * e) return null;
+      return { x:x0 + e + rng() * (x1 - x0 - 2 * e), y:y0 + e + rng() * (y1 - y0 - 2 * e), rot };
+    };
+    const tries = cluster ? 2 : 8; // candidates per die: one is a plain random spot, more spread the dice out
+    const taken0 = fixed.map(px);
+    for (let round = 0; round < 40; round++){
+      const taken = taken0.slice(), out = [];
+      for (let i = 0; i < n; i++){
+        let best = null, bestD = -1, seen = 0;
+        for (let k = 0; k < 60 && seen < tries; k++){
+          const c = pick(); if (!c) break;
+          if (!taken.every(t => diceApart(c, t, die, gap))) continue;
+          seen++;
+          const d = taken.length ? Math.min(...taken.map(t => Math.hypot(t.x - c.x, t.y - c.y))) : rng();
+          if (d > bestD){ best = c; bestD = d; }
+        }
+        if (!best) break;
+        taken.push(best); out.push(best);
+      }
+      if (out.length === n) return out.map(frac);
+    }
+    if (fixed.length) return null;
+    // the jittered grid: one cell per die, each die tilted and moved at random inside its cell
+    const cols = Math.min(n, 3) || 1, rows = Math.ceil(n / cols), cw = (x1 - x0) / cols, ch = (y1 - y0) / rows;
+    return Array.from({ length:n }, (_, i) => {
+      const r = Math.floor(i / cols), inRow = r === rows - 1 ? n - r * cols : cols, c = i % cols;
+      const ox = x0 + (x1 - x0 - inRow * cw) / 2; // a short last row is centred
+      let rot = (rng() * 2 - 1) * MAX_TILT;
+      if (Math.min(cw, ch) < 2 * halfBox(die, rot) + gap) rot = 0;
+      const sx = Math.max(0, cw / 2 - halfBox(die, rot) - gap / 2), sy = Math.max(0, ch / 2 - halfBox(die, rot) - gap / 2);
+      return frac({ x:ox + cw * (c + 0.5) + (rng() * 2 - 1) * sx, y:y0 + ch * (r + 0.5) + (rng() * 2 - 1) * sy, rot });
+    });
+  }
+  // do these spots still fit a mat of w × h with dice of `die` px (after a resize)?
+  // (boxH: the mat's height now, when the spots are still measured against a layout of height h)
+  function spotsFit(spots, w, h, die, bottom, boxH = h){
+    const gap = matGap(die), p = spots.map(s => ({ x:s.x * w, y:s.y * h, rot:s.rot }));
+    return p.every((a, i) => {
+      const e = halfBox(die, a.rot);
+      return a.x - e >= MAT_EDGE - 0.5 && a.x + e <= w - MAT_EDGE + 0.5 && a.y - e >= MAT_EDGE - 0.5 && a.y + e <= boxH - bottom + 0.5
+        && p.slice(i + 1).every(b => diceApart(a, b, die, gap - 0.5));
+    });
+  }
+  // the die size follows the mat: about min(22 % of its width, its height / 4.2), and small enough that six dice take
+  // at most about 30 % of the free zone (random spots need room to land), clamped from 48 to 92 px
+  function matDie(w, h, bottom){
+    const zone = (w - 2 * MAT_EDGE) * (h - MAT_EDGE - bottom);
+    return Math.round(Math.max(48, Math.min(92, w * 0.22, h / 4.2, Math.sqrt(Math.max(0, zone) * 0.3 / 6) - 6)));
+  }
+  // the room kept for the hint line at the mat's foot: up to two lines; with automatic pairing "Set aside all 7s" too
+  const matFoot = g => 12 + 44 + 8 + (E.byHand(g) ? 0 : 50);
+  // the spots are kept per turn (round, player, rolls), so redraws, taps, a pair put back and the score list never move
+  // the dice; a roll draws new spots for the rolled dice. A few recent turns are kept: a roll the server refuses falls
+  // back to the old spots
+  const turnKey = (g, rolls) => `${g.round}:${g.order[g.pos]}:${rolls}`;
+  function matSpots(g, t, w, h){
+    const bottom = matFoot(g), die = matDie(w, h, bottom), rolls = t.rolls + (ui.rolling ? 1 : 0);
+    const key = turnKey(g, rolls), ids = t.dice.filter(d => d.held === null).map(d => d.id);
+    const opts = { bottom, cluster:rolls === 0 };
+    let L = ui.layout[key];
+    if (L && (L.w !== w || L.h !== h || L.die !== die)){
+      const here = ids.filter(id => L.pos[id]).map(id => L.pos[id]);
+      // only the height changed (the rack in the bar took a second row): the dice stay where they are while they fit;
+      // the dice layer keeps the layout's height (placeDice)
+      if (L.w === w && spotsFit(here, L.w, L.h, L.die, bottom, h)){}
+      else if (spotsFit(here, w, h, die, bottom)) Object.assign(L, { w, h, die }); // a resize: the same fractions while they fit
+      else L = null;
+    }
+    const need = ids.filter(id => !L || !L.pos[id]);
+    if (L && need.length){ // a pair put back from an older layout: new spots around the dice still lying there
+      const spots = layoutDice(need.length, w, h, die, Math.random, { ...opts, fixed:ids.filter(id => L.pos[id]).map(id => L.pos[id]) });
+      if (spots) need.forEach((id, i) => { L.pos[id] = spots[i]; }); else L = null;
+    }
+    if (!L){
+      const spots = layoutDice(ids.length, w, h, die, Math.random, opts);
+      delete ui.layout[key];
+      L = ui.layout[key] = { w, h, die, pos:{} };
+      ids.forEach((id, i) => { L.pos[id] = spots[i]; });
+      const keys = Object.keys(ui.layout); keys.slice(0, Math.max(0, keys.length - 4)).forEach(k => { delete ui.layout[k]; });
+    }
+    return L;
+  }
+  // after every render (and on a resize): measure the mat, then put each die on its spot (inline left, top, --rot);
+  // the dice in flight from a roll get their throw from above the mat, staggered by 40 ms and timed from the roll's
+  // start, so a redraw mid-throw carries on where it was
+  const THROW_MS = 500, THROW_STAGGER = 40;
+  const throwTime = n => Math.max(520, THROW_MS + THROW_STAGGER * Math.max(0, n - 1));
+  function placeDice(){
+    const mat = $app.querySelector(':scope > .felt-turn .mat'), layer = mat && mat.querySelector('.dice');
+    const g = state.game;
+    if (!layer || !g || !g.turn) return;
+    const box = mat.getBoundingClientRect(), w = Math.round(box.width), h = Math.round(box.height);
+    if (w < 1 || h < 1) return;
+    const L = matSpots(g, displayTurn(g.turn), w, h), since = Date.now() - ui.rollStart;
+    layer.style.setProperty('--die', `${L.die}px`);
+    layer.style.height = L.h === h ? '' : `${L.h}px`;
+    [...layer.querySelectorAll('.die[data-id]')].forEach((el, k) => {
+      const s = L.pos[el.dataset.id]; if (!s) return;
+      el.style.left = `${(s.x * 100).toFixed(2)}%`; el.style.top = `${(s.y * 100).toFixed(2)}%`;
+      el.style.setProperty('--rot', `${s.rot}deg`);
+      if (el.classList.contains('tumble')){
+        el.style.setProperty('--fx', `${(50 + (s.x * 100 - 50) * 0.4).toFixed(2)}%`); // thrown from above the middle, fanning out
+        el.style.setProperty('--spin', `${(s.rot < 0 ? -1 : 1) * (250 + 30 * k)}deg`);
+        el.style.animationDelay = `${THROW_STAGGER * k - since}ms`;
+      }
+    });
+  }
+  addEventListener('resize', placeDice);
 
   // ---------- animations ----------
   let tumbleTimer = null;
@@ -2527,40 +2699,46 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function stopTumble(){ if (tumbleTimer){ clearInterval(tumbleTimer); tumbleTimer = null; } }
   const wait = ms => new Promise(r => setTimeout(r, ms));
-  // light up the next pair, then fly both dice in an arc from the tray into the set-aside rack
+  // light up the next pair, then fly both dice in an arc from the mat into the rack in the bar
+  // (a redraw meanwhile, say a tap on the score chip, keeps the lit pair and the hidden landing spot: both come from
+  // ui.reveal; the dice are looked up again after the pause, so they fly from where they lie on the mat)
   async function flyNext(){
     const [a, b] = ui.reveal.pairs[ui.reveal.idx];
     await 0; // let any pending render finish so we measure the live dice
-    const els = [a, b].map(id => $app.querySelector(`.dice .die[data-id="${id}"]`));
-    els.forEach(el => { if (el) el.classList.add('pairing'); });
+    ui.reveal.lit = [a, b];
+    $app.querySelectorAll('.dice .die[data-id]').forEach(el => { if (+el.dataset.id === a || +el.dataset.id === b) el.classList.add('pairing'); });
     await wait(240);
     if (!ui.reveal) return; // the room was left meanwhile
-    const from = els.map(el => el ? el.getBoundingClientRect() : null);
-    ui.reveal.idx++; render();
-    if (!from[0] || !from[1]) return;
+    // the centre, the untransformed size and the tilt of each die where it lies now
+    const from = [a, b].map(id => {
+      const el = $app.querySelector(`.dice .die[data-id="${id}"]`); if (!el) return null;
+      const r = el.getBoundingClientRect(), size = el.offsetWidth;
+      return size ? { cx:r.left + r.width / 2, cy:r.top + r.height / 2, size, rot:parseFloat(el.style.getPropertyValue('--rot')) || 0 } : null;
+    });
+    ui.reveal.lit = null; ui.reveal.idx++; ui.reveal.landing = true; render();
+    const landed = () => { if (ui.reveal) ui.reveal.landing = false; $app.querySelectorAll('.rack .pair.landing').forEach(p => p.classList.remove('landing')); };
     const packs = $app.querySelectorAll('.rack .pair'), last = packs[packs.length - 1];
     const minis = last ? last.querySelectorAll('.die.mini') : [];
-    if (minis.length < 2) return;
-    minis.forEach(m => { m.style.visibility = 'hidden'; });
+    if (!from[0] || !from[1] || minis.length < 2){ landed(); return; }
     const vals = [state.game.turn.dice[a].value, state.game.turn.dice[b].value];
+    const to = [...minis].map(m => m.getBoundingClientRect());
     await Promise.all(from.map((r, k) => {
-      const to = minis[k].getBoundingClientRect();
-      const s = to.width / r.width;
-      const dx = (to.left + to.width / 2) - (r.left + r.width / 2), dy = (to.top + to.height / 2) - (r.top + r.height / 2);
+      const t = to[k], s = t.width / r.size;
+      const dx = (t.left + t.width / 2) - r.cx, dy = (t.top + t.height / 2) - r.cy;
       const el = document.createElement('span');
       el.className = 'die fly'; el.setAttribute('aria-hidden', 'true');
-      el.style.cssText = `--die:${r.width}px;left:${r.left}px;top:${r.top}px`;
+      el.style.cssText = `--die:${r.size}px;left:${r.cx - r.size / 2}px;top:${r.cy - r.size / 2}px`;
       el.innerHTML = face(vals[k]);
       document.body.appendChild(el);
       const spin = k ? -360 : 360;
       const anim = el.animate([
-        { transform:'translate(0,0) scale(1) rotate(0deg)' },
-        { transform:`translate(${dx * 0.45}px,${dy * 0.45 - 70}px) scale(${(1 + s) / 2 + 0.15}) rotate(${spin / 2}deg)`, offset:0.5 },
+        { transform:`translate(0,0) scale(1) rotate(${r.rot}deg)` },
+        { transform:`translate(${dx * 0.45}px,${dy * 0.45 - 70}px) scale(${(1 + s) / 2 + 0.15}) rotate(${r.rot + spin / 2}deg)`, offset:0.5 },
         { transform:`translate(${dx}px,${dy}px) scale(${s}) rotate(${spin}deg)` }
       ], { duration:520, delay:k * 70, easing:'cubic-bezier(.45,0,.25,1)', fill:'forwards' });
       return anim.finished.catch(() => {}).then(() => el.remove());
     }));
-    minis.forEach(m => { m.style.visibility = ''; });
+    landed();
   }
 
   // ---------- between rounds: the race to 101 ----------
@@ -3019,6 +3197,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
     $app.innerHTML = html;
     fitChip();
+    placeDice();
+    if (!$app.querySelector('.scorechip')) ui.scoresOpen = false; // the score list belongs to the turn screens
     $app.classList.toggle('has-bar', !!$app.querySelector(':scope > :is(.bar,.felt-home)'));
     $app.classList.toggle('profile-on', !!$app.querySelector(':scope > section.acct')); // the profile fills the screen: Delete player sits at the bottom
     // home and the dice turn are on the leather: the whole page takes the table's colours (html.felt; home is leather-deep)
@@ -3133,7 +3313,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
     // the open score list closes on a tap on the mat (which does nothing else); the bar and the menu button act as usual
-    if (ui.scoresOpen && e.target.closest && e.target.closest('#app > .felt-turn')){ ui.scoresOpen = false; render(); return; }
+    if (ui.scoresOpen && e.target.closest && e.target.closest('#app > .felt-turn')){ closeScores(); return; }
     if (!el || !($app.contains(el) || $sheet.contains(el)) || el.disabled) return;
     handle(el.dataset.act, el.dataset.id != null ? +el.dataset.id : null, el);
   });
@@ -3211,6 +3391,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     get state(){ return E.clone(state); },
     get net(){ return { code:net.code, seat:net.seat, status:net.status, rev:net.rev, room:net.room && E.clone(net.room) }; },
     get busy(){ return ui.busy || ui.rolling || ui.race; },
+    layout:layoutDice, // layoutDice(n, w, h, die, rng, opts): the dice's random spots on the mat (pure; tests seed rng)
+    dieSize:matDie,    // matDie(w, h, bottom): the die size the page uses for a mat of w × h
     get account(){ return { available:accountsAvailable(), signedIn:!!account, id:account ? account.id : null, name:account ? account.name : null }; }
   });
   try { window.claude?.hot?.snapshot?.(() => ({ state })); } catch (e) {}
