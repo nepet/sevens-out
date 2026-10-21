@@ -222,6 +222,9 @@ html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
 .scorechip.tiny .sc-p b{font-size:14px}
 .scorechip.tiny .sc-chev{display:none}
 .scorechip.mini .sc-mid,.scorechip.mini .sc-rest{display:none}
+/* micro: beside the chat button at 320 px; totals stay whole, one initial per name */
+.scorechip.micro{gap:3px;padding:0 6px;font-size:11px}
+.scorechip.micro .sc-p b{font-size:12px}
 /* from 7 players: the current player, the leader and "+N more"; a long name ends in "…" */
 .scorechip.crowd .sc-p{flex:0 1 auto;min-width:0;display:flex;align-items:baseline;gap:.3em}
 .sc-n{min-width:1.5em;max-width:9em;overflow:hidden;text-overflow:ellipsis}
@@ -233,6 +236,8 @@ html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
 html:root[data-look="vegas"] .sc-p b{font-size:14px}
 html:root[data-look="vegas"] .scorechip.tight .sc-p b{font-size:12px}
 html:root[data-look="vegas"] .scorechip.tiny .sc-p b{font-size:10px}
+html:root[data-look="vegas"] .scorechip.micro{gap:2px;padding:0 5px;font-size:10px}
+html:root[data-look="vegas"] .scorechip.micro .sc-p b{font-size:9px}
 .scores-pop{position:absolute;z-index:15;top:calc(100% + 8px);left:0;right:0;overflow-y:auto;overscroll-behavior:contain;border-radius:14px}
 html.felt .scores-pop{box-shadow:0 14px 30px var(--shade)}
 html.felt .scores-pop .board{background:var(--leather-deep)}
@@ -2408,10 +2413,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     fitScores();
     const c = $app.querySelector('.scorechip'); if (!c) return;
     const n = state.game ? state.game.players.length : 0, crowd = n > CHIP_ALL;
-    c.classList.toggle('short', n >= 4 && !crowd); c.classList.remove('tight', 'tiny', 'mini');
+    c.classList.toggle('short', n >= 4 && !crowd); c.classList.remove('tight', 'tiny', 'mini', 'micro');
     const over = crowd ? () => c.scrollWidth > c.clientWidth + 0.5 || [...c.querySelectorAll('.sc-n')].some(el => el.scrollWidth > el.clientWidth + 0.5)
       : () => c.scrollWidth > c.clientWidth + 0.5;
-    for (const step of crowd ? ['tight', 'tiny'] : ['short', 'tight', 'tiny', 'mini']) if (over()) c.classList.add(step);
+    for (const step of crowd ? ['tight', 'tiny'] : ['short', 'tight', 'tiny', 'mini', 'micro']) if (over()) c.classList.add(step);
   }
   // the score list over the mat ends where the mat (or the pinned bar) does, and scrolls inside itself when it is longer
   function fitScores(){

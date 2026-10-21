@@ -192,3 +192,22 @@ export async function fakeRoom(page, { room, state = null, seat, log }) {
   });
   return { push: m => { if (sock) sock.send(JSON.stringify(m)); }, close: () => { if (sock) sock.close(); }, hellos: () => hellos };
 }
+
+// the chip's content fits inside it on one line (nothing cut off, nothing wrapped)
+export const chipFits = async page => {
+  const c = page.locator('#app .scorechip');
+  const [sw, cw, h] = await c.evaluate(el => [el.scrollWidth, el.clientWidth, el.getBoundingClientRect().height]);
+  expect(sw, 'chip content fits').toBeLessThanOrEqual(cw + 0.5);
+  expect(h).toBeCloseTo(44, 0);
+  const tops = await c.locator('.sc-p').evaluateAll(ps => ps.map(p => Math.round(p.getBoundingClientRect().top)));
+  expect(new Set(tops).size, 'one line').toBe(1);
+  // every name stub and total lies inside the chip's box: nothing is cut off by its overflow:hidden
+  const cut = await c.evaluate(el => {
+    const box = el.getBoundingClientRect();
+    return [...el.querySelectorAll('.sc-p, .sc-p b')].filter(x => {
+      const r = x.getBoundingClientRect();
+      return r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
+    }).map(x => x.textContent);
+  });
+  expect(cut, 'chip items inside the chip').toEqual([]);
+};

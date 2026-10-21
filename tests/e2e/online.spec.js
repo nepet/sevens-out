@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { SERVER, url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine, fakeRoom, seedRandom } from './helpers.js';
+import { SERVER, url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine, fakeRoom, seedRandom, chipFits } from './helpers.js';
 import '../../engine.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
@@ -1143,6 +1143,59 @@ test.describe('chat ticker', () => {
     expect(off.t - on.t).toBeLessThan(3600);
     await A.ctx.close(); await B.ctx.close();
   });
+
+  // the online twin of the chip-fit loop in local.spec.js: the chat button takes 44 px + 8 px of the row
+  for (const [w, n] of [[375, 6], [320, 6], [320, 5]]) for (const look of ['pub', 'vegas']) {
+    test(`online, ${n} players with 3-digit totals at ${w} px: every name stub and total inside the chip, next to the chat button (${look})`, async ({ page }) => {
+      await page.setViewportSize({ width: w, height: 667 });
+      await page.addInitScript(l => { try { localStorage.setItem('sevens-out-look', l); } catch (e) {} }, look);
+      const names = ['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian'].slice(0, n);
+      const s = begin(names);
+      s.game.players.forEach((p, i) => { p.score = 100 + i; });
+      Object.assign(s.game, { ending: true, crosser: n - 1 });
+      await fakeRoom(page, { room: roomOf(names), state: s, seat: 's1', log: [] });
+      await inRoom(page);
+      await page.goto(url('/'));
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('.scorechip .sc-p')).toHaveCount(n);
+      await expect(page.locator('#app .chatbtn')).toBeVisible();
+      await chipFits(page);
+      expect(await page.locator('.scorechip .sc-p b').allInnerTexts()).toEqual(['100', '101', '102', '103', '104', '105'].slice(0, n));
+      const [chip, btn] = [await page.locator('.scorechip').boundingBox(), await page.locator('#app .chatbtn').boundingBox()];
+      expect(chip.x + chip.width, 'chip ends before the chat button').toBeLessThanOrEqual(btn.x + 0.5);
+      expect(btn.x).toBeGreaterThanOrEqual(0);
+      expect(btn.x + btn.width, 'chat button inside the viewport').toBeLessThanOrEqual(w);
+      expect(await noSideScroll(page)).toBe(true);
+    });
+  }
+
+  for (const look of ['pub', 'vegas']) {
+    test(`online, 12 players with long names and 3-digit totals at 320 px: the chip stays on one line next to the chat button (${look})`, async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 667 });
+      await page.addInitScript(l => { try { localStorage.setItem('sevens-out-look', l); } catch (e) {} }, look);
+      const names = ['Maximilian Long', 'Bartholomew', 'Cleopatra', 'Dan', 'Eve', 'Frederique', 'Gwendolyn', 'Hieronymus', 'Isadora', 'Jebediah', 'Kristoffer', 'Leopoldine'];
+      const s = begin(names);
+      s.game.players.forEach((p, i) => { p.score = 100 + i; });
+      Object.assign(s.game, { ending: true, crosser: 11 });
+      await fakeRoom(page, { room: roomOf(names), state: s, seat: 's1', log: [] });
+      await inRoom(page);
+      await page.goto(url('/'));
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('#app .chatbtn')).toBeVisible();
+      const r = await page.evaluate(() => {
+        const c = document.querySelector('.scorechip'), b = document.querySelector('#app .chatbtn').getBoundingClientRect(), cr = c.getBoundingClientRect();
+        return { sw: c.scrollWidth, cw: c.clientWidth, h: cr.height, right: cr.right, btn: b.left,
+          cut: [...c.querySelectorAll('.sc-p b')].filter(x => x.getBoundingClientRect().right > cr.right + 0.5).length,
+          tops: [...new Set([...c.querySelectorAll('.sc-p')].map(x => Math.round(x.getBoundingClientRect().top)))].length };
+      });
+      expect(r.sw).toBeLessThanOrEqual(r.cw + 0.5);
+      expect(r.h).toBeCloseTo(44, 0);
+      expect(r.tops).toBe(1);
+      expect(r.cut).toBe(0);
+      expect(r.right).toBeLessThanOrEqual(r.btn + 0.5);
+      expect(await noSideScroll(page)).toBe(true);
+    });
+  }
 
   test('the ticker never moves or covers the dice', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });

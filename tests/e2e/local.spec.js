@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, closeScores, editLine, stopPts, seedRandom } from './helpers.js';
+import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, closeScores, editLine, stopPts, seedRandom, chipFits } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -868,24 +868,6 @@ test.describe('the dice turn screen', () => {
   const barAtBottom = async page => {
     const [box, h] = [await page.locator('#app > .bar').boundingBox(), await page.evaluate(() => innerHeight)];
     expect(Math.abs(box.y + box.height - h)).toBeLessThanOrEqual(1);
-  };
-  // the chip's content fits inside it on one line (nothing cut off, nothing wrapped)
-  const chipFits = async page => {
-    const c = page.locator('#app .scorechip');
-    const [sw, cw, h] = await c.evaluate(el => [el.scrollWidth, el.clientWidth, el.getBoundingClientRect().height]);
-    expect(sw, 'chip content fits').toBeLessThanOrEqual(cw + 0.5);
-    expect(h).toBeCloseTo(44, 0);
-    const tops = await c.locator('.sc-p').evaluateAll(ps => ps.map(p => Math.round(p.getBoundingClientRect().top)));
-    expect(new Set(tops).size, 'one line').toBe(1);
-    // every name stub and total lies inside the chip's box: nothing is cut off by its overflow:hidden
-    const cut = await c.evaluate(el => {
-      const box = el.getBoundingClientRect();
-      return [...el.querySelectorAll('.sc-p, .sc-p b')].filter(x => {
-        const r = x.getBoundingClientRect();
-        return r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
-      }).map(x => x.textContent);
-    });
-    expect(cut, 'chip items inside the chip').toEqual([]);
   };
   // a one-phone dice game with these totals, Anna to roll; one player over 101 makes it the last round
   const saveWith = (names, scores) => {
