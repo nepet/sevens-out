@@ -38,7 +38,11 @@ const TABLE_ACTIONS = new Set(['drop', 'undo', 'edit', 'nextround']);
 const HOST_ACTIONS = new Set(['endearly']);
 
 const hex = n => { const b = new Uint8Array(n); crypto.getRandomValues(b); return Array.from(b, x => x.toString(16).padStart(2, '0')).join(''); };
-const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 16);
+// bidi overrides, embeddings and isolates (U+202A–U+202E, U+2066–U+2069) could reorder "Name · text" on other phones
+const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/g;
+// zero-width characters: a message of nothing else is empty (the joiner stays in a message, emoji need it)
+const ZERO_WIDTH = /[\u200b-\u200d\u2060\ufeff]/g;
+const cleanName = s => String(s == null ? '' : s).replace(/[\u0000-\u001f]/g, '').replace(BIDI_CONTROLS, '').replace(/\s+/g, ' ').trim().slice(0, 16);
 
 // welcome.user is the signed-in player the server sees (null: a guest, or the session has ended);
 // it is left out when the accounts couldn't be asked
@@ -209,9 +213,9 @@ export class Room {
     if (!who) return this.error(conn, 'not_seated', 'Join the room first.');
     const id = who.id;
     if (typeof text !== 'string') return this.error(conn, 'bad_message', `Messages are 1 to ${CHAT_MAX} characters.`);
-    text = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    text = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(BIDI_CONTROLS, '').replace(/\s+/g, ' ').trim();
     const n = [...text].length;
-    if (n < 1 || n > CHAT_MAX) return this.error(conn, 'bad_message', `Messages are 1 to ${CHAT_MAX} characters.`);
+    if (n < 1 || n > CHAT_MAX || !text.replace(ZERO_WIDTH, '').trim()) return this.error(conn, 'bad_message', `Messages are 1 to ${CHAT_MAX} characters.`);
     const at = this.now(), recent = (this.chatTimes.get(id) || []).filter(t => at - t < CHAT_WINDOW_MS);
     if (recent.length >= CHAT_BURST) { this.chatTimes.set(id, recent); return this.error(conn, 'rate', 'Slow down a little.'); }
     recent.push(at); this.chatTimes.set(id, recent);

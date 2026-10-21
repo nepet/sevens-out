@@ -453,6 +453,37 @@ test('chat: refused text', async () => {
   assert.equal(last(a, 'chat').msg.text.length, 140);
 });
 
+test('chat: bidi controls are stripped, and zero-width-only text is empty', async () => {
+  const { room, a } = await lobbyOf2();
+  await send(room, a, { t: 'chat', text: '\u202eevil\u202c \u2066x\u2069 \u202a\u202b\u202d\u2067\u2068ok' });
+  assert.equal(last(a, 'chat').msg.text, 'evil x ok');
+  // a family emoji keeps its zero-width joiners
+  await send(room, a, { t: 'chat', text: '\u{1F468}\u200d\u{1F469}\u200d\u{1F467}' });
+  assert.equal(last(a, 'chat').msg.text, '\u{1F468}\u200d\u{1F469}\u200d\u{1F467}');
+  for (const text of ['\u200b', '\u200b\u200c\u200d', '\u2060 \ufeff', '\u202e\u202c', '\u2066\u200b\u2069']) {
+    const n = a.inbox.filter(m => m.t === 'chat').length;
+    await send(room, a, { t: 'chat', text });
+    assert.equal(last(a, 'error').code, 'bad_message', JSON.stringify(text));
+    assert.equal(a.inbox.filter(m => m.t === 'chat').length, n);
+  }
+});
+
+test('chat: bidi controls are stripped from a spectator\'s name and a seat name', async () => {
+  const r = makeRoom(), { room } = r;
+  const a = r.connect(), b = r.connect(), c = r.connect();
+  await send(room, a, { t: 'hello', name: 'An\u202ena', create: true });
+  await send(room, b, { t: 'hello', name: 'Ben' });
+  assert.equal(last(a, 'room').room.seats[0].name, 'Anna');
+  await send(room, a, { t: 'lobby', op: 'start' });
+  await send(room, c, { t: 'hello', name: '\u2067Dan\u2069\u202d' });
+  await send(room, c, { t: 'chat', text: 'hi' });
+  assert.equal(last(a, 'chat').msg.name, 'Dan');
+  const e = r.connect();
+  await send(room, e, { t: 'hello', name: '\u202e\u2066' });
+  await send(room, e, { t: 'chat', text: 'hi' });
+  assert.equal(last(a, 'chat').msg.name, 'Guest');
+});
+
 test('chat: a connection that has not said hello is refused', async () => {
   const { room, connect } = await lobbyOf2();
   const c = connect();
