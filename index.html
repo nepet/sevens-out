@@ -55,7 +55,7 @@ button{cursor:pointer}
 .wrap{max-width:34rem;margin-inline:auto;padding-inline:16px;padding-block:14px 48px;display:flex;flex-direction:column;gap:14px}
 .sr{position:absolute;width:1px;height:1px;margin:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* the account's live region sits after #app: at the top, so it never makes the page longer than the screen (the bar's bottom edge) */
-#acct-live{top:0}
+#acct-live,#chat-live{top:0}
 
 /* header */
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
@@ -485,6 +485,16 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .chat-send .text-in{flex:1 1 auto;min-width:0;height:52px}
 .chat-send .btn{flex:none;min-height:52px;padding-inline:20px}
 @supports not (color:color-mix(in srgb,red 50%,blue)){.chat-msg.mine{background:var(--card)}}
+/* the ticker (tickerHtml()): another phone's message as one line for TICKER_MS. On the turns it takes the eyebrow's box
+   (same height, cut with an ellipsis), so nothing under it moves; on paper it hangs just under the slim header, over the
+   content and never taking a tap. The inline negative animation-delay lets a redraw carry on with the fade */
+.ticker{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);animation:ticker 3s linear both}
+.ticker b{color:var(--brass-text);font-weight:700}
+.turnhead.c4 .eyebrow.ticker{width:100%;height:1.45em;line-height:1.45;text-transform:none;letter-spacing:0;font-weight:500}
+.top.slim{position:relative}
+.ticker.under{position:absolute;z-index:14;top:100%;left:0;right:0;margin-top:4px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 8px 20px var(--shade);font-size:.9rem;line-height:1.3;pointer-events:none}
+@keyframes ticker{0%{opacity:0;transform:translateY(-4px)}6.67%,90%{opacity:1;transform:none}100%{opacity:0;transform:none}}
+@media (prefers-reduced-motion:reduce){.ticker{animation:none}}
 
 /* scoreboard mode */
 .pick{display:flex;flex-direction:column;gap:6px}
@@ -826,6 +836,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const $acctLive = document.createElement('p');
   $acctLive.className = 'sr'; $acctLive.id = 'acct-live'; $acctLive.setAttribute('aria-live', 'polite');
   document.body.appendChild($acctLive);
+  // the chat ticker is aria-hidden; this region reads each message out instead ("Cleo: 101 is calling you")
+  const $chatLive = document.createElement('p');
+  $chatLive.className = 'sr'; $chatLive.id = 'chat-live'; $chatLive.setAttribute('aria-live', 'polite');
+  document.body.appendChild($chatLive);
   // the bottom sheet's layer (see openSheet): outside #app, so it keeps its slide-in and scroll position through redraws
   const $sheet = document.createElement('div');
   $sheet.className = 'sheet-layer'; $sheet.hidden = true;
@@ -1517,7 +1531,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
-  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null });
+  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null, ticker:{ queue:[], cur:null, held:false } });
 
   // ---------- online play: one WebSocket per phone to the room server ----------
   const ONLINE_KEY = 'sevens-out-online';
@@ -1835,7 +1849,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function netStart(opts){
     Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, createWith: opts.create ? opts.settings || null : null, token:null, seat:null,
       room:null, want:true, server: serverBase(), rev:0, inGame:false, tries:0, chat:noChat(), viewer:null });
-    resetUi(); ui.screen = null; ui.open = {}; ui.showLink = false; ui.chatDraft = ''; ui.chatHint = null;
+    resetUi(); ui.screen = null; ui.open = {}; ui.showLink = false; ui.chatDraft = ''; ui.chatHint = null; tickerReset();
     netConnect();
   }
   function netConnect(){
@@ -1881,7 +1895,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     net.want = false; clearTimeout(net.timer);
     if (net.ws){ const w = net.ws; net.ws = null; try { w.onclose = null; setTimeout(() => w.close(), 50); } catch (e) {} }
     Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false, chat:noChat(), viewer:null });
-    net.session++; ui.chatDraft = ''; ui.chatHint = null;
+    net.session++; ui.chatDraft = ''; ui.chatHint = null; tickerReset();
     try { localStorage.removeItem(ONLINE_KEY); } catch (e) {}
     state = load() || blank(); resetUi(); ui.open = {}; ui.showLink = false;
   }
@@ -1970,19 +1984,53 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       chatArrived(m.msg, { replay:false });
     }
   }
-  // a message this phone hasn't seen: read at once while the chat is open, otherwise one more on the badge (unless it's this phone's own).
-  // replay: it came with the log after a (re)connect rather than live
+  // a message this phone hasn't seen: read at once while the chat is open, otherwise one more on the badge and a turn on
+  // the ticker (unless it's this phone's own). replay: it came with the log after a (re)connect rather than live; only a
+  // fresh one gets the ticker
   function chatArrived(msg, { replay = false } = {}){
     const c = net.chat;
     if (ui.sheet === 'chat'){ c.seen = Math.max(c.seen || 0, msg.id); c.unread = 0; }
-    else if (!chatMine(msg)) c.unread++;
+    else if (!chatMine(msg)){
+      c.unread++;
+      if (!replay || Date.now() - msg.at <= TICKER_FRESH_MS){
+        ui.ticker.queue = [...ui.ticker.queue, { msg, got:Date.now() }].slice(-TICKER_QUEUE);
+        tickNext();
+      }
+    }
     saveOnline();
   }
-  // opening the chat reads everything in it
+  // opening the chat reads everything in it, the ticker's line and queue too (the log shows them)
   function chatRead(){
     const c = net.chat, last = c.log.length ? c.log[c.log.length - 1].id : 0;
     c.seen = Math.max(c.seen || 0, last); c.unread = 0;
+    tickerReset();
     saveOnline();
+  }
+  // the ticker: others' messages one at a time, oldest first, TICKER_MS each; a backlog keeps the newest TICKER_QUEUE.
+  // It holds during the race between rounds (held), and afterwards shows only what is younger than TICKER_FRESH_MS.
+  // ui.ticker = {queue:[{msg, got}], cur:{msg, start}|null, held}; tickNext() is called again when the race ends
+  const TICKER_MS = 3000, TICKER_FRESH_MS = 5000, TICKER_QUEUE = 3;
+  let tickTimer = 0;
+  function tickerReset(){ clearTimeout(tickTimer); ui.ticker = { queue:[], cur:null, held:false }; }
+  function tickNext(){
+    const tk = ui.ticker;
+    if (ui.race){ tk.held = true; return; }
+    if (tk.cur) return;
+    const now = Date.now();
+    if (tk.held){ tk.held = false; tk.queue = tk.queue.filter(x => now - x.got <= TICKER_FRESH_MS); }
+    const next = tk.queue.shift();
+    if (!next) return;
+    tk.cur = { msg:next.msg, start:now };
+    $chatLive.textContent = `${next.msg.name}: ${next.msg.text}`;
+    render();
+    tickTimer = setTimeout(() => { tk.cur = null; tickNext(); if (!tk.cur) render(); }, TICKER_MS);
+  }
+  // the line itself, for the screen's slot (cls: 'eyebrow' in the turn head, 'under' below a slim header); nothing during
+  // the race. aria-hidden: #chat-live has said it. The negative delay carries the fade on through redraws
+  function tickerHtml(cls){
+    const cur = ui.ticker.cur;
+    if (!cur || ui.race || !online()) return '';
+    return `<p class="${cls} ticker" aria-hidden="true" style="animation-delay:-${Date.now() - cur.start}ms"><b>${esc(cur.msg.name)}</b> · ${esc(cur.msg.text)}</p>`;
   }
   function chatSend(text){
     text = String(text || '').trim();
@@ -2081,7 +2129,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       const recap = typeof E.roundRecap === 'function' ? E.roundRecap(g) : null;
       if (recap) await playRace(recap, swap, g);
     } catch (err){ console.error(err); }
-    finally { ui.race = false; swap(); }
+    finally { ui.race = false; swap(); tickNext(); }
   }
   function afterEvents(events){
     const g = state.game, nm = i => (g && g.players[i] ? g.players[i].name : '');
@@ -2172,7 +2220,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function header(g){
     const lim = state.phase === 'over' ? 'Game over'
       : g.mark != null ? `${plural(g.mark, 'roll')} max` : `${esc(pname(g.starter))} sets the limit (max ${MAX_ROLLS})`;
-    return `<header class="top slim"><div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
+    return `<header class="top slim">${tickerHtml('under')}<div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}`;
   }
   function netChip(){
@@ -2346,9 +2394,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </header>
       ${online() && net.status !== 'open' ? `<div class="roomrow">${netChip()}</div>` : ''}`;
   }
-  // under the chip, centred: the eyebrow ("Round 4 · Roll 1 of 2"), the big name, and the 101 alert when it applies
+  // under the chip, centred: the eyebrow ("Round 4 · Roll 1 of 2"), the big name, and the 101 alert when it applies.
+  // The chat ticker takes the eyebrow's place for its 3 s: the same box, so the name and the mat never move
   function turnHead(g, cur, eyebrow){
-    return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who">${nameOf(cur)}</h2>
+    return `<div class="turnhead c4">${tickerHtml('eyebrow') || `<p class="eyebrow">${eyebrow}</p>`}<h2 class="who">${nameOf(cur)}</h2>
         ${g.ending ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}</div>`;
   }
   // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
@@ -2641,7 +2690,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const n = seats.length;
     const main = !host ? waiting(hostName(), 'start')
       : `<button class="btn primary" data-act="ostart"${n < 2 ? ' disabled' : ''}>${n < 2 ? 'Waiting for one more player' : `Start · ${n} players`}</button>`;
-    return `<header class="top slim"><div class="top-l">${menuButton()}<h1 class="h2" id="lobby-h">Room</h1></div>${net.status === 'open' ? '' : netChip()}${chatButton()}</header>
+    return `<header class="top slim">${tickerHtml('under')}<div class="top-l">${menuButton()}<h1 class="h2" id="lobby-h">Room</h1></div>${net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       <section class="oncard roomhead" aria-labelledby="room-h">
         <p class="eyebrow" id="room-h">Room code</p>
         <p class="roomcode">${esc(net.code)}</p>
@@ -2766,6 +2815,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function closeSheet({ redraw = true } = {}){
     if (!ui.sheet) return;
     if (ui.sheet === 'join' || ui.sheet === 'play') ui.hint = null; // its hint ("Enter your name first…") doesn't linger on the screen under it
+    if (ui.sheet === 'chat') queueMicrotask(tickNext); // the ticker carries on (after this redraw, never inside one)
     sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null; ui.shakeNote = null; ui.chatHint = null;
     if (redraw) render();
   }
@@ -3111,7 +3161,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // best moment pops up, then a curtain drops, swap() switches the screen under it and the curtain slides away.
   // A tap (or Escape, Enter, Space) skips to the end, and so does a step that fails; swap() is called exactly once either way.
   async function playRace(recap, swap, g = state.game){
-    if (document.hidden){ swap(); ui.race = false; return; } // nobody is looking
+    if (document.hidden){ swap(); ui.race = false; tickNext(); return; } // nobody is looking
     ui.race = true; dropMissed();
     closeSheet(); // the race is the moment everyone shares: an open game menu makes way for it
     await listInView();
@@ -3128,7 +3178,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         if (done) return;
         done = true; timers.forEach(clearTimeout); cancelAnimationFrame(raf);
         document.removeEventListener('keydown', onKey, true);
-        doSwap(); if (el) el.remove(); ui.race = false; resolve();
+        doSwap(); if (el) el.remove(); ui.race = false; tickNext(); resolve();
       }
       // a step that fails ends the race at once: the new state shows as after a skip
       const later = (ms, fn) => timers.push(setTimeout(() => { try { fn(); } catch (err){ console.error(err); finish(); } }, ms));
@@ -3525,6 +3575,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       : viewOver();
   }
   function render(){
+    // this phone's turn starts (or it may now cover for an offline player): an open chat makes way, Roll gets the focus,
+    // and the draft waits in ui.chatDraft
+    const can = online() && state.phase === 'play' && canAct(), toBar = can && !ui.couldAct && ui.sheet === 'chat';
+    if (toBar){ closeSheet({ redraw:false }); sheetReturn = null; }
+    ui.couldAct = can;
     const f = document.activeElement;
     const key = f && $app.contains(f) && f.dataset && f.dataset.act ? [f.dataset.act, f.dataset.id] : null;
     const typing = f && $app.contains(f) && f.tagName === 'INPUT' && f.type === 'text' && f.id ? f.id : null;
@@ -3569,6 +3624,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       if (el && (!at || at === document.body || $app.contains(at) || $sheet.contains(at))) el.focus({ preventScroll:true });
     }
     if (focusNext){ const el = document.getElementById(focusNext); focusNext = null; if (el) el.focus({ preventScroll:true }); }
+    if (toBar){ const el = $app.querySelector(':scope > .bar .btn.primary:not(:disabled)'); if (el) el.focus({ preventScroll:true }); }
     save();
     if (ui.celebrate){ const nm = ui.celebrate; ui.celebrate = null; celebrate(nm); }
     if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }

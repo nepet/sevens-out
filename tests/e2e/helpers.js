@@ -99,6 +99,11 @@ export function checkSheet(g) {
   return scores;
 }
 
+// Math.random from a seed (the dice's spots use it; the dice faces come from crypto). Set it up before goto
+export const seedRandom = (page, seed) => page.addInitScript(sd => {
+  let a = sd;
+  Math.random = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}, seed);
 export const noSideScroll = page => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
 
 // ----- passkeys (your player) -----

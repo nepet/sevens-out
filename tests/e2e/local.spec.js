@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, closeScores, editLine, stopPts } from './helpers.js';
+import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, closeScores, editLine, stopPts, seedRandom } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -1168,11 +1168,6 @@ test.describe('the dice turn screen', () => {
   });
 
   // ---------- the dice lie at random spots on the mat ----------
-  // Math.random from a seed (the dice's spots use it; the dice faces come from crypto)
-  const seedRandom = (page, seed) => page.addInitScript(sd => {
-    let a = sd;
-    Math.random = () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-  }, seed);
   // two rotated squares {cx, cy, s, a (radians)}: the gap along the best separating axis (negative: they overlap)
   const sepGap = (p, q) => {
     const reach = (ux, uy, d) => d.s / 2 * (Math.abs(ux * Math.cos(d.a) + uy * Math.sin(d.a)) + Math.abs(-ux * Math.sin(d.a) + uy * Math.cos(d.a)));
