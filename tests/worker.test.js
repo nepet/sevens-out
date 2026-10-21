@@ -105,6 +105,30 @@ test('the cleanup alarm deletes rooms that have not been used for two weeks', as
   assert.equal(ctx.kv.size, 0);
 });
 
+test('a spectator keeps their identity across hibernation, and the log replays after the rebuild', async () => {
+  const ctx = fakeCtx();
+  let obj = new GameRoom(ctx, {});
+  const a = await connect(obj, 'K7QPM'), b = await connect(obj, 'K7QPM'), c = await connect(obj, 'K7QPM');
+  await say(obj, a, { t: 'hello', name: 'Anna', create: true });
+  await say(obj, b, { t: 'hello', name: 'Ben' });
+  await say(obj, a, { t: 'lobby', op: 'start' });
+  await say(obj, c, { t: 'hello', name: 'Dan' });
+  const viewer = last(c, 'welcome').viewer;
+  assert.match(viewer, /^w[0-9a-f]{8}$/);
+
+  obj = new GameRoom(ctx, {}); // hibernation: the sockets and their attachments stay
+  await say(obj, c, { t: 'chat', text: 'hello table' });
+  const msg = last(a, 'chat').msg;
+  assert.equal(msg.from, viewer);
+  assert.equal(msg.name, 'Dan');
+  assert.equal(msg.seat, null);
+
+  obj = new GameRoom(ctx, {});
+  const d = await connect(obj, 'K7QPM');
+  await say(obj, d, { t: 'hello', name: 'Eve' });
+  assert.deepEqual(last(d, 'chat').log.map(m => m.text), ['hello table']);
+});
+
 const DAY = 24 * 3600 * 1000;
 const gameRow = d1 => d1.raw.prepare('SELECT id, status, loser FROM games').all().map(r => ({ ...r }));
 async function startedGame(env) {

@@ -55,7 +55,8 @@ function getRoom(code) {
     send: (ws, msg) => { if (ws.readyState === 1) ws.send(JSON.stringify(msg)); },
     conns: () => [...sockets].filter(ws => ws.readyState === 1),
     seatOf: ws => ws.seat || null,
-    bind: (ws, seat) => { ws.seat = seat; },
+    bind: (ws, seat, info) => { ws.seat = seat; if (info !== undefined) ws.info = info; },
+    infoOf: ws => ws.info || null,
     close: (ws, code, reason) => { try { ws.close(code, reason); } catch {} }
   };
   const accounts = { resolve: session => resolveSession(db, session) };

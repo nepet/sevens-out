@@ -128,7 +128,8 @@ export class GameRoom extends DurableObject {
       send: (ws, msg) => { try { ws.send(JSON.stringify(msg)); } catch {} },
       conns: () => ctx.getWebSockets().filter(ws => ws.readyState === 1),
       seatOf: ws => (ws.deserializeAttachment() || {}).seat || null,
-      bind: (ws, seat) => ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), seat }),
+      bind: (ws, seat, info) => ws.serializeAttachment({ ...(ws.deserializeAttachment() || {}), seat, ...(info !== undefined ? { info } : {}) }),
+      infoOf: ws => (ws.deserializeAttachment() || {}).info || null,
       close: (ws, code, reason) => { try { ws.close(code, reason); } catch {} }
     };
     const stats = env && env.STATS ? { record: rec => this.recordStats(rec) } : null;

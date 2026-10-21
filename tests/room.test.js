@@ -15,7 +15,8 @@ function makeRoom(stats = null, accounts = null, now = undefined) {
     send: (c, m) => c.inbox.push(m),
     conns: () => [...conns].filter(c => c.open),
     seatOf: c => c.seat || null,
-    bind: (c, s) => { c.seat = s; },
+    bind: (c, s, info) => { c.seat = s; if (info !== undefined) c.info = info; },
+    infoOf: c => c.info || null,
     close: c => { c.open = false; conns.delete(c); }
   };
   const storage = { get: async () => stored && JSON.parse(stored), put: async d => { stored = JSON.stringify(d); }, remove: async () => { stored = null; } };
@@ -510,4 +511,38 @@ test('chat: stored, and a room saved without chat loads', async () => {
   assert.deepEqual(last(c, 'chat').log, []);
   await send(r2, c, { t: 'chat', text: 'first' });
   assert.equal(last(c, 'chat').msg.id, 1);
+});
+
+test('chat: a spectator chats under their name', async () => {
+  let t = 1000;
+  const r = makeRoom(null, null, () => t), { room } = r;
+  const a = r.connect(), b = r.connect(), c = r.connect();
+  await send(room, a, { t: 'hello', name: 'Anna', create: true });
+  await send(room, b, { t: 'hello', name: 'Ben' });
+  await send(room, a, { t: 'lobby', op: 'start' });
+  await send(room, c, { t: 'hello', name: 'Dan' });
+  const viewer = last(c, 'welcome').viewer;
+  assert.match(viewer, /^w[0-9a-f]{8}$/);
+  assert.deepEqual(c.inbox.map(m => m.t).filter(t => t !== 'room'), ['welcome', 'chat']);
+  assert.deepEqual(last(c, 'chat').log, []);
+  await send(room, c, { t: 'chat', text: 'go Anna' });
+  const msg = last(a, 'chat').msg;
+  assert.equal(msg.from, viewer);
+  assert.equal(msg.seat, null);
+  assert.equal(msg.name, 'Dan');
+  assert.equal(msg.user, null);
+
+  const e = r.connect();
+  await send(room, e, { t: 'hello', name: '   ' });
+  await send(room, e, { t: 'chat', text: 'hi' });
+  assert.equal(last(a, 'chat').msg.name, 'Guest');
+
+  const c2 = r.connect();
+  await send(room, c2, { t: 'hello', name: 'Dan' });
+  assert.notEqual(last(c2, 'welcome').viewer, viewer);
+
+  for (let i = 0; i < 7; i++) await send(room, c, { t: 'chat', text: 'm' + i });
+  await send(room, c, { t: 'chat', text: 'ninth' });
+  assert.equal(last(c, 'error').code, 'rate');
+  assert.ok(!last(a, 'chat').msg || last(a, 'chat').msg.text !== 'ninth');
 });

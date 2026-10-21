@@ -6,7 +6,8 @@
  *
  * Adapters plug in two small interfaces:
  *   storage: { get(): Promise<data|null>, put(data): Promise<void>, remove(): Promise<void> }
- *   net:     { send(conn, msg), conns(): conn[], seatOf(conn): string|null, bind(conn, seatId), close(conn, code, reason) }
+ *   net:     { send(conn, msg), conns(): conn[], seatOf(conn): string|null, bind(conn, seatId, info?), infoOf(conn): { viewer, name, user } | null, close(conn, code, reason) }
+ *            (a spectator has no seat: bind keeps their info {viewer, name, user} with the connection, so it outlives a restart of the room object)
  *   stats:   { record(rec) } (optional): gets a stats record (server/core/stats.js summarize) whenever a game starts, ends or is abandoned
  *   accounts: { resolve(session) -> Promise<{ id, name } | null> } (optional): the signed-in player behind hello.session
  *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user
@@ -173,8 +174,10 @@ export class Room {
       return this.seat(conn, seat, user, known);
     }
     // a game is running: watch it
-    this.net.bind(conn, null);
-    this.net.send(conn, { t: 'welcome', seat: null, ...whoami(user, known) });
+    const viewer = 'w' + hex(4);
+    this.net.bind(conn, null, { viewer, name: cleanName(user ? user.name : m.name) || 'Guest', user: user ? user.id : null });
+    this.net.send(conn, { t: 'welcome', seat: null, viewer, ...whoami(user, known) });
+    this.net.send(conn, { t: 'chat', log: this.data.chat || [] });
     this.net.send(conn, this.roomMessage());
   }
   // a signed-in player sits under their player name
@@ -199,8 +202,11 @@ export class Room {
 
   // ----- table talk -----
   async chat(conn, text) {
-    const d = this.data, id = this.net.seatOf(conn), seat = d && id && d.seats.find(s => s.id === id);
-    if (!seat) return this.error(conn, 'not_seated', 'Join the room first.');
+    const d = this.data, sid = this.net.seatOf(conn), seat = d && sid && d.seats.find(s => s.id === sid);
+    const who = seat ? { id: seat.id, seat: seat.id, name: seat.name, user: seat.user || null }
+      : d && !sid && this.net.infoOf(conn) ? { id: this.net.infoOf(conn).viewer, seat: null, ...this.net.infoOf(conn) } : null;
+    if (!who) return this.error(conn, 'not_seated', 'Join the room first.');
+    const id = who.id;
     if (typeof text !== 'string') return this.error(conn, 'bad_message', `Messages are 1 to ${CHAT_MAX} characters.`);
     text = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
     const n = [...text].length;
@@ -209,7 +215,7 @@ export class Room {
     if (recent.length >= CHAT_BURST) { this.chatTimes.set(id, recent); return this.error(conn, 'rate', 'Slow down a little.'); }
     recent.push(at); this.chatTimes.set(id, recent);
     d.chatSeq = (d.chatSeq || 0) + 1;
-    const msg = { id: d.chatSeq, at, from: id, seat: id, name: seat.name, user: seat.user || null, text };
+    const msg = { id: d.chatSeq, at, from: id, seat: who.seat, name: who.name, user: who.user || null, text };
     d.chat = [...(d.chat || []), msg].slice(-CHAT_KEEP);
     await this.save();
     for (const c of this.net.conns()) this.net.send(c, { t: 'chat', msg });

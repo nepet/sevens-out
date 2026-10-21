@@ -74,6 +74,22 @@ test('two phones create, join and play a turn over WebSockets', async () => {
   assert.ok(wa.token);
 });
 
+test('chat: a message reaches both phones and a phone that joins later gets it in the log', async () => {
+  const a = client('CHATA');
+  await a.send({ t: 'hello', name: 'Anna', create: true });
+  await a.next(m => m.t === 'welcome');
+  const b = client('CHATA');
+  await b.send({ t: 'hello', name: 'Ben' });
+  await b.next(m => m.t === 'welcome');
+  await a.send({ t: 'chat', text: 'hi Ben' });
+  for (const x of [a, b]) assert.equal((await x.next(m => m.t === 'chat' && m.msg)).msg.text, 'hi Ben');
+  const c = client('CHATA');
+  await c.send({ t: 'hello', name: 'Cy' });
+  assert.deepEqual((await c.next(m => m.t === 'chat' && m.log)).log.map(m => m.text), ['hi Ben']);
+  for (const x of [a, b, c]) x.ws.close();
+  await Promise.all([a.closed, b.closed, c.closed]);
+});
+
 test('a room survives a server restart (state on disk) and a token gets the seat back', async () => {
   const a = client('FGHJK');
   await a.send({ t: 'hello', name: 'Anna', create: true });
