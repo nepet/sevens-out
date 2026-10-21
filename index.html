@@ -794,7 +794,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 <script src="engine.js"></script>
 <script>
 (() => {
-  const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = 12, KEY = 'sevens-out-v1';
+  // the player limit comes from the engine, so a page running with an older cached engine.js never offers more
+  const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = (window.SevensEngine && window.SevensEngine.MAX_PLAYERS) || 12, KEY = 'sevens-out-v1';
   const CHIP_ALL = 6; // up to this many players the score chip shows every name and total; more: the current player, the leader and "+N more" 
   const LAYOUT = {1:[4],2:[2,6],3:[2,4,6],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
   const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
@@ -1930,7 +1931,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
 
   // the list's row size: real 44 px rows when the lines are tappable (real dice), 30 px with 5–6 players, 26 px from 7
-  const listClass = g => isScore(g) && seated() ? 'tall' : g.players.length > 6 ? 'denser' : g.players.length >= 5 ? 'dense' : '';
+  const listClass = g => isScore(g) && seated() ? 'tall' : g.players.length > CHIP_ALL ? 'denser' : g.players.length >= 5 ? 'dense' : '';
   // the score list: one line per player. During play (and corrections) the lines follow this round's
   // playing order with `cur` highlighted; at game over they are sorted by total, highest first.
   function board(g, cur){
