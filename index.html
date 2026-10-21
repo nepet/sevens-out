@@ -128,10 +128,6 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 .who{font:800 2.5rem/.95 var(--font-display);margin:2px 0 0;overflow-wrap:anywhere;text-wrap:balance}
 .sub{margin:0;color:var(--ink-soft);font-size:.9rem;max-width:46ch}
 .rolls{display:flex;align-items:center;gap:8px;flex:none}
-.slots{display:flex;gap:6px}
-.slot{width:14px;height:14px;border-radius:4px;border:2px solid var(--ink-soft)}
-.slot.used{background:var(--ink);border-color:var(--ink)}
-.slot.off{border-style:dashed;opacity:.35}
 .rolls small{font-size:.86rem;font-weight:600;font-variant-numeric:tabular-nums}
 
 /* tray */
@@ -139,7 +135,6 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 .tray::before{content:"";position:absolute;inset:7px;border:1.5px dashed var(--stitch);border-radius:14px;opacity:.5;pointer-events:none}
 .tray-top{position:relative;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .tlabel{font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;opacity:.85}
-.tval{font:800 2rem/1 var(--font-display);font-variant-numeric:tabular-nums;color:var(--stitch)}
 .dice{position:relative;display:grid;grid-template-columns:repeat(3,var(--die));justify-content:center;gap:14px 18px;padding-block:14px 4px}
 
 /* dice */
@@ -166,7 +161,6 @@ button.die:active{transform:translateY(2px)}
 .rack{display:flex;flex-wrap:wrap;gap:8px;min-height:2.9rem;align-items:center}
 .pair{display:inline-flex;align-items:center;gap:5px;padding:5px 9px 5px 6px;border-radius:10px;background:var(--card);border:1px solid var(--line)}
 button.pair{border:1.5px solid var(--brass);min-height:44px}
-.seven{font:800 1.15rem/1 var(--font-display);color:var(--brass-text);margin-left:3px}
 .empty{margin:0;font-size:.86rem;color:var(--ink-soft)}
 
 /* the dice turn on the leather (viewPlay(), html.felt): the page takes the table's colours, and inside #app the tokens
@@ -189,15 +183,8 @@ html:root[data-look="vegas"] .felt-turn .who{font-size:1.7rem}
 .felt-turn .hint{text-align:center}
 .tray.table{flex:1 0 auto;display:flex;flex-direction:column;justify-content:space-between;padding:12px 14px 10px}
 .table .tray-top{justify-content:flex-end}
-.table .tval{font-size:1.6rem}
-.table .dice{gap:12px 16px;padding-block:8px}
 .table .btn{border-color:currentColor;color:inherit}
 .table .empty{color:inherit;opacity:.7}
-.rackrow{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:4px;padding-top:8px;border-top:1.5px dashed var(--stitch)}
-.rackrow .rack{min-height:2.6rem}
-.racklabel{font-size:.8rem;opacity:.8}
-.rackrow .btn.small{margin-left:auto}
-html:root[data-look="vegas"] .rackrow{border-top-color:var(--reel-edge)}
 /* the real-dice turn (viewScore()): the entry and the keypad sit on the table, the rolls used and the floor row under it */
 .felt-turn .tray.table .tray-top{justify-content:space-between}
 .felt-turn .entry-top{align-items:center}
@@ -225,14 +212,78 @@ html:root[data-look="vegas"] .felt-turn .entry-top .entry{font-size:2.5rem}
   html.felt #app{padding-top:8px;gap:8px}
   .felt-turn{gap:6px;--die:clamp(2.75rem,min(17vw,6.6vh),4.5rem)}
   .felt-turn .who{font-size:1.9rem}
-  .rackrow{padding-top:6px}
   .tray.table{padding:8px 12px}
-  .table .dice{padding-block:4px}
-  .rackrow .rack{min-height:2.3rem}
   .felt-turn .entry-top .entry{font-size:2.6rem}
   html:root[data-look="vegas"] .felt-turn .entry-top .entry{font-size:2.2rem}
   .felt-turn .key{min-height:44px}
   .bar .btn.two,.bar .waiting{min-height:52px}
+}
+
+/* the dice turn (C4, viewPlay()): the menu button and the score chip, the eyebrow and the big name, the mat that fills
+   the free height edge to edge, and the bar Stop | round Roll | rack. The score list opens from the chip over the mat */
+.chiprow{position:relative;display:flex;flex-wrap:nowrap;align-items:center;justify-content:space-between;gap:8px;min-height:44px}
+.scorechip{flex:0 1 auto;min-width:0;height:44px;padding:0 14px;border:0;border-radius:22px;background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink);display:flex;align-items:center;gap:12px;font-size:15px;line-height:1;white-space:nowrap;overflow:hidden}
+.sc-p{flex:none;font-weight:500}
+.sc-p.now{color:var(--brass-text);font-weight:700}
+.sc-p b{font:800 19px/1 var(--font-display);font-variant-numeric:tabular-nums}
+.scorechip.short .sc-rest{display:none}
+.scorechip.tight{gap:7px;padding:0 10px;font-size:13px}
+.scorechip.tight .sc-p b{font-size:16px}
+.sc-chev{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s}
+.scorechip.tight .sc-chev{width:12px;margin-left:-2px}
+.scorechip.tiny{gap:5px;padding:0 9px;font-size:12px}
+.scorechip.tiny .sc-p b{font-size:14px}
+.scorechip.tiny .sc-chev{display:none}
+.scorechip[aria-expanded="true"] .sc-chev{transform:rotate(180deg)}
+.sc-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.sc-dot.warn{background:var(--danger)}
+html:root[data-look="vegas"] .sc-p b{font-size:14px}
+html:root[data-look="vegas"] .scorechip.tight .sc-p b{font-size:12px}
+html:root[data-look="vegas"] .scorechip.tiny .sc-p b{font-size:10px}
+.scores-pop{position:absolute;z-index:15;top:calc(100% + 8px);left:0;right:0}
+html.felt .scores-pop .board{background:var(--leather-deep);box-shadow:0 14px 30px var(--shade)}
+html.felt .race-card.solid{background:var(--leather-deep)}
+.roomrow{display:flex;justify-content:flex-end;margin-top:-4px}
+.turnhead.c4{display:flex;flex-direction:column;align-items:center;gap:0;padding-top:10px;text-align:center}
+.turnhead.c4 .eyebrow{font-size:13px;letter-spacing:1.2px}
+.felt-turn .turnhead.c4 .who{margin:4px 0 0;max-width:100%;font:800 48px/1 var(--font-display);text-transform:uppercase}
+html:root[data-look="vegas"] .felt-turn .turnhead.c4 .who{font-size:2rem}
+.turnhead.c4 .who .you{text-transform:none;vertical-align:middle}
+.turnhead.c4 .alert{margin-top:10px;text-align:left}
+.diceturn{gap:0;--die:clamp(3.25rem,min(20vw,9vh),5.25rem)}
+.mat{position:relative;flex:1 1 auto;display:flex;flex-direction:column;margin-inline:-16px;padding:8px 16px 12px}
+.mat .dice{flex:1 1 auto;align-content:center;gap:16px 20px;padding-block:8px}
+.mat-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:6px 12px}
+.mat .hint{text-align:center;font-size:15px}
+.mat .btn.small{min-height:44px;border-color:currentColor;color:inherit}
+.bar.c4bar{display:grid;grid-template-columns:minmax(0,1fr) 104px minmax(0,1fr);align-items:center;gap:12px;padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));border-top:0;border-radius:28px 28px 0 0;background:var(--leather-deep)}
+.bar.c4bar.wait .waiting{grid-column:1 / span 2;min-height:64px}
+.c4left{min-width:0}
+.barnote{margin:0;text-align:center;font-size:14px;font-weight:600;line-height:1.25;opacity:.85}
+.bar.c4bar .btn.stopc{width:100%;min-height:64px;padding:4px 8px;border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;line-height:1.1}
+.bar.c4bar .btn.stopc:not(.armed){border-color:color-mix(in srgb,var(--on-leather) 50%,transparent)}
+.stopc b{font-size:16px;font-weight:700}
+.stopc small{font-size:13px;font-weight:500;opacity:.8}
+.btn.rollbtn{width:104px;height:104px;min-height:104px;padding:0;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;line-height:1;box-shadow:0 6px 0 color-mix(in srgb,var(--brass) 55%,var(--leather-deep))}
+.rollbtn b{font:800 30px/1 var(--font-display);text-transform:uppercase}
+.rollbtn small{font-size:13px;font-weight:600}
+.btn.rollbtn:disabled{opacity:.75}
+html:root[data-look="vegas"] .rollbtn b{font-size:20px}
+html:root[data-look="vegas"] .rollbtn small{text-transform:none;letter-spacing:0}
+.rackcell{min-width:0;min-height:64px;padding:4px 2px;border-radius:18px;background:color-mix(in srgb,var(--on-leather) 8%,transparent);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.rackcell .rack{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;min-height:0}
+.rackcell .pair{display:inline-flex;align-items:center;justify-content:center;gap:2px;padding:2px;border:0;border-radius:6px;background:none}
+.rackcell button.pair{min-width:44px;min-height:44px;padding:3px;border:1.5px solid var(--brass)}
+.rackcell .die.mini{--die:20px;padding:calc(var(--die) * .14);border-radius:5px}
+.rackcell button.pair .die.mini{--die:18px}
+.rackcell.full .die.mini{--die:16px}
+.rackcell .racklabel{font-size:12px;line-height:1.2;opacity:.8;text-align:center}
+#app.racing-c4 .scorechip{opacity:0}
+@supports not (color:color-mix(in srgb,red 50%,blue)){
+  .scorechip{background:var(--card)}
+  .bar.c4bar .btn.stopc:not(.armed){border-color:var(--on-leather)}
+  .btn.rollbtn{box-shadow:0 6px 0 var(--shade)}
+  .rackcell{background:var(--leather)}
 }
 
 /* buttons */
@@ -309,11 +360,10 @@ td.st::before{margin-right:6px}
 .bar.leather .btn:not(.primary):not(.danger){border-color:var(--on-leather);color:var(--on-leather)}
 .bar .row{flex-wrap:nowrap}
 .bar .waiting{border-color:currentColor;color:inherit;opacity:.85;min-height:58px}
-/* two-line bar buttons: "Stop / take +17" (about 40%) and "Roll 4 dice / last roll" (about 60%) */
+/* two-line bar buttons: Cancel (about 40%) and Save changes (about 60%) on corrections */
 .btn.two{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;min-height:58px;padding:6px 10px;line-height:1.15}
 .btn.two b{font-weight:700;font-size:1.05rem}
 .btn.two small{font-size:.8rem;font-weight:500;opacity:.85}
-.bar .row>.stop{flex:2 1 0;min-width:0}
 .bar .row>.go{flex:3 1 0;min-width:0}
 .bar.leather .btn.armed:not(.primary){background:var(--on-leather);border-color:var(--on-leather);color:var(--leather-deep);font-weight:700}
 
@@ -350,13 +400,13 @@ html.felt-home,html.felt-home body{background:var(--leather-deep)}
 html:root[data-look="vegas"].felt-home,html:root[data-look="vegas"].felt-home body{background-color:var(--leather-deep)}
 .felt-home{flex:1 0 auto;display:flex;flex-direction:column}
 .home-head{flex:none;min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-#app .home-head .menubtn{border-radius:22px;border:0;background:color-mix(in srgb,var(--ink) 10%,transparent)}
+#app :is(.home-head,.chiprow) .menubtn{border-radius:22px;border:0;background:color-mix(in srgb,var(--ink) 10%,transparent)}
 .profile-chip{min-height:44px;max-width:65%;display:flex;align-items:center;gap:8px;padding:0 4px 0 14px;border:0;border-radius:22px;background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink);font-weight:600;font-size:15px}
 .profile-chip .pc-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .profile-chip .ava{width:36px;height:36px;font-size:1rem;margin:0}
 .profile-chip .pc-ic{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:none;border:1.5px solid var(--line)}
 .profile-chip .pc-ic svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-@supports not (color:color-mix(in srgb,red 50%,blue)){#app .home-head .menubtn,.profile-chip{background:var(--card)}}
+@supports not (color:color-mix(in srgb,red 50%,blue)){#app :is(.home-head,.chiprow) .menubtn,.profile-chip{background:var(--card)}}
 .home-hero{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding-top:8px}
 .home-title{font-size:clamp(4.4rem,26vw,6.5rem);line-height:.85;letter-spacing:.01em}
 .home-dice{display:flex;gap:10px;--die:3.25rem}
@@ -512,9 +562,10 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 /* between rounds: the score list lifts and grows into the race to 101, then a leather curtain brings in the next round */
 .race{position:fixed;inset:0;z-index:44;cursor:pointer;touch-action:none;-webkit-user-select:none;user-select:none}
 #app.racing .board{opacity:0}
-#app.racing .board~*,#app.racing-all>*{opacity:0;translate:0 40px;transition:opacity .45s,translate .55s cubic-bezier(.4,0,.2,1)}
+#app.racing .board~*,#app.racing-all>*,#app.racing-c4>:not(.chiprow){opacity:0;translate:0 40px;transition:opacity .45s,translate .55s cubic-bezier(.4,0,.2,1)}
 .race-card{position:absolute;z-index:0;margin:0;transition:top .55s cubic-bezier(.4,0,.2,1),padding-bottom .55s cubic-bezier(.4,0,.2,1),box-shadow .4s}
 .race-card.grow{box-shadow:0 14px 40px var(--shade)}
+.race-card.from-chip{transition:top .55s cubic-bezier(.4,0,.2,1),left .55s cubic-bezier(.4,0,.2,1),width .55s cubic-bezier(.4,0,.2,1),clip-path .55s cubic-bezier(.4,0,.2,1),padding-bottom .55s cubic-bezier(.4,0,.2,1),box-shadow .4s}
 .race-card.grow.badged{padding-bottom:var(--room)}
 .race-card .pl{min-height:var(--rowh);transition:min-height .55s cubic-bezier(.4,0,.2,1),grid-template-columns .55s cubic-bezier(.4,0,.2,1)}
 .race-card :is(.nm,.num,.dl){transition:font-size .5s}
@@ -542,7 +593,7 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .race-why{font-size:.9rem;opacity:.85}
 .race-curtain.in :is(.race-starter,.race-why){animation:rise .4s ease-out .25s both}
 @media (prefers-reduced-motion:reduce){
-  .race *,.race *::before,#app.racing .board~*,#app.racing-all>*{transition:none!important;animation:none!important}
+  .race *,.race *::before,#app.racing .board~*,#app.racing-all>*,#app.racing-c4>*{transition:none!important;animation:none!important}
   .race-curtain{transform:none;visibility:hidden}
   .race-curtain.in{visibility:visible}
 }
@@ -707,7 +758,7 @@ html:root[data-look="vegas"] .race-round{font-size:clamp(2.2rem,11.5vw,3.2rem);l
 /* reel window */
 html:root[data-look="vegas"] .tray{color:var(--reel-ink);background:linear-gradient(180deg,var(--reel-edge) 0%,var(--reel-mid) 18%,var(--reel) 50%,var(--reel-mid) 82%,var(--reel-edge) 100%);box-shadow:inset 0 0 0 4px var(--chrome),inset 0 0 0 7px var(--brass),inset 0 10px 14px rgba(0,0,0,.3),inset 0 -10px 14px rgba(0,0,0,.3),0 0 30px rgba(255,197,49,.22)}
 html:root[data-look="vegas"] .tray::before{inset:0;border:0;border-radius:20px;opacity:1;background:linear-gradient(90deg,rgba(0,0,0,.2),transparent 9%,transparent 91%,rgba(0,0,0,.2))}
-html:root[data-look="vegas"] .tval,html:root[data-look="vegas"] .entry{color:var(--led);text-shadow:0 0 8px rgba(255,42,61,.35)}
+html:root[data-look="vegas"] .entry{color:var(--led);text-shadow:0 0 8px rgba(255,42,61,.35)}
 html:root[data-look="vegas"] .entry{font-size:4rem}
 html:root[data-look="vegas"] .die.gone{border-color:var(--reel-edge)}
 html:root[data-look="vegas"] .die:not(.gone){background:radial-gradient(circle at 30% 25%,var(--die-hi),var(--bone) 58%)}
@@ -759,7 +810,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   applyLook();
 
   let state = blank();
-  const ui = { selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{}, sheet:null, sheetFrom:null };
+  const ui = { scoresOpen:false, selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{}, sheet:null, sheetFrom:null };
 
   function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice', pairing:'manual' }, game:null }; }
   const isScore = g => !!g && g.mode === 'score';
@@ -1802,12 +1853,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         case 'shots': ui.doom = nm(e.player); ui.hint = `${nm(e.player)} pays a round of shots.`; break;
         case 'undone': resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
         case 'edited': ui.hint = `${nm(e.player)}'s scores were corrected.`; break;
-        case 'gameOver': case 'ended': ui.open.sheet = true; ui.confirmEnd = false; break;
+        case 'gameOver': case 'ended': ui.open.sheet = true; ui.confirmEnd = false; ui.scoresOpen = false; break;
       }
     }
   }
   function resetInputs(){ ui.selected = null; ui.hint = null; ui.armed = null; ui.nope = null; ui.entry = ''; ui.rolls = null; }
-  function resetUi(){ resetInputs(); ui.edit = null; ui.editVals = {}; ui.reveal = null; }
+  function resetUi(){ resetInputs(); ui.edit = null; ui.editVals = {}; ui.reveal = null; ui.scoresOpen = false; }
 
   // ---------- correcting past scores (scoreboard mode) ----------
   function editState(){
@@ -1860,6 +1911,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return `<span class="chip">Room <b>${esc(net.code)}</b>${st}</span>`;
   }
 
+  // the list's row size: real 44 px rows when the lines are tappable (real dice), 30 px with 5–6 players
+  const listClass = g => isScore(g) && seated() ? 'tall' : g.players.length >= 5 ? 'dense' : '';
   // the score list: one line per player. During play (and corrections) the lines follow this round's
   // playing order with `cur` highlighted; at game over they are sorted by total, highest first.
   function board(g, cur){
@@ -1872,7 +1925,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         tag:lost ? 'Loses' : over && !r ? '–' : null, lost, edit });
     }).join('');
     const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
-    return `<section class="board${edit ? ' tall' : g.players.length >= 5 ? ' dense' : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
+    const cls = listClass(g);
+    return `<section class="board${cls ? ` ${cls}` : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
       <ol class="lines"${edit ? ' role="none"' : ''}>${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
   }
   // one line: turn marker, name (a die mark for the round's starter), bar towards 101 with the last 15 hatched,
@@ -1994,18 +2048,50 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </section>` + bar(actions, { leather:true });
   }
 
-  // the dice turn: slim header, score list, the player's line, the leather table with the dice and the pairs
-  // set aside along its bottom edge, one hint line, and Stop | Roll pinned to the bottom
+  // the C4 header of the dice turn: the menu button and the score chip (every name and total in one line; a tap opens
+  // the full score list under it, over the mat), and online the room's state while it isn't connected
+  function chipHeader(g, cur){
+    const short = g.players.length >= 4 ? ' short' : ''; // fitChip() shortens them too when the full names don't fit
+    const parts = g.order.map(i => {
+      const nm = [...g.players[i].name], rest = nm.slice(3).join(''); // shortened, the rest of the name hides
+      return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm.slice(0, 3).join(''))}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''} <b>${g.players[i].score}</b></span>`;
+    }).join('');
+    const label = `Scores: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
+    const dot = online() ? `<i class="sc-dot${net.status === 'open' ? '' : ' warn'}" aria-hidden="true"></i>` : '';
+    const open = !!ui.scoresOpen;
+    return `<header class="top chiprow">${menuButton()}
+        <button class="scorechip${short}" data-act="scores" aria-expanded="${open}"${open ? ' aria-controls="scores"' : ''} aria-label="${esc(label)}">${dot}${parts}<svg class="sc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        ${open ? `<div class="scores-pop" id="scores">${board(g, cur)}</div>` : ''}
+      </header>
+      ${online() && net.status !== 'open' ? `<div class="roomrow">${netChip()}</div>` : ''}`;
+  }
+  // under the chip, centred: the eyebrow ("Round 4 · Roll 1 of 2"), the big name, and the 101 alert when it applies
+  function turnHead(g, cur, eyebrow){
+    return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who">${nameOf(cur)}</h2>
+        ${g.ending ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}</div>`;
+  }
+  // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
+  // in two steps (the last one, for six long totals on a narrow phone, drops the chevron)
+  function fitChip(){
+    const c = $app.querySelector('.scorechip'); if (!c) return;
+    const many = state.game && state.game.players.length >= 4;
+    c.classList.toggle('short', many); c.classList.remove('tight', 'tiny');
+    const over = () => c.scrollWidth > c.clientWidth + 0.5;
+    for (const step of ['short', 'tight', 'tiny']) if (over()) c.classList.add(step);
+  }
+  addEventListener('resize', fitChip);
+  try { document.fonts.addEventListener('loadingdone', fitChip); } catch (e) {} // the display font changes the widths
+
+  // the dice turn (C4): the chip header, the eyebrow and the big name, the mat with the dice and the hint at its
+  // bottom, and the bar: Stop | the round Roll (End when no rolls are left) | the rack with the pairs set aside
   function viewPlay(){
     const g = state.game, t = displayTurn(g.turn), p = current(g), act = canAct();
     const rolled = t.rolls > 0, done = rolled && !canRoll(t);
     const hand = E.byHand(g); // the player finds the 7s, so nothing on screen gives them away
     const can = rolled && !ui.rolling && act && !hand ? pairable(t) : new Set();
-    const pen = hand ? E.sumActive(t) : finalPenalty(t), left = t.maxRolls - t.rolls, nAct = active(t).length;
+    const pen = hand ? E.sumActive(t) : finalPenalty(t), nAct = active(t).length;
     const undoable = act && rolled && !ui.rolling && !ui.busy && t.rolls < t.maxRolls;
-
-    const slots = Array.from({length:MAX_ROLLS}, (_, k) => `<span class="slot${k < t.rolls ? ' used' : ''}${k >= t.maxRolls ? ' off' : ''}"></span>`).join('');
-    const rollsLabel = rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : `Up to ${plural(t.maxRolls, 'roll')}`;
+    const eyebrow = `Round ${g.round} · ${rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : g.mark == null ? `${esc(pname(g.starter))} sets the limit` : `Up to ${plural(t.maxRolls, 'roll')}`}`;
 
     let hint = ui.busy ? 'Setting aside the 7s…' : ui.hint;
     if (hint == null){
@@ -2018,41 +2104,38 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       else if (done) hint = 'No rolls left. End your turn.';
       else hint = '';
     }
-
-    const live = undoable && t.pairs.some(pr => pr.roll === t.rolls);
-    const rack = t.pairs.length ? t.pairs.map((pr, i) => {
-      const a = t.dice[pr.a].value, b = t.dice[pr.b].value;
-      return (pr.roll === t.rolls && undoable)
-        ? `<button class="pair" data-act="unpair" data-id="${i}" aria-label="Put ${a} and ${b} back on the table">${mini(a)}${mini(b)}<span class="seven">7</span></button>`
-        : `<span class="pair" title="Set aside in roll ${pr.roll}">${mini(a)}${mini(b)}<span class="seven">7</span></span>`;
-    }).join('') : `<p class="empty">Pairs of 7 land here</p>`;
     const takeall = act && can.size && !done && !ui.rolling && !ui.busy ? '<button class="btn small" data-act="takeall">Set aside all 7s</button>' : '';
 
-    // the bar: Stop | Roll, End turn when no rolls are left, or who we are waiting for
-    const two = (cls, a, main, sub, off) => `<button class="btn two ${cls}"${off ? ' disabled' : ` data-act="${a}"`}><b>${main}</b> <small>${sub}</small></button>`;
-    const stopBtn = off => ui.armed === 'stop' && !off
-      ? `<button class="btn two stop armed" data-act="stop"><b>Confirm stop<span class="sr"> ·</span></b> <small>+${pen}</small></button>`
-      : two('stop', 'stop', 'Stop', `take +${pen}`, off);
-    const rollsLeft = left === 1 ? 'last roll' : `${plural(left, 'roll')} left`;
-    let actions;
-    if (!act) actions = waiting(pname(p), rolled ? 'finish their turn' : 'roll');
-    else if (ui.rolling || ui.busy) actions = rolled ? `<div class="row">${stopBtn(true)}${two('primary go', 'roll', 'Rolling…', '&nbsp;', true)}</div>`
-      : two('primary go', 'roll', 'Rolling…', '&nbsp;', true);
-    else if (!rolled) actions = two('primary go', 'roll', `Roll ${diceWord(nAct)}`, rollsLeft);
-    else if (done) actions = two('primary go', 'end', `End turn · +${pen}`, nAct ? 'no rolls left' : 'all six dice out');
-    else actions = `<div class="row">${stopBtn(false)}${two('primary go', 'roll', `Roll ${diceWord(nAct)}`, rollsLeft)}</div>`;
+    // the rack cell: the pairs set aside as mini dice; a pair from this roll can be put back
+    const rack = t.pairs.map((pr, i) => {
+      const a = t.dice[pr.a].value, b = t.dice[pr.b].value;
+      return (pr.roll === t.rolls && undoable)
+        ? `<button class="pair" data-act="unpair" data-id="${i}" aria-label="Put ${a} and ${b} back on the table">${mini(a)}${mini(b)}</button>`
+        : `<span class="pair" role="img" aria-label="${a} and ${b}, set aside in roll ${pr.roll}">${mini(a)}${mini(b)}</span>`;
+    }).join('');
+    const rackCell = `<div class="rackcell${t.pairs.length > 2 ? ' full' : ''}"><div class="rack">${rack}</div><small class="racklabel">${t.pairs.length ? 'set aside' : '7s land here'}</small></div>`;
 
-    return header(g) + board(g, p) + `
-      <section class="turn felt-turn" aria-label="${esc(pname(p))}'s turn">
-        <div class="turnhead"><h2 class="who">${nameOf(p)}</h2>
-          <div class="rolls"><small>${rollsLabel}</small><div class="slots" aria-hidden="true">${slots}</div></div></div>
-        <div class="tray table">
-          <div class="tray-top"><span class="tlabel">On the table</span><span class="tval">${rolled ? pen : '–'}</span></div>
+    // the bar: Stop | Roll (End) | the rack, or who we are waiting for and the rack
+    const busy = ui.rolling || ui.busy;
+    let left = '', mid;
+    if (!rolled) left = `<p class="barnote">Up to ${plural(t.maxRolls, 'roll')}</p>`;
+    else if (!done) left = busy ? '<button class="btn stopc" disabled><b>Stop</b> <small>+' + pen + '</small></button>'
+      : ui.armed === 'stop' ? `<button class="btn stopc armed" data-act="stop"><b>Confirm<span class="sr"> stop</span></b> <small>+${pen}</small></button>`
+      : `<button class="btn stopc" data-act="stop"><b>Stop</b> <small>+${pen}</small></button>`;
+    if (busy) mid = '<button class="btn primary rollbtn" disabled><b aria-hidden="true">…</b><span class="sr">Rolling</span></button>';
+    else if (done) mid = `<button class="btn primary rollbtn" data-act="end"><b>End<span class="sr"> turn</span></b> <small>+${pen}</small></button>`;
+    else mid = `<button class="btn primary rollbtn" data-act="roll"><b>Roll</b> <small>${diceWord(nAct)}</small></button>`;
+    // a phone that may not act gets the waiting note instead of Stop and Roll; it keeps the rack, so the pairs still fly in
+    const actions = act ? `<div class="c4cell c4left">${left}</div>${mid}${rackCell}` : waiting(pname(p), rolled ? 'finish their turn' : 'roll') + rackCell;
+
+    return chipHeader(g, p) + `
+      <section class="turn felt-turn diceturn" aria-label="${esc(pname(p))}'s turn">
+        ${turnHead(g, p, eyebrow)}
+        <div class="mat">
           <div class="dice">${t.dice.map(d => dieView(d, can, act)).join('')}</div>
-          <div class="rackrow"><div class="rack">${rack}</div>${t.pairs.length ? `<span class="racklabel">${live ? 'Tap a pair to put it back' : 'Set aside'}</span>` : ''}${takeall}</div>
+          <div class="mat-foot"><p class="hint" aria-live="polite">${esc(hint)}</p>${takeall}</div>
         </div>
-        <p class="hint" aria-live="polite">${esc(hint)}</p>
-      </section>` + bar(actions, { leather:true });
+      </section>` + `<div class="bar leather c4bar${act ? '' : ' wait'}">${actions}</div>`;
   }
 
   function viewOver(){
@@ -2424,6 +2507,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // Escape closes the sheet. Tab stays inside it: a guard at each end sends the focus round to the other end
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && ui.sheet && !$sheet.hidden){ e.preventDefault(); closeSheet(); }
+    else if (e.key === 'Escape' && ui.scoresOpen && !ui.race && !ui.sheet){
+      e.preventDefault(); ui.scoresOpen = false; render();
+      const c = $app.querySelector('.scorechip'); if (c) c.focus({ preventScroll:true });
+    }
   });
   $sheet.addEventListener('focusin', e => {
     const g = e.target.dataset && e.target.dataset.guard; if (!g) return;
@@ -2494,7 +2581,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the race grows out of the score list, so a list scrolled away (real-dice players scroll down to Save)
   // comes back into view first; resolves when the scroll has ended
   function listInView(){
-    const list = $app.querySelector('.board'); if (!list) return;
+    const list = $app.querySelector('.board, .scorechip'); if (!list) return;
     const r = list.getBoundingClientRect(), { minTop, maxBottom } = edges();
     if (r.top >= minTop && r.bottom <= maxBottom) return;
     const to = Math.max(0, Math.min(scrollY + r.top - minTop, document.documentElement.scrollHeight - innerHeight));
@@ -2521,7 +2608,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       let raf = 0, swapped = false, done = false, el = null, card = null;
       const doSwap = () => {
         if (swapped) return;
-        swapped = true; $app.classList.remove('racing', 'racing-all'); if (card) card.remove();
+        swapped = true; $app.classList.remove('racing', 'racing-all', 'racing-c4'); if (card) card.remove();
         try { swap(); } catch (e) { console.error(e); }
       };
       const onKey = e => { if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' '){ e.preventDefault(); e.stopImmediatePropagation(); finish(); } };
@@ -2534,8 +2621,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       // a step that fails ends the race at once: the new state shows as after a skip
       const later = (ms, fn) => timers.push(setTimeout(() => { try { fn(); } catch (err){ console.error(err); finish(); } }, ms));
       try {
-        // start exactly where the list is; a centred card only when there is no list (the developer menu on setup)
-        const list = $app.querySelector('.board'), from = list && list.getBoundingClientRect();
+        // start exactly where the list is, or grow down from the score chip while the list is closed (the dice turn);
+        // a centred card only when there is neither (the developer menu on setup)
+        const list = $app.querySelector('.board'), chip = !list && $app.querySelector('.scorechip');
+        const from = list ? list.getBoundingClientRect() : chip ? chip.getBoundingClientRect() : null;
+        const cls = list ? ['dense', 'tall'].filter(c => list.classList.contains(c)).join(' ') : chip ? listClass(g) : '';
         const box = $app.getBoundingClientRect(), { minTop, maxBottom } = edges();
         const best = recap.best && BADGE[recap.best.kind] ? BADGE[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
         const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = WHY[recap.reason.kind](recap.reason.score);
@@ -2543,7 +2633,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
         el = document.createElement('div');
         el.className = 'race';
-        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${list && list.classList.contains('dense') ? ' dense' : ''}${list && list.classList.contains('tall') ? ' tall' : ''}" aria-hidden="true">
+        // from the chip or the list over the mat, the card is solid like that list (it passes over the menu button and the dice)
+        const solid = chip || list && list.closest('.scores-pop');
+        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
             <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
             <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
             ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
@@ -2555,6 +2647,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const curtain = el.querySelector('.race-curtain'), badge = el.querySelector('.race-badge');
         const lines = [...card.querySelectorAll('.pl')];
         card.style.cssText = `left:${from ? from.left : box.left + 16}px;top:${from ? from.top : 0}px;width:${from ? from.width : box.width - 32}px;transition:none`;
+        // from the chip, only the chip's own box shows at first; growing opens the card down and out to the list's width
+        if (chip) card.style.clipPath = `inset(0 0 calc(100% - ${from.height}px) 0 round ${from.height / 2}px)`;
         // grown, the lines share the screen's height less about 120 px for the heading and the badge: 34 to 54 px each
         card.style.setProperty('--row', `${Math.max(34, Math.min(54, Math.floor((maxBottom - minTop - 120) / lines.length) - 3))}px`);
         document.body.appendChild(el);
@@ -2569,9 +2663,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         void card.offsetHeight; card.style.removeProperty('transition'); // placed without moving; from here on it moves
         const top1 = Math.max(minTop, Math.min(from ? from.top : (innerHeight - h1) / 2, maxBottom - h1));
         $app.classList.add(from ? 'racing' : 'racing-all');
+        if ($app.querySelector(':scope > .chiprow')) $app.classList.add('racing-c4'); // the C4 turn: everything but the menu button fades
 
         const grow = () => {
           card.classList.add('grow'); card.style.top = `${top1}px`;
+          if (chip){ card.style.left = `${box.left + 16}px`; card.style.width = `${box.width - 32}px`; card.style.clipPath = 'inset(0 0 0 0 round 14px)'; }
           card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>Race to ${LIMIT}</b></span>`;
         };
         const bars = () => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.fill').style.width = barWidth(recap.after[i]); li.classList.toggle('over', recap.after[i] >= LIMIT); });
@@ -2671,12 +2767,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (ACCOUNT_ACTS.includes(a) && ui.account.busy) return; // a passkey prompt or a request is running
     const g = state.game;
     // while pairs are flying out or the race between rounds plays, only settings and the developer buttons respond
-    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose'].includes(a)) return;
+    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose', 'scores'].includes(a)) return;
     if (a === 'sheetclose'){ closeSheet(); return; }
     // these leave the game menu: the screen changes, or there is something to watch
     if (['newyes', 'oleaveyes', 'endyes', 'devconfetti', 'devdoom', 'devmiss', 'devround'].includes(a)) closeSheet({ redraw:a === 'devround' });
     ui.nope = null;
-    if (a !== 'stop') ui.armed = null;
+    if (a !== 'stop' && a !== 'scores') ui.armed = null; // opening the score list keeps Stop armed
     if (a !== 'new') ui.confirmNew = false;
     if (a !== 'endearly') ui.confirmEnd = false;
     if (a !== 'oleave') ui.confirmLeave = false;
@@ -2718,6 +2814,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         break;
       }
       case 'menu': openSheet('menu', ['menu', null]); return;
+      case 'scores': ui.scoresOpen = !ui.scoresOpen; break; // the score chip opens and closes the full list
       // ----- home: the Play sheet, the Settings sheet, your player -----
       case 'home': ui.screen = ui.screen === 'profile' ? 'home' : null; ui.hint = null; break; // Profile's Back is always home, even over a saved game
       case 'profile': if (!accountsAvailable()) return; ui.screen = 'profile'; ui.hint = null; focusNext = 'profile-h'; break;
@@ -2921,6 +3018,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       state = blank(); resetUi(); ui.screen = null; html = viewHome();
     }
     $app.innerHTML = html;
+    fitChip();
     $app.classList.toggle('has-bar', !!$app.querySelector(':scope > :is(.bar,.felt-home)'));
     $app.classList.toggle('profile-on', !!$app.querySelector(':scope > section.acct')); // the profile fills the screen: Delete player sits at the bottom
     // home and the dice turn are on the leather: the whole page takes the table's colours (html.felt; home is leather-deep)
@@ -3034,6 +3132,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
+    // the open score list closes on a tap on the mat (which does nothing else); the bar and the menu button act as usual
+    if (ui.scoresOpen && e.target.closest && e.target.closest('#app > .felt-turn')){ ui.scoresOpen = false; render(); return; }
     if (!el || !($app.contains(el) || $sheet.contains(el)) || el.disabled) return;
     handle(el.dataset.act, el.dataset.id != null ? +el.dataset.id : null, el);
   });

@@ -1,7 +1,7 @@
 // Playing as your player: online seats carry the player (tags, the seat back from any phone, an ended session),
 // and a one-phone game credits the phone owner's line. Runs against the Node server, or `wrangler dev` with TARGET=worker.
 import { test, expect } from '@playwright/test';
-import { AUTH, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll, openProfile, toPlayers } from './helpers.js';
+import { AUTH, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll, openProfile, toPlayers, openScores } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, reducedMotion: 'reduce' };
 
@@ -80,7 +80,7 @@ test('online: players show their tag, take their seat back from another phone, a
 
   // the game: the score list shows the others' tags (this phone's own line says "you")
   await A.page.click('[data-act=ostart]');
-  await expect(A.page.locator('.board')).toBeVisible();
+  await openScores(A.page); await openScores(C.page);                 // the dice turn: the list opens from the score chip
   await expect(A.page.locator('.board .pl', { hasText: 'Ben' }).locator('.ptag')).toHaveText(tag(B));
   await expect(A.page.locator('.board .pl', { hasText: 'Anna' }).locator('.ptag')).toHaveCount(0);
   await expect(A.page.locator('.board .pl', { hasText: 'Cleo' }).locator('.ptag')).toHaveCount(0);
@@ -92,12 +92,13 @@ test('online: players show their tag, take their seat back from another phone, a
   await D.page.click('[data-act=asignin]');
   await expect(D.page.locator('.acct-name')).toContainText('Anna');
   await joinRoom(D.page, code);
-  await expect(D.page.locator('.board')).toBeVisible();
+  await openScores(D.page);
   expect((await net(D.page)).seat).toBe((await seatOf(A.page, 'Anna')).id);
   const st = await live(D.page);
   expect(st.game.seats[st.game.order[st.game.pos]]).toBe((await net(D.page)).seat); // Anna starts
   await D.page.click('[data-act=roll]');
   await expect.poll(async () => (await live(A.page)).game.turn.rolls).toBe(1);
+  await openScores(D.page);                                           // still open after the roll
   await expect(D.page.locator('.board .pl', { hasText: 'Anna' }).locator('.you')).toBeVisible();
 
   for (const p of [A, B, C, D, E]) await p.ctx.close();

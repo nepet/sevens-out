@@ -141,3 +141,14 @@ export async function closeMenu(page) {
   if (await page.locator('.sheet-layer').isVisible()) await page.keyboard.press('Escape');
   await expect(page.locator('.sheet-layer')).toBeHidden();
 }
+
+// ----- the dice turn (C4) -----
+// the score chip shows every total; a tap opens the full score list (section.board) under it, over the mat
+export async function openScores(page) {
+  const chip = page.locator('#app .scorechip');
+  if ((await chip.getAttribute('aria-expanded')) !== 'true') await chip.click();
+  await expect(chip).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('#app .scores-pop .board')).toBeVisible();
+}
+// the points a stop would book right now, as the bar's Stop or End button shows them
+export const stopPts = page => page.locator('#app > .bar :is([data-act=stop], [data-act=end]) small');

@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers } from './helpers.js';
+import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 
@@ -57,6 +57,14 @@ test.describe('dice in the app', () => {
     await expect(B.page.locator('#app > .bar .waiting')).toContainText('Waiting for Anna to roll');
     await expect(B.page.locator('#app > .bar [data-act]')).toHaveCount(0);
     await expect(B.page.locator('[data-act=roll]')).toHaveCount(0);
+    // C4: the note takes the place of Stop and Roll; the rack stays, so the pairs fly in on every phone
+    await expect(B.page.locator('#app > .bar .rackcell .racklabel')).toHaveText('7s land here');
+    const [note, rackCell] = [await B.page.locator('#app > .bar .waiting').boundingBox(), await B.page.locator('#app > .bar .rackcell').boundingBox()];
+    expect(note.width).toBeGreaterThan(200);
+    expect(note.x + note.width).toBeLessThanOrEqual(rackCell.x);
+    // the score chip shows both totals on every phone, this phone's player too
+    await expect(B.page.locator('.scorechip .sc-p')).toHaveText(['Anna 0', 'Ben 0']);
+    await expect(B.page.locator('.scorechip .sc-p.now')).toHaveText('Anna 0');
     await expect(A.page.locator('.who .you')).toHaveText('you');
 
     await A.page.click('[data-act=roll]');
@@ -127,16 +135,19 @@ test.describe('dice in the app', () => {
     await A.page.click('[data-act=ostart]');
     await expect(A.page.locator('.waiting')).toContainText('Ben to roll');
     await B.ctx.close();
+    await openScores(A.page);                                       // the full list, from the score chip
     await expect(A.page.locator('.pl-away')).toHaveText('Offline');
     await expect(A.page.locator('.hint')).toContainText('Ben is offline');
     // the host's bar shows the controls for Ben, not the waiting note
     await expect(A.page.locator('#app > .bar .waiting')).toHaveCount(0);
-    await expect(A.page.locator('#app > .bar [data-act=roll]')).toContainText('Roll 6 dice');
+    await expect(A.page.locator('#app > .bar [data-act=roll].rollbtn')).toHaveText('Roll 6 dice');
+    await expect(A.page.locator('#app > .bar .c4left')).toHaveText('Up to 3 rolls');
+    await expect(A.page.locator('.turnhead h2.who')).toHaveText('Ben');
     await A.page.click('[data-act=roll]');
     await expect.poll(async () => (await live(A.page)).game.turn.rolls).toBe(1);
     await expect(A.page.locator('#app > .bar [data-act=stop]')).toBeVisible();
     await expect(A.page.locator('#app > .bar [data-act=roll]')).toBeVisible();
-    await expect(A.page.locator('.tlabel')).toHaveText('On the table');
+    await expect(A.page.locator('#app .dice button.die')).toHaveCount(6);   // the host picks Ben's dice too
     await A.ctx.close();
   });
 
