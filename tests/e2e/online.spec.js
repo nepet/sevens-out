@@ -1191,6 +1191,10 @@ test.describe('chat feed', () => {
   // every message that showed, in the order it first showed
   const shown = async page => [...new Set((await seen(page)).flatMap(x => [...x.lines].reverse()))];
   const opacity = loc => loc.evaluate(el => Number(getComputedStyle(el).opacity));
+  // the page's clock, installed before goto and paused once the page is up: the feed's time moves only with runFor
+  const T0 = new Date('2026-10-21T20:00:00Z').getTime();
+  const fakeClock = page => page.clock.install({ time: T0 });
+  const pauseClock = page => page.clock.pauseAt(T0 + 60000);
   async function started(browser) {
     const A = await host(browser, 'Anna', rm);
     const B = await join(browser, A.code, 'Ben', rm);
@@ -1230,11 +1234,12 @@ test.describe('chat feed', () => {
   });
 
   test('two at a time: the newest on top at full strength, the one before under it and fainter; each goes 4 s after it came', async ({ page }) => {
-    await page.clock.install();
+    await fakeClock(page);
     const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben', 'Cleo']), state: begin(['Anna', 'Ben', 'Cleo']), seat: 's1', log: [] });
     await inRoom(page);
     await page.goto(url('/'));
     await expect(page.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    await pauseClock(page);
     fake.push({ t: 'chat', msg: msg(1, 'first') });
     await expect(lines(page)).toHaveText(['Ben · first']);
     expect(await opacity(lines(page).first())).toBe(1);
@@ -1244,14 +1249,16 @@ test.describe('chat feed', () => {
     await expect(page.locator('#chat-live')).toHaveText('Cleo: second');
     expect(await opacity(lines(page).first())).toBe(1);
     const older = await opacity(lines(page).last());
-    expect(older).toBeGreaterThan(0.4);
-    expect(older).toBeLessThan(0.7);
-    await page.clock.runFor(2600);                                 // ~3.6 s after the first: both still there
+    expect(older).toBeGreaterThan(0.55);
+    expect(older).toBeLessThan(0.75);
+    await page.clock.runFor(2990);                                 // 3.99 s after the first: both still there
     await expect(lines(page)).toHaveCount(2);
-    await page.clock.runFor(800);                                  // ~4.4 s: the first has gone, the second moves up
+    await page.clock.runFor(20);                                   // 4.01 s: the first has gone, the second moves up
     await expect(lines(page)).toHaveText(['Cleo · second']);
     expect(await opacity(lines(page).first())).toBe(1);
-    await page.clock.runFor(1000);                                 // ~4.4 s after the second
+    await page.clock.runFor(970);                                  // 3.99 s after the second: still there
+    await expect(lines(page)).toHaveCount(1);
+    await page.clock.runFor(20);                                   // 4.01 s after the second
     await expect(lines(page)).toHaveCount(0);
     await expect(page.locator('#app .turnhead .feed')).toHaveCount(1);   // the area stays, empty
   });
@@ -1310,18 +1317,24 @@ test.describe('chat feed', () => {
   }
 
   test('a third message pushes the oldest out; the feed shows the newest two', async ({ page }) => {
+    await fakeClock(page);
     const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
     await inRoom(page);
     await page.goto(url('/'));
     await expect(page.locator('.roomcode')).toHaveText('ABCDE');
-    await watchFeed(page);
-    for (let i = 1; i <= 3; i++) fake.push({ t: 'chat', msg: msg(i, `m${i}`) });
-    await expect(lines(page)).toHaveText(['Ben · m3', 'Ben · m2']);
+    await pauseClock(page);
+    fake.push({ t: 'chat', msg: msg(1, 'm1') });
+    fake.push({ t: 'chat', msg: msg(2, 'm2') });
+    await expect(lines(page)).toHaveText(['Ben · m2', 'Ben · m1']);
+    await page.clock.runFor(1000);                                 // well inside the first one's 4 s
+    fake.push({ t: 'chat', msg: msg(3, 'm3') });
+    await expect(lines(page)).toHaveText(['Ben · m3', 'Ben · m2']); // m1 pushed out, not gone by itself
     await expect(page.locator('#chat-live')).toHaveText('Ben: m3');
-    expect((await seen(page)).every(x => x.lines.length <= 2)).toBe(true);
-    await expect(lines(page)).toHaveCount(0, { timeout: 5000 });
-    expect((await shown(page)).slice(-2)).toEqual(['Ben · m2', 'Ben · m3']);
     expect((await page.evaluate(() => window.SevensDebug.chat)).unread).toBe(3);
+    await page.clock.runFor(3010);                                 // m2 goes 4 s after it came; m3 moves up
+    await expect(lines(page)).toHaveText(['Ben · m3']);
+    await page.clock.runFor(1000);
+    await expect(lines(page)).toHaveCount(0);
   });
 
   test('the feed area: online with chat it is always there, two lines high; one phone and an old server have none', async ({ page, browser }) => {
@@ -1365,8 +1378,8 @@ test.describe('chat feed', () => {
     await expect(page.locator('#app .feed b b')).toHaveCount(0);   // the text is text
     const size = loc => loc.evaluate(el => parseFloat(getComputedStyle(el).fontSize));
     const [big, small] = [lines(page).first().locator('.emo'), lines(page).last().locator('.emo')];
-    await expect(big).toHaveCount(1); await expect(small).toHaveCount(1);
-    const [b, s, text] = [await size(big), await size(small), await size(lines(page).last())];
+    await expect(big).toHaveCount(2); await expect(small).toHaveCount(1);   // one span per emoji
+    const [b, s, text] = [await size(big.first()), await size(small), await size(lines(page).last())];
     expect(text).toBeGreaterThanOrEqual(15); expect(text).toBeLessThanOrEqual(17);
     expect(s).toBeGreaterThanOrEqual(20); expect(s).toBeLessThanOrEqual(24);
     expect(b).toBeGreaterThan(s);
@@ -1382,13 +1395,30 @@ test.describe('chat feed', () => {
     expect(out).toEqual([]);
     // the names stay brass and bold
     expect(await lines(page).first().locator('b').evaluate(el => getComputedStyle(el).fontWeight)).toBe('700');
+    // emoji the iPhone keyboard sends with VS16 (U+FE0F) count as emoji too: alone, they show large
+    fake.push({ t: 'chat', msg: msg(3, '\u26A1\uFE0F') });
+    fake.push({ t: 'chat', msg: msg(4, '\u2B50\uFE0F', 'Cleo', 's3') });
+    await expect(lines(page)).toHaveText(['Cleo · ⭐️', 'Ben · ⚡️']);
+    for (const l of [lines(page).first(), lines(page).last()]) {
+      await expect(l.locator('.feed-msg.big .emo')).toHaveCount(1);
+      expect(await l.locator('.emo').evaluate(el => el.textContent.length)).toBe(2);   // the VS16 inside the span
+      expect(await size(l.locator('.emo'))).toBeGreaterThanOrEqual(27);
+    }
+    // a long run of emoji: one span each, so the ellipsis cuts the run instead of hiding it whole
+    fake.push({ t: 'chat', msg: msg(5, 'Nice ' + '🔥'.repeat(30)) });
+    const last = lines(page).first();
+    await expect(last.locator('.emo')).toHaveCount(30);
+    const cut = await last.locator('.feed-msg').evaluate(m => { const r = m.getBoundingClientRect().right; return [...m.querySelectorAll('.emo')].filter(e => e.getBoundingClientRect().right <= r + 0.5).length; });
+    expect(cut).toBeGreaterThanOrEqual(3);                         // the first few show, the rest give way to "…"
+    expect(cut).toBeLessThan(30);
+    expect(await area.boundingBox()).toEqual(empty);
   });
 
   // nothing on the turn moves while messages come and go (online, with chat): the dice, the mat, the name, the bar,
   // the keypad and the entry
   for (const vp of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
     test(`nothing moves on the dice turn at ${vp.width}×${vp.height}: six players, the 101 alert, two messages come and go`, async ({ page }) => {
-      await page.clock.install();
+      await fakeClock(page);
       await page.setViewportSize(vp);
       await seedRandom(page, vp.width);
       const names = ['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'];
@@ -1402,6 +1432,7 @@ test.describe('chat feed', () => {
       await page.evaluate(() => document.fonts.ready);
       await expect(page.locator('.turnhead .alert')).toBeVisible();
       await expect(page.locator('#app .mat .dice .die')).toHaveCount(6);
+      await pauseClock(page);
       const sels = ['.mat', '.mat .die', '.turnhead .who', '.turnhead .alert', '.turnhead .feed', '> .bar'];
       const before = await boxesOf(page, sels);
       expect(before.filter(b => b[0] === '.mat .die')).toHaveLength(6);
@@ -1424,7 +1455,8 @@ test.describe('chat feed', () => {
         const dice = [...document.querySelectorAll('#app .mat .dice .die')].map(box);
         const on = sel => { const r = box(document.querySelector('#app ' + sel)); return r.top >= 0 && r.bottom <= innerHeight + 0.5 && r.left >= -0.5 && r.right <= innerWidth + 0.5; };
         return { die: dice[0].width, inside: dice.every(d => d.left >= mat.left + 8 - 0.5 && d.right <= mat.right - 8 + 0.5 && d.top >= mat.top + 8 - 0.5 && d.bottom <= hint.top + 0.5),
-          apart: dice.every((d, i) => dice.slice(i + 1).every(e => d.right <= e.left || e.right <= d.left || d.bottom <= e.top || e.bottom <= d.top)),
+          // two squares that don't overlap have their centres at least a side apart, however they're tilted
+          apart: dice.every((d, i) => dice.slice(i + 1).every(e => Math.hypot((d.left + d.right - e.left - e.right) / 2, (d.top + d.bottom - e.top - e.bottom) / 2) >= document.querySelector('#app .mat .die').offsetWidth - 0.5)),
           on: ['> .bar [data-act=stop]', '> .bar [data-act=roll]', '> .bar .rackcell', '.scorechip'].map(on), fits: document.documentElement.scrollHeight <= innerHeight,
           bar: Math.abs(box(document.querySelector('#app > .bar')).bottom - innerHeight) };
       });
@@ -1438,7 +1470,7 @@ test.describe('chat feed', () => {
     });
 
     test(`nothing moves on the real-dice turn at ${vp.width}×${vp.height}: two messages come and go`, async ({ page }) => {
-      await page.clock.install();
+      await fakeClock(page);
       await page.setViewportSize(vp);
       const names = ['Anna', 'Ben', 'Cleo'];
       let s = begin(names, 'score');
@@ -1448,6 +1480,7 @@ test.describe('chat feed', () => {
       await page.goto(url('/'));
       await page.evaluate(() => document.fonts.ready);
       await expect(page.locator('#app > .bar [data-act=commit]')).toBeVisible();
+      await pauseClock(page);
       const sels = ['.pad', '.entry', '.keymat', '.turnhead .who', '.turnhead .feed', '[data-act=undo]', '> .bar'];
       const before = await boxesOf(page, sels);
       expect(before).toHaveLength(sels.length);
@@ -1458,6 +1491,49 @@ test.describe('chat feed', () => {
       await page.clock.runFor(4500);
       await expect(lines(page)).toHaveCount(0);
       expect(await boxesOf(page, sels)).toEqual(before);
+    });
+  }
+
+  // a short phone online: the feed area makes the page longer than the screen, so part of the mat lies under the pinned
+  // bar; no die lands there
+  for (const look of ['pub', 'vegas']) {
+    test(`320×568 online, six players and the 101 alert: every die lies above the pinned bar (${look})`, async ({ context }) => {
+      const names = ['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'];
+      for (const seed of [1, 2, 3, 4, 5]) {
+        const page = await context.newPage();
+        await page.setViewportSize({ width: 320, height: 568 });
+        await page.addInitScript(l => { try { localStorage.setItem('sevens-out-look', l); } catch (e) {} }, look);
+        await seedRandom(page, seed);
+        let s = begin(names);
+        s.game.players.forEach((p, i) => { p.score = [88, 104, 95, 100, 79, 99][i]; });
+        Object.assign(s.game, { ending: true, crosser: 1 });
+        s = play(s, { type: 'roll' }).state;
+        await fakeRoom(page, { room: roomOf(names), state: s, seat: 's1', log: [] });
+        await inRoom(page);
+        await page.goto(url('/'));
+        await page.evaluate(() => document.fonts.ready);
+        await expect(page.locator('#app .turnhead .feed')).toHaveCount(1);
+        await expect(page.locator('#app .mat .dice .die')).toHaveCount(6);
+        const r = await page.evaluate(() => {
+          scrollTo(0, 0);
+          const bar = document.querySelector('#app > .bar').getBoundingClientRect(), mat = document.querySelector('#app .mat').getBoundingClientRect();
+          return { barTop: bar.top, matBottom: mat.bottom, dice: [...document.querySelectorAll('#app .mat .dice .die')].map(d => { const b = d.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right, w: d.offsetWidth }; }) };
+        });
+        expect(r.matBottom, 'the mat reaches under the bar here').toBeGreaterThan(r.barTop);
+        for (const d of r.dice) {
+          expect(d.bottom, `seed ${seed}: a die under the bar`).toBeLessThanOrEqual(r.barTop + 0.5);
+          expect(d.w).toBeGreaterThanOrEqual(48);
+        }
+        // two squares that don't overlap have their centres at least a side apart, however they're tilted
+        const c = d => [(d.left + d.right) / 2, (d.top + d.bottom) / 2];
+        r.dice.forEach((d, i) => r.dice.slice(i + 1).forEach(e => expect(Math.hypot(c(d)[0] - c(e)[0], c(d)[1] - c(e)[1]), `seed ${seed}: dice apart`).toBeGreaterThanOrEqual(d.w - 0.5)));
+        // scrolling never moves them
+        const spots = () => page.evaluate(() => [...document.querySelectorAll('#app .mat .dice .die')].map(d => [d.style.left, d.style.top, d.style.getPropertyValue('--rot')]));
+        const before = await spots();
+        await page.evaluate(() => { scrollTo(0, document.documentElement.scrollHeight); dispatchEvent(new Event('resize')); });
+        expect(await spots()).toEqual(before);
+        await page.close();
+      }
     });
   }
 

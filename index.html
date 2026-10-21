@@ -500,16 +500,16 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 /* width 0 and min-width 100%: a long line never widens the turn head, it is cut */
 .turnhead.c4 .feed{align-self:stretch;width:0;min-width:100%;height:calc(2 * var(--feed-line));margin-top:4px;overflow:hidden}
 .feed-line{height:var(--feed-line);overflow:hidden}
-.feed-line.old{opacity:.55;animation:feed-down .25s ease-out both}
+.feed-line.old{opacity:.65;animation:feed-down .25s ease-out both}
 .feed-msg{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px;line-height:var(--feed-line);font-weight:500;color:var(--ink);animation:feed-life 4s linear both}
 .feed-msg b{color:var(--brass-text);font-weight:700}
-/* an emoji run is a box one line high, its glyphs centred in it, so a larger emoji never makes the line taller */
+/* each emoji is a box one line high, its glyph centred in it, so a larger emoji never makes the line taller */
 .feed-msg .emo{display:inline-block;height:var(--feed-line);line-height:var(--feed-line);vertical-align:top;font-size:22px}
 .feed-msg.big .emo{font-size:30px}
 .top.slim{position:relative}
 .feed.under{position:absolute;z-index:14;top:100%;left:0;right:0;margin-top:4px;padding:2px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 8px 20px var(--shade)}
 @keyframes feed-life{0%{opacity:0;transform:translateY(-6px)}5%,88%{opacity:1;transform:none}100%{opacity:0;transform:none}}
-@keyframes feed-down{from{opacity:1;transform:translateY(-100%)}to{opacity:.55;transform:none}}
+@keyframes feed-down{from{opacity:1;transform:translateY(-100%)}to{opacity:.65;transform:none}}
 @media (prefers-reduced-motion:reduce){.feed .feed-line,.feed .feed-msg{animation:none}}
 
 /* scoreboard mode */
@@ -2097,12 +2097,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     f.held = [];
     if (fresh.length) feedShow(fresh);
   }
-  // emoji in a message: each run in a span (larger); a message of only a few emoji shows them larger still. Runs on text
-  // that has been through esc(), which never makes or breaks an emoji
-  const EMO_ONE = '(?:[#*0-9]\\uFE0F?\\u20E3|\\p{Regional_Indicator}{2}|(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\\uFE0F)\\p{Emoji_Modifier}?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?\\p{Emoji_Modifier}?)*)';
-  const EMO_RUN = new RegExp(`${EMO_ONE}(?:\\s*${EMO_ONE})*`, 'gu'), EMO_ALL = new RegExp(EMO_ONE, 'gu');
+  // emoji in a message: each in its own span (larger; one by one, so the ellipsis can cut a long run); a message of only a
+  // few emoji shows them larger still. Runs on text that has been through esc(), which never makes or breaks an emoji
+  // one emoji: a keycap, a flag (two regional indicators), or a pictograph shown as emoji (with or without VS16), with
+  // an optional skin tone, a subdivision flag's tag sequence (England, Scotland, Wales) and ZWJ joins
+  const EMO_ONE = '(?:[#*0-9]\\uFE0F?\\u20E3|\\p{Regional_Indicator}{2}|(?:\\p{Emoji_Presentation}\\uFE0F?|\\p{Extended_Pictographic}\\uFE0F)\\p{Emoji_Modifier}?(?:[\\u{E0020}-\\u{E007E}]+\\u{E007F})?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?\\p{Emoji_Modifier}?)*)';
+  const EMO_ALL = new RegExp(EMO_ONE, 'gu');
   const emojiOnly = text => { const t = String(text).trim(), n = (t.match(EMO_ALL) || []).length; return n > 0 && n <= 6 && !t.replace(EMO_ALL, '').trim(); };
-  const emo = html => html.replace(EMO_RUN, m => `<span class="emo">${m}</span>`);
+  const emo = html => html.replace(EMO_ALL, m => `<span class="emo">${m}</span>`);
   // the lines, newest on top. aria-hidden on the area: #chat-live has said them. The name and the text are each isolated
   // (<bdi>), so right-to-left text can't reorder "Name · text"
   function feedLines(){
@@ -2475,7 +2477,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm[0] || '')}${mid ? `<span class="sc-mid">${esc(mid)}</span>` : ''}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''} <b>${g.players[i].score}</b></span>`;
       }).join('');
     const label = `Scores: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
-    // online the connection dot sits on the chat button; an old server without chat keeps it in the chip
+    // online with chat, the chat button shows a lost connection (its red dot); an old server without chat keeps the dot in the chip
     const dot = online() && !net.chat.ready ? `<i class="sc-dot${net.status === 'open' ? '' : ' warn'}" aria-hidden="true"></i>` : '';
     const open = !!ui.scoresOpen;
     return `<header class="top chiprow">${menuButton()}
@@ -3093,8 +3095,16 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // back to the old spots
   // (the game's start time, or online the seats, tells two games apart; resetUi() also clears the spots for a new game)
   const turnKey = (g, rolls) => `${(state.stats && state.stats.id) || (g.seats || []).join('.')}:${g.round}:${g.order[g.pos]}:${rolls}`;
-  function matSpots(g, t, w, h){
-    const bottom = matFoot(g), die = matDie(w, h, bottom), rolls = t.rolls + (ui.rolling ? 1 : 0);
+  // under: how much of the mat lies under the pinned bar (a short phone whose page scrolls). No die lands there: the foot
+  // grows to cover it (the hint line at the foot is under the bar then too), as long as six dice still fit above it in
+  // the layout's 3 × 2 grid; otherwise the whole mat as before
+  function matSpots(g, t, w, h, under = 0){
+    let bottom = matFoot(g), die = matDie(w, h, bottom);
+    if (under > bottom){
+      const b = under, d = matDie(w, h, b);
+      if (h - b >= MAT_EDGE + 2 * (d + matGap(d))){ bottom = b; die = d; }
+    }
+    const rolls = t.rolls + (ui.rolling ? 1 : 0);
     const key = turnKey(g, rolls), ids = t.dice.filter(d => d.held === null).map(d => d.id);
     const opts = { bottom };
     let L = ui.layout[key];
@@ -3134,13 +3144,22 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // start, so a redraw mid-throw carries on where it was
   const THROW_MS = 500, THROW_STAGGER = 40;
   const throwTime = n => Math.max(520, THROW_MS + THROW_STAGGER * Math.max(0, n - 1));
+  // the part of the mat that lies under the pinned bar with the page scrolled to the top (a short phone whose page is
+  // longer than the screen): page offsets, never the reader's scroll, so the spots don't change with scrolling
+  function matUnderBar(box){
+    const bar = $app.querySelector(':scope > .bar');
+    if (!bar) return 0;
+    const top = box.top + scrollY, matBottom = top + box.height;
+    const barTop = Math.min(document.documentElement.scrollHeight, innerHeight) - bar.offsetHeight;
+    return Math.max(0, Math.round(matBottom - barTop));
+  }
   function placeDice(){
     const mat = $app.querySelector(':scope > .felt-turn .mat'), layer = mat && mat.querySelector('.dice');
     const g = state.game;
     if (!layer || !g || !g.turn) return;
     const box = mat.getBoundingClientRect(), w = Math.round(box.width), h = Math.round(box.height);
     if (w < 1 || h < 1) return;
-    const L = matSpots(g, displayTurn(g.turn), w, h), since = Date.now() - ui.rollStart;
+    const L = matSpots(g, displayTurn(g.turn), w, h, matUnderBar(box)), since = Date.now() - ui.rollStart;
     layer.style.setProperty('--die', `${L.die}px`);
     layer.style.height = L.h === h ? '' : `${L.h}px`;
     // a redraw makes the dice anew, untilted, and measuring the mat has already styled them: without this the tilt
