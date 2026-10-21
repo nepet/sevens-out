@@ -12,6 +12,8 @@
  *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user
  * server/cloudflare/worker.js (Durable Object) and server/node/server.js (plain Node) are the two adapters.
  * The wire protocol is documented in CLAUDE.md.
+ * Table talk: a seated phone sends {t:'chat', text}; everyone gets {t:'chat', msg:{id, at, from, seat, name, user, text}}, and a phone
+ * that takes a seat gets {t:'chat', log:[msg..]} (the last CHAT_KEEP) right after welcome. Chat never changes rev.
  */
 
 import { summarize } from './stats.js';
@@ -20,6 +22,11 @@ export const CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
 export const MAX_SEATS = 12;
 export const MAX_MESSAGE = 4096;
 export const ROOM_TTL_MS = 14 * 24 * 60 * 60 * 1000; // rooms are deleted after two weeks without activity
+
+export const CHAT_MAX = 140; // characters per message
+export const CHAT_KEEP = 50; // messages kept and replayed
+export const CHAT_BURST = 8; // messages allowed per CHAT_WINDOW_MS and sender
+export const CHAT_WINDOW_MS = 10000;
 
 // actions only the player whose turn it is may make (or the host, when that player is offline)
 const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'stop', 'end', 'score']);
@@ -41,6 +48,7 @@ export class Room {
     this.data = undefined; // undefined = not loaded yet, null = no room
     this.greeted = new WeakSet(); // connections that have said hello (each looks a session up at most once)
     this.loading = null;
+    this.chatTimes = new Map(); // sender -> recent message times (not saved)
   }
 
   async load() {
@@ -101,6 +109,7 @@ export class Room {
       case 'hello': return this.hello(conn, m, code);
       case 'act': return this.act(conn, m.action);
       case 'lobby': return this.lobby(conn, m);
+      case 'chat': return this.chat(conn, m.text);
       case 'ping': return this.net.send(conn, { t: 'pong' });
       default: return this.error(conn, 'bad_message', 'Unknown message type.');
     }
@@ -184,7 +193,26 @@ export class Room {
   seat(conn, seat, user = null, known = true) {
     this.net.bind(conn, seat.id);
     this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token, ...whoami(user, known) });
+    this.net.send(conn, { t: 'chat', log: this.data.chat || [] });
     this.broadcast();
+  }
+
+  // ----- table talk -----
+  async chat(conn, text) {
+    const d = this.data, id = this.net.seatOf(conn), seat = d && id && d.seats.find(s => s.id === id);
+    if (!seat) return this.error(conn, 'not_seated', 'Join the room first.');
+    if (typeof text !== 'string') return this.error(conn, 'bad_message', `Messages are 1 to ${CHAT_MAX} characters.`);
+    text = text.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    const n = [...text].length;
+    if (n < 1 || n > CHAT_MAX) return this.error(conn, 'bad_message', `Messages are 1 to ${CHAT_MAX} characters.`);
+    const at = this.now(), recent = (this.chatTimes.get(id) || []).filter(t => at - t < CHAT_WINDOW_MS);
+    if (recent.length >= CHAT_BURST) { this.chatTimes.set(id, recent); return this.error(conn, 'rate', 'Slow down a little.'); }
+    recent.push(at); this.chatTimes.set(id, recent);
+    d.chatSeq = (d.chatSeq || 0) + 1;
+    const msg = { id: d.chatSeq, at, from: id, seat: id, name: seat.name, user: seat.user || null, text };
+    d.chat = [...(d.chat || []), msg].slice(-CHAT_KEEP);
+    await this.save();
+    for (const c of this.net.conns()) this.net.send(c, { t: 'chat', msg });
   }
 
   // ----- game actions -----

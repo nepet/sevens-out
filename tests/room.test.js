@@ -8,7 +8,7 @@ import { Room } from '../server/core/room.js';
 const E = globalThis.SevensEngine;
 
 // an in-memory room: conns are plain objects that collect what the server sends them
-function makeRoom(stats = null, accounts = null) {
+function makeRoom(stats = null, accounts = null, now = undefined) {
   let stored = null;
   const conns = new Set();
   const net = {
@@ -19,7 +19,7 @@ function makeRoom(stats = null, accounts = null) {
     close: c => { c.open = false; conns.delete(c); }
   };
   const storage = { get: async () => stored && JSON.parse(stored), put: async d => { stored = JSON.stringify(d); }, remove: async () => { stored = null; } };
-  const room = new Room({ engine: E, storage, net, stats, accounts });
+  const room = new Room({ engine: E, storage, net, stats, accounts, ...(now ? { now } : {}) });
   const connect = () => { const c = { inbox: [], open: true, seat: null }; conns.add(c); return c; };
   const drop = async c => { c.open = false; conns.delete(c); await room.closed(c); };
   return { room, connect, drop, setStored: d => { stored = JSON.stringify(d); }, stored: () => stored && JSON.parse(stored), fresh: () => new Room({ engine: E, storage, net, stats }) };
@@ -419,4 +419,95 @@ test('players: a connection says hello once, so it looks a session up at most on
   assert.equal(asked, 1);
   assert.equal(last(a, 'error').code, 'bad_message');
   assert.equal(last(a, 'room').room.seats.length, 1);
+});
+
+test('chat: a seated player\'s message reaches every connection, in the lobby and in a game', async () => {
+  const { room, a, b } = await lobbyOf2();
+  const seat = last(a, 'welcome').seat;
+  await send(room, a, { t: 'chat', text: '  nice   roll\u0007 ' });
+  for (const x of [a, b]) {
+    const m = last(x, 'chat').msg;
+    assert.equal(m.text, 'nice roll');
+    assert.equal(m.name, 'Anna');
+    assert.equal(m.seat, seat);
+    assert.equal(m.from, seat);
+    assert.equal(m.user, null);
+    assert.equal(m.id, 1);
+    assert.equal(typeof m.at, 'number');
+  }
+  await send(room, a, { t: 'lobby', op: 'start' });
+  await send(room, a, { t: 'chat', text: 'go' });
+  assert.equal(last(b, 'chat').msg.id, 2);
+});
+
+test('chat: refused text', async () => {
+  const { room, a } = await lobbyOf2();
+  for (const text of ['', '   ', '\u0001', 42, 'x'.repeat(141)]) {
+    const n = a.inbox.filter(m => m.t === 'chat').length;
+    await send(room, a, { t: 'chat', text });
+    assert.equal(last(a, 'error').code, 'bad_message');
+    assert.equal(a.inbox.filter(m => m.t === 'chat').length, n);
+  }
+  await send(room, a, { t: 'chat', text: 'x'.repeat(140) });
+  assert.equal(last(a, 'chat').msg.text.length, 140);
+});
+
+test('chat: a connection that has not said hello is refused', async () => {
+  const { room, connect } = await lobbyOf2();
+  const c = connect();
+  await send(room, c, { t: 'chat', text: 'hi' });
+  assert.equal(last(c, 'error').code, 'not_seated');
+  assert.equal(last(c, 'chat'), undefined);
+});
+
+test('chat: the rate limit', async () => {
+  let t = 1000;
+  const r = makeRoom(null, null, () => t);
+  const a = r.connect();
+  await send(r.room, a, { t: 'hello', name: 'Anna', create: true });
+  for (let i = 0; i < 8; i++) await send(r.room, a, { t: 'chat', text: 'm' + i });
+  assert.equal(a.inbox.filter(m => m.t === 'chat' && m.msg).length, 8);
+  await send(r.room, a, { t: 'chat', text: 'ninth' });
+  assert.equal(last(a, 'error').code, 'rate');
+  assert.equal(a.inbox.filter(m => m.t === 'chat' && m.msg).length, 8);
+  t += 10001;
+  await send(r.room, a, { t: 'chat', text: 'again' });
+  assert.equal(last(a, 'chat').msg.text, 'again');
+});
+
+test('chat: the log follows welcome and is capped at 50', async () => {
+  let t = 1000;
+  const r = makeRoom(null, null, () => t);
+  const a = r.connect();
+  await send(r.room, a, { t: 'hello', name: 'Anna', create: true });
+  for (let i = 0; i < 55; i++) { if (i % 8 === 0) t += 10001; await send(r.room, a, { t: 'chat', text: 'm' + i }); }
+  const c = r.connect();
+  await send(r.room, c, { t: 'hello', name: 'Cy' });
+  const kinds = c.inbox.map(m => m.t);
+  assert.deepEqual(kinds.slice(0, 3), ['welcome', 'chat', 'room']);
+  const log = last(c, 'chat').log;
+  assert.equal(log.length, 50);
+  assert.equal(log[0].id, 6);
+  assert.equal(log[49].id, 55);
+});
+
+test('chat: no rev change, no room broadcast', async () => {
+  const { room, a, b } = await lobbyOf2();
+  const rooms = b.inbox.filter(m => m.t === 'room').length, rev = last(b, 'room').rev;
+  await send(room, a, { t: 'chat', text: 'hi' });
+  assert.equal(b.inbox.filter(m => m.t === 'room').length, rooms);
+  assert.equal(room.data.rev, rev);
+});
+
+test('chat: stored, and a room saved without chat loads', async () => {
+  const { room, a, connect, stored, setStored, fresh } = await lobbyOf2();
+  await send(room, a, { t: 'chat', text: 'hi' });
+  assert.equal(stored().chat.length, 1);
+  const old = stored(); delete old.chat; delete old.chatSeq;
+  setStored(old);
+  const r2 = fresh(), c = connect();
+  await send(r2, c, { t: 'hello', name: 'Cy' });
+  assert.deepEqual(last(c, 'chat').log, []);
+  await send(r2, c, { t: 'chat', text: 'first' });
+  assert.equal(last(c, 'chat').msg.id, 1);
 });
