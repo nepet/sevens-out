@@ -860,6 +860,15 @@ test.describe('the dice turn screen', () => {
     expect(h).toBeCloseTo(44, 0);
     const tops = await c.locator('.sc-p').evaluateAll(ps => ps.map(p => Math.round(p.getBoundingClientRect().top)));
     expect(new Set(tops).size, 'one line').toBe(1);
+    // every name stub and total lies inside the chip's box: nothing is cut off by its overflow:hidden
+    const cut = await c.evaluate(el => {
+      const box = el.getBoundingClientRect();
+      return [...el.querySelectorAll('.sc-p, .sc-p b')].filter(x => {
+        const r = x.getBoundingClientRect();
+        return r.left < box.left - 0.5 || r.right > box.right + 0.5 || r.top < box.top - 0.5 || r.bottom > box.bottom + 0.5;
+      }).map(x => x.textContent);
+    });
+    expect(cut, 'chip items inside the chip').toEqual([]);
   };
   // a one-phone dice game with these totals, Anna to roll; one player over 101 makes it the last round
   const saveWith = (names, scores) => {
@@ -961,6 +970,24 @@ test.describe('the dice turn screen', () => {
     });
   }
 
+  // the last round with six 3-digit totals: names go down to one letter where three don't fit, every total stays whole
+  for (const [w, n] of [[375, 6], [320, 6], [320, 5]]) for (const look of ['pub', 'vegas']) {
+    test(`${n} players with 3-digit totals at ${w} px: every name stub and total inside the chip (${look === 'pub' ? 'Pub table' : 'Vegas'})`, async ({ page }) => {
+      await page.setViewportSize({ width: w, height: 667 });
+      await page.addInitScript(l => { try { localStorage.setItem('sevens-out-look', l); } catch (e) {} }, look);
+      const names = ['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian'].slice(0, n);
+      await load(page, saveWith(names, [100, 101, 102, 103, 104, 105].slice(0, n)));
+      await page.goto('/');
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('.scorechip .sc-p')).toHaveCount(n);
+      await chipFits(page);
+      expect(await page.locator('.scorechip .sc-p b').allInnerTexts()).toEqual(['100', '101', '102', '103', '104', '105'].slice(0, n));
+      // the aria-label keeps the full names however short the chip gets
+      await expect(page.locator('.scorechip')).toHaveAttribute('aria-label', `Scores: ${names.map((m, i) => `${m} ${100 + i}`).join(', ')}`);
+      expect(await noSideScroll(page)).toBe(true);
+    });
+  }
+
   test('the chip opens and closes the full list: the chip again, Escape, or a tap on the mat; the bar acts with it open', async ({ page }) => {
     await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'] });
     const chip = page.locator('#app .scorechip'), list = page.locator('#app .scores-pop section.board');
@@ -996,6 +1023,27 @@ test.describe('the dice turn screen', () => {
     await page.click('[data-act=menu]');                               // the menu button too
     await expect(page.locator('#sheet-h')).toHaveText('Game menu');
     await closeMenu(page);
+    await expect(list).toBeVisible();
+  });
+
+  test('with the list open, Enter on a focused key closes the list and acts; Escape on the shots alarm leaves the list open', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
+    const chip = page.locator('#app .scorechip'), list = page.locator('#app .scores-pop section.board');
+    await chip.click();
+    await expect(list).toBeVisible();
+    await page.locator('[data-act=key][data-id="7"]').focus();
+    await page.keyboard.press('Enter');
+    await expect(list).toHaveCount(0);
+    await expect(page.locator('.entry')).toContainText('7');
+    // the shots alarm takes its own Escape
+    await chip.click();
+    await expect(list).toBeVisible();
+    await openMenu(page, 'dev');
+    await page.click('[data-act=devdoom]');
+    const ok = page.locator('.doom-ok');
+    await expect(ok).toBeFocused({ timeout: 5000 });
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.doom')).toHaveCount(0);
     await expect(list).toBeVisible();
   });
 

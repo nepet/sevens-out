@@ -612,6 +612,11 @@ test('a ?join link over a one-phone game in play: home with the code and the Joi
   await expect(page.locator('#sheet-h')).toHaveText('Join room K7QPM');
   await page.keyboard.press('Escape');
   await expect(page.locator('.sheet-layer')).toBeHidden();
+  await openSettings(page, 'dev');                                  // the hidden game can't be ended from home's Settings
+  await expect(page.locator('.sheet-layer [data-act=devconfetti]')).toBeVisible();
+  await expect(page.locator('.sheet-layer [data-act=endearly]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sheet-layer')).toBeHidden();
   await page.click('[data-act=play]');                              // back to the saved game, as it was
   await expect(page.locator('.bar [data-act=roll]')).toBeVisible();
   expect((await live(page)).game).toEqual(game);
