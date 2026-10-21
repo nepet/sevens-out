@@ -183,6 +183,33 @@ test.describe('dice in the app', () => {
     await A.ctx.close();
   });
 
+  test('a guest who leaves mid-game and joins again with the code gets their seat back and plays', async ({ browser }) => {
+    const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
+    const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });
+    await A.page.click('[data-act=ostart]');
+    await expect(A.page.locator('[data-act=roll]')).toBeVisible();
+    const seat = (await net(B.page)).seat;
+    await openMenu(B.page);
+    await B.page.click('.sheet-layer [data-act=oleave]');
+    await B.page.click('.sheet-layer [data-act=oleaveyes]');
+    await expect(B.page.locator('#ocode')).toBeVisible();          // back home
+    // Anna plays her turn while Ben is away
+    await A.page.click('[data-act=roll]');
+    await expect.poll(async () => (await live(A.page)).game.turn.rolls).toBe(1);
+    await A.page.click('[data-act=stop]'); await A.page.click('[data-act=stop]'); // the starter has rolls left, and nobody sets 7s aside
+    await expect(A.page.locator('.turnhead h2.who')).toHaveText('Ben'); // Ben is away, so Anna's phone could cover for him
+    // Ben comes back with the code: the same seat, and it's his turn
+    await B.page.fill('#ocode', A.code);
+    await B.page.click('[data-act=ojoin]');
+    await B.page.click('.sheet-layer [data-act=ojoin]');           // the Join sheet keeps the saved name
+    await expect(B.page.locator('[data-act=roll]')).toBeVisible();
+    expect((await net(B.page)).seat).toBe(seat);
+    expect((await net(A.page)).room.seats.map(s => s.name)).toEqual(['Anna', 'Ben']);
+    await B.page.click('[data-act=roll]');
+    await expect.poll(async () => (await live(A.page)).game.turn.rolls).toBe(1);
+    await A.ctx.close(); await B.ctx.close();
+  });
+
   test('an open game menu makes way for the race when another phone ends the round', async ({ browser }) => {
     const A = await host(browser, 'Anna', { reducedMotion: 'reduce' });
     const B = await join(browser, A.code, 'Ben', { reducedMotion: 'reduce' });

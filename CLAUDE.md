@@ -160,6 +160,7 @@ Other storage keys, all per device:
 - `sevens-out-shake`: `1` | `0`
 - `sevens-out-name`: the name last used online
 - `sevens-out-online`: `{code, token, name, server, seen}`, used to rejoin a room after a reload or a locked screen (`seen`: the last chat message id this phone has read)
+- `sevens-out-seats`: `{"<server> <code>": token}`, the seat tokens of the last 8 rooms this phone sat in, kept after Leave room, so joining a room again with its code takes the same seat back (mid-game the server keeps the seat of a player who leaves)
 - `sevens-out-reports`: `{queue, sent}`, finished one-phone games waiting to be sent to `POST /report` until the server accepts or refuses them
 - `sevens-out-account`: `{[authBase]: {token, id, name}}`, the signed-in player per server, so a `?server=` override never touches the real one (an old single `{token, id, name, server}` reads as one entry)
 
@@ -200,6 +201,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
   - A signed-in player joins at once. A guest gets the **Join sheet** (kind `join`, `joinSheet()`, title "Join room <CODE>" from `ui.joinCode`): the name field (`#oname`, from `sevens-out-name`), the hint, and Join pinned in `.sheet-foot`. Join without a name asks for one. Enter in `#ocode` or in the sheet's name field joins.
   - `?join=CODE` opens home with the code filled in, and for a guest also the Join sheet with the name focused. It never joins by itself.
   - Join closes the Join sheet before it connects, so room errors (`no_room`, `room_full`, `kicked`) always land on home with the hint under the code row and the code kept.
+  - A join sends the seat token kept for that room in `sevens-out-seats`, so a guest who left mid-game gets their seat back and plays on.
 - **Settings sheet** (kind `settings`, title "Settings", only on home): Sound, Look and Shake (`settingsBlock()`, segmented rows) with the shake hint (`.shake-hint`), then How to play and Developer as folds.
 - **Play sheet** (sheet kind `play`, `playBody()`, title "New game"; on home and Who's playing):
   - "Where is everyone?" At this table / Own phones (`button.opt[data-act=where][data-id=0|1]` → `state.setup.where`, `'table'` | `'phones'`, missing = table; left out without online).

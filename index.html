@@ -1857,10 +1857,24 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function saveOnline(){
     try { localStorage.setItem(ONLINE_KEY, JSON.stringify({ code:net.code, token:net.token, name:net.name, server:net.server, seen:net.chat.seen })); } catch (e) {}
+    if (net.seat && net.token) keepSeat(net.server, net.code, net.token);
+  }
+  // the seat tokens of the last rooms this phone sat in, kept after Leave room, so joining one again with its code
+  // takes the same seat back (mid-game the server keeps a seat that leaves)
+  const SEATS_KEY = 'sevens-out-seats', SEATS_KEEP = 8;
+  function seatsKept(){ try { const m = JSON.parse(localStorage.getItem(SEATS_KEY) || 'null'); return m && typeof m === 'object' ? m : {}; } catch (e) { return {}; } }
+  function keepSeat(server, code, token){
+    const m = seatsKept(), k = `${server} ${code}`;
+    if (m[k] === token) return;
+    delete m[k]; m[k] = token; // newest last
+    const ks = Object.keys(m);
+    for (const old of ks.slice(0, Math.max(0, ks.length - SEATS_KEEP))) delete m[old];
+    try { localStorage.setItem(SEATS_KEY, JSON.stringify(m)); } catch (e) {}
   }
   function netStart(opts){
-    Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, createWith: opts.create ? opts.settings || null : null, token:null, seat:null,
-      room:null, want:true, server: serverBase(), rev:0, inGame:false, tries:0, chat:noChat(), viewer:null });
+    const server = serverBase(), kept = opts.create ? null : seatsKept()[`${server} ${opts.code}`];
+    Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, createWith: opts.create ? opts.settings || null : null, token: typeof kept === 'string' ? kept : null, seat:null,
+      room:null, want:true, server, rev:0, inGame:false, tries:0, chat:noChat(), viewer:null });
     resetUi(); ui.screen = null; ui.open = {}; ui.showLink = false; ui.chatDraft = ''; ui.chatHint = null; tickerReset();
     netConnect();
   }
