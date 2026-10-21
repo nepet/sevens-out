@@ -37,10 +37,10 @@ export async function toPlayers(page, { mode = 'dice', pairing = 'manual' } = {}
   await page.click('[data-act=players]');
   await expect(page.locator('[data-act=start]')).toBeVisible();
 }
-// your player (home's profile chip; only where accounts are available): the account, settings, how to play and the developer menu
-export async function openYou(page) {
+// your player (home's profile chip; only where accounts are available): the Profile screen, which holds only the account
+export async function openProfile(page) {
   await page.click('.home-head [data-act=profile]');
-  await expect(page.locator('#you-h')).toBeVisible();
+  await expect(page.locator('#profile-h')).toBeVisible();
 }
 // home's Settings sheet: Sound, Look, Shake, then How to play and Developer as folds; `fold` also opens one ('rules', 'dev')
 export async function openSettings(page, fold) {

@@ -544,6 +544,24 @@ test('Enter in the name field of a ?join landing joins that room, never a new on
   await ctx.close(); await A.ctx.close();
 });
 
+test('closing the Join sheet clears its hint, so it does not linger under home\'s code row', async ({ browser }) => {
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await page.goto(url('/?join=K7QPM'));
+  await expect(page.locator('.sheet-layer #oname')).toBeFocused();
+  await page.click('.sheet-layer [data-act=ojoin]');                // no name yet
+  await expect(page.locator('.sheet-layer .hint')).toContainText('Enter your name first');
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sheet-layer')).toBeHidden();
+  await expect(page.locator('.home-hint')).toHaveText('');
+  await page.click('.code-row [data-act=ojoin]');                   // the sheet again, then its close button
+  await page.click('.sheet-layer [data-act=ojoin]');
+  await expect(page.locator('.sheet-layer .hint')).toContainText('Enter your name first');
+  await page.click('.sheet-close');
+  await expect(page.locator('.home-hint')).toHaveText('');
+  await ctx.close();
+});
+
 test('a ?join link over a one-phone game in play: home with the code and the Join sheet; Play goes back to the game', async ({ browser }) => {
   const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });
   const page = await ctx.newPage();
@@ -570,11 +588,11 @@ test('home Join: a bad or missing code shows the hint and opens no sheet; a gues
   await page.goto(url('/'));
   await expect(page.locator('.sheet-layer')).toBeHidden();         // no ?join: no sheet
   await page.click('.code-row [data-act=ojoin]');                   // no code
-  await expect(page.locator('.home-hint')).toHaveText('Enter the 5-letter room code.');
+  await expect(page.locator('.home-hint')).toHaveText('Enter the 5-character room code.');
   await expect(page.locator('.sheet-layer')).toBeHidden();
   await page.fill('#ocode', 'k7q');
   await page.locator('#ocode').press('Enter');                      // Enter in the code field is Join
-  await expect(page.locator('.home-hint')).toHaveText('Enter the 5-letter room code.');
+  await expect(page.locator('.home-hint')).toHaveText('Enter the 5-character room code.');
   await expect(page.locator('.sheet-layer')).toBeHidden();
   await page.fill('#ocode', 'k7qpm');
   await expect(page.locator('#ocode')).toHaveValue('K7QPM');

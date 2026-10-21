@@ -2,7 +2,7 @@
 // Chromium's virtual authenticator (CDP) stands in for Face ID. WebAuthn refuses IP addresses as the
 // relying party ID, so these tests open the page on localhost (LOCAL), not on the config's 127.0.0.1.
 import { test, expect } from '@playwright/test';
-import { AUTH, url, localUrl, account, storedAccount, addAuthenticator, credentials, copyCredential, noSideScroll, openYou } from './helpers.js';
+import { AUTH, url, localUrl, account, storedAccount, addAuthenticator, credentials, copyCredential, noSideScroll, openProfile } from './helpers.js';
 
 // the account panel lives on your player's screen, opened from home's profile chip
 
@@ -15,7 +15,7 @@ async function newPhone(browser, opts = {}) {
   const page = await ctx.newPage();
   const auth = await addAuthenticator(page);
   await page.goto(localUrl('/'));
-  await openYou(page);
+  await openProfile(page);
   await expect(page.locator('[data-act=asignin]')).toBeVisible();
   return { ctx, page, auth };
 }
@@ -47,7 +47,7 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
 
   // a reload keeps the player (the page checks the session in the background)
   await page.reload();
-  await openYou(page);
+  await openProfile(page);
   await expect(page.locator('.acct-name')).toContainText('Anna');
   expect((await account(page)).id).toBe(me.id);
 
@@ -74,7 +74,7 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
   await expect(page.locator('.acct-name')).toContainText('Annie');
   await expect(hint(page)).toHaveText('Name saved.');
   await page.reload();
-  await openYou(page);
+  await openProfile(page);
   await expect(page.locator('.acct-name')).toContainText('Annie');
   expect(await account(page)).toMatchObject({ id: me.id, name: 'Annie' });
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-name')))).toBe('Annie');
@@ -106,8 +106,83 @@ test('home\'s profile chip: "Sign in" for a guest, the name and initial when sig
   await page.click('.menubtn[data-act=home][aria-label=Back]');
   await expect(page.locator('[data-act=play]')).toBeVisible();
   await expect(chip).toHaveAttribute('aria-label', 'Your player: Bea');
+  await expect(chip).toHaveText('Bea');
   await expect(chip.locator('.ava')).toHaveAttribute('data-i', 'B');
   expect(await noSideScroll(page)).toBe(true);
+  // signed out, the chip says "Sign in" again
+  await chip.click();
+  await page.click('[data-act=asignout]');
+  await expect(page.locator('[data-act=asignin]')).toBeVisible();
+  await page.click('.menubtn[data-act=home][aria-label=Back]');
+  await expect(chip).toHaveText('Sign in');
+  await expect(chip).not.toHaveAttribute('aria-label', /.+/);
+  await ctx.close();
+});
+
+test('the Profile screen: the avatar, the name with its tag, 60 px rows with a sub-line, Delete player at the bottom; only the account', async ({ browser }) => {
+  for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
+    const { ctx, page } = await newPhone(browser, { viewport: vp });
+    // signed out: the empty avatar, "Keep your scores", the line, the name field and both buttons
+    await expect(page.locator('h1#profile-h')).toHaveText('Keep your scores');
+    await expect(page.locator('.acct-me .sub')).toHaveText('Your games count for you on any phone where you sign in.');
+    await expect(page.locator('.ava.prof.empty svg')).toHaveCount(1);
+    await expect(page.locator('#aname')).toBeVisible();
+    await expect(page.locator('.setcard, details.fold, [data-act=sound], [data-act=look]')).toHaveCount(0); // settings live in the Settings sheet
+    expect(await noSideScroll(page)).toBe(true);
+
+    const me = await createPlayer(page, 'Anna');
+    await expect(page.locator('h1#profile-h')).toContainText('Anna');
+    await expect(page.locator('h1#profile-h .acct-tag')).toHaveText(`#${me.id.slice(0, 4)}`);
+    const ava = await page.locator('.ava.prof').boundingBox();
+    expect(Math.round(ava.width)).toBe(88);
+    expect(Math.round(ava.height)).toBe(88);
+    const rows = page.locator('.acct-rows .rowbtn');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.locator('.row-t b')).toHaveText(['Rename', 'Add a passkey on this phone', 'Sign out']);
+    await expect(rows.locator('.row-t small')).toHaveText(['Shown to everyone at the table', 'Sign in here without your other phone', 'Play here as a guest']);
+    for (const box of await rows.evaluateAll(els => els.map(e => e.getBoundingClientRect().height))) expect(Math.round(box)).toBe(60);
+    await expect(rows.locator('svg')).toHaveCount(6);                // an icon and a chevron each
+    // Delete player sits at the bottom of the screen, in the danger colour, inside the screen without scrolling
+    const del = page.locator('[data-act=adelete]');
+    const box = await del.boundingBox();
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    expect(box.y + box.height).toBeLessThanOrEqual(vp.height);
+    expect(box.y + box.height).toBeGreaterThan(vp.height - 80);
+    const [danger, color] = await del.evaluate(el => [getComputedStyle(document.getElementById('app')).getPropertyValue('--danger').trim(), getComputedStyle(el).color]);
+    expect(danger).not.toBe('');
+    expect(color).toBe(await page.evaluate(c => { const d = document.createElement('i'); d.style.color = c; document.body.append(d); const v = getComputedStyle(d).color; d.remove(); return v; }, danger));
+    // rename stays in place, in a row as tall as the others
+    await page.click('[data-act=arename]');
+    const edit = await page.locator('.acct-rows .acct-row').boundingBox();
+    expect(Math.round(edit.height)).toBeGreaterThanOrEqual(60);
+    await page.click('[data-act=arenamecancel]');
+    expect(await noSideScroll(page)).toBe(true);
+    await ctx.close();
+  }
+});
+
+test('Back on the Profile screen goes home, even over a saved one-phone game; Play then returns to the game', async ({ browser }) => {
+  const ctx = await browser.newContext({ ...phone, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  await addAuthenticator(page);
+  await page.goto(localUrl('/'));
+  await openProfile(page);
+  await page.click('.menubtn[data-act=home][aria-label=Back]');
+  await expect(page.locator('.home-head [data-act=profile]')).toBeVisible();
+  // a one-phone game in play; a ?join landing shows home over it
+  await page.click('[data-act=play]');
+  await page.click('.sheet-layer [data-act=players]');
+  await page.click('[data-act=start]');
+  await expect(page.locator('.bar [data-act=roll]')).toBeVisible();
+  await page.goto(localUrl('/?join=K7QPM'));
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.sheet-layer')).toBeHidden();
+  await openProfile(page);
+  await page.click('.menubtn[data-act=home][aria-label=Back]');
+  await expect(page.locator('.home-head [data-act=profile]')).toBeVisible();   // home, not the game
+  await expect(page.locator('.bar [data-act=roll]')).toHaveCount(0);
+  await page.click('[data-act=play]');
+  await expect(page.locator('.bar [data-act=roll]')).toBeVisible();
   await ctx.close();
 });
 
@@ -131,7 +206,7 @@ test('accounts are kept per server; an old saved account still works; a dead ses
   // the single account saved before accounts were kept per server
   await page.evaluate(([a, server]) => localStorage.setItem('sevens-out-account', JSON.stringify({ ...a, server })), [good, AUTH]);
   await page.reload();
-  await openYou(page);
+  await openProfile(page);
   await expect(page.locator('.acct-name')).toContainText('Dora');
   expect((await account(page)).id).toBe(me.id);
 
@@ -139,7 +214,7 @@ test('accounts are kept per server; an old saved account still works; a dead ses
   const other = { token: 'f'.repeat(64), id: me.id, name: 'Dora' };
   await page.evaluate(([a, server, other]) => localStorage.setItem('sevens-out-account', JSON.stringify({ [server]: { ...a, token: '0'.repeat(64) }, 'https://elsewhere.example': other })), [good, AUTH, other]);
   await page.reload();
-  await openYou(page);
+  await openProfile(page);
   await expect(page.locator('[data-act=asignin]')).toBeVisible();
   await expect.poll(() => storedAccount(page)).toBeNull();
   expect(await storedAccount(page, 'https://elsewhere.example')).toEqual(other);
@@ -218,7 +293,7 @@ test('a cancelled passkey prompt saves nothing', async ({ browser }) => {
   });
   const page = await ctx.newPage();
   await page.goto(localUrl('/'));
-  await openYou(page);
+  await openProfile(page);
   await page.fill('#aname', 'Eve');
   await page.click('[data-act=acreate]');
   await expect(hint(page)).toHaveText('No passkey was saved.');
@@ -236,7 +311,7 @@ test('passkey options are fetched ahead, so the prompt opens right inside the ta
   const answered = [];
   page.on('requestfinished', r => { if (r.url().endsWith('/auth/options')) answered.push(r); });
   await page.goto(localUrl('/'));
-  await openYou(page);
+  await openProfile(page);
   await expect(page.locator('[data-act=acreate]')).toBeVisible();
   await expect.poll(() => answered.length).toBe(2); // one set for sign-in, one for a new player
   expect(options.sort()).toEqual(['create', 'signin']);
@@ -253,7 +328,7 @@ test('passkey options are fetched ahead, so the prompt opens right inside the ta
   expect(cred.userName).toBe(`Fay #${me.id.slice(0, 4)}`);
   expect(cred.userDisplayName).toBe('Fay');
 
-  // signed in: the fold fetches a set for adding a passkey
+  // signed in: the Profile screen fetches a set for adding a passkey
   await expect.poll(() => options.filter(p => p === 'add').length).toBe(1);
   await ctx.close();
 });
@@ -266,14 +341,14 @@ test('without options fetched ahead, a tap fetches them first', async ({ browser
   const purposes = [];
   await page.route('**/auth/options', route => { purposes.push(route.request().postDataJSON().purpose); return ++n <= 2 ? route.abort('internetdisconnected') : route.continue(); });
   await page.goto(localUrl('/'));
-  await openYou(page);
+  await openProfile(page);
   await expect(page.locator('[data-act=acreate]')).toBeVisible();
   await expect.poll(() => n).toBe(2);
   expect([...purposes].sort()).toEqual(['create', 'signin']); // both sets fetched ahead, both failed
   await page.fill('#aname', 'Gus');
   await page.click('[data-act=acreate]');
   await expect(page.locator('.acct-name')).toContainText('Gus');
-  // the tap fetched its own create set (used once); signed in, the You tab then fetches one set for adding a passkey, and nothing more
+  // the tap fetched its own create set (used once); signed in, the Profile screen then fetches one set for adding a passkey, and nothing more
   await expect.poll(() => purposes.length).toBe(4);
   expect(purposes.slice(2)).toEqual(['create', 'add']);
   await page.waitForTimeout(500);
@@ -286,7 +361,7 @@ test('during a passkey prompt the buttons ignore taps and keep focus, and the hi
   await ctx.addInitScript(() => { navigator.credentials.create = () => new Promise(() => {}); }); // a prompt left open
   const page = await ctx.newPage();
   await page.goto(localUrl('/'));
-  await openYou(page);
+  await openProfile(page);
   await page.fill('#aname', 'Hal');
   await page.click('[data-act=acreate]');
   await expect(page.locator('[data-act=acreate]')).toHaveAttribute('aria-disabled', 'true');
@@ -325,7 +400,7 @@ test('a probe that failed is tried again when the phone is back online; a 404 is
   await expect(chip(page2)).toHaveCount(0);
   await page2.evaluate(() => dispatchEvent(new Event('online')));
   await expect(chip(page2)).toHaveText('Sign in');                 // home redraws with the chip
-  await openYou(page2);
+  await openProfile(page2);
   await expect(panel(page2)).toBeVisible();
   await ctx.close(); await ctx2.close();
 });

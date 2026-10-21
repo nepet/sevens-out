@@ -555,36 +555,45 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .pulse{width:10px;height:10px;border-radius:50%;background:var(--brass);flex:none;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{50%{opacity:.25;transform:scale(.7)}}
 @media (prefers-reduced-motion:reduce){.pulse{animation:none}}
-/* your player: an optional passkey account on the home screen */
-.acct{display:flex;flex-direction:column;gap:10px}
-.acct.out{padding:18px 16px;border-radius:20px;background:var(--leather);color:var(--on-leather);border:1px solid var(--stitch)}
-.acct-h{margin:0;font:800 1.6rem/1.1 var(--font-display)}
-.acct.out .sub{color:var(--on-leather);opacity:.85}
-.acct.out .btn:not(.primary){border-color:var(--on-leather);color:var(--on-leather)}
-.acct.out .text-in{background:var(--paper);color:var(--ink)}
+/* your player (viewProfile(), ui.screen 'profile', on paper): Back, a centred avatar, the name or "Keep your scores",
+   one line, then the 60 px rows (signed in) or the name field and the passkey buttons (signed out); Delete player at the bottom */
+#app.profile-on{padding-top:8px;padding-bottom:16px;min-height:calc(100vh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));min-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px))}
+.prof-head{min-height:44px;margin-left:-8px}
+.prof-head .menubtn{border:0;background:none}
+html:root[data-look="vegas"] .prof-head{margin-left:0}
+.acct{flex:1 0 auto;display:flex;flex-direction:column;gap:24px}
+.acct-me{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+.ava.prof{width:88px;height:88px;font:800 3rem/1 var(--font-display);margin:0}
+.ava.prof.empty{background:none;border:2px solid var(--line);color:var(--ink-soft)}
+.ava.prof svg{width:40px;height:40px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.acct-name{margin:0;max-width:100%;overflow-wrap:anywhere;font:800 2.5rem/1 var(--font-display);text-transform:uppercase}
+.acct-tag{font-size:1.5rem;color:var(--ink-soft);white-space:nowrap}
+.acct-me .sub{font-size:.94rem;max-width:30ch}
 .acct-btns{display:flex;flex-direction:column;gap:8px}
-.acct-row{display:flex;gap:8px;align-items:center;padding:8px 14px}
+.acct-row{display:flex;gap:8px;align-items:center;min-height:60px;padding:8px 12px;border-bottom:1px solid var(--line)}
 .acct-row .text-in{flex:1 1 auto;min-width:0;background:var(--paper)}
 .acct-row .btn{flex:none}
-.acct-me{display:flex;align-items:center;gap:14px;padding-top:8px}
-.ava.big{width:56px;height:56px;font-size:1.5rem;margin:0}
-.acct-name{margin:0;min-width:0;overflow-wrap:anywhere;font:800 1.7rem/1 var(--font-display)}
-.acct-tag{font:600 .85rem/1 var(--font-body);color:var(--ink-soft);letter-spacing:.02em;white-space:nowrap}
-.rowbtn{width:100%;min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 14px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);font:inherit;font-weight:600;text-align:left}
-.rowbtn.danger{color:var(--danger)}
-.acct-del{margin-top:6px}
-.acct-del .rowbtn{border:1px solid var(--line);border-radius:14px;background:var(--card)}
-.acct .confirm{margin-top:4px}
+.rowbtn{width:100%;min-height:60px;display:flex;align-items:center;gap:14px;padding:4px 16px;border:0;border-bottom:1px solid var(--line);background:none;color:var(--ink);font:inherit;text-align:left}
+.rowbtn svg{flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.rowbtn .row-ic{width:22px;height:22px;color:var(--brass-text)}
+.rowbtn .row-go{width:18px;height:18px;stroke-width:2.5;color:var(--ink-soft)}
+.rowbtn .row-t{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.rowbtn .row-t b{font-size:1rem;font-weight:600;line-height:1.3}
+.rowbtn .row-t small{font-size:.82rem;line-height:1.3;color:var(--ink-soft)}
+.acct-del{margin-top:auto;display:flex;flex-direction:column;align-items:center}
+.acct-del .delbtn{min-height:48px;padding:0 16px;border:0;background:none;color:var(--danger);font:inherit;font-weight:600}
+.acct .confirm{align-self:stretch}
 .acct .confirm .btn.small{min-height:44px}
-.acct .btn[aria-disabled="true"],.rowbtn[aria-disabled="true"]{opacity:.5;cursor:default}
-.acct-hint{font-size:.88rem}
+.acct .btn[aria-disabled="true"],.rowbtn[aria-disabled="true"],.delbtn[aria-disabled="true"]{opacity:.5;cursor:default}
+.acct-hint{font-size:.88rem;margin:-12px 0 0}
 .acct-hint:empty{display:none}
+html:root[data-look="vegas"] .acct-name{font-size:1.6rem;line-height:1.15}
+html:root[data-look="vegas"] .acct-tag{font-size:1rem}
 .foldcard{margin-top:12px;padding:0 14px 8px}
 .foldcard .fold{border-top:0;border-bottom:1px solid var(--line);padding:0}
 .foldcard .fold:last-child{border-bottom:0}
 .foldcard .fold summary{min-height:48px}
 .foldcard .fold>:not(summary){margin-bottom:10px}
-html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
 /* a signed-in player's tag after their name (#3f9a), and "you" on the one-phone setup rows */
 .ptag{flex:none;font:600 .72rem/1 var(--font-body);letter-spacing:.02em;color:var(--ink-soft);white-space:nowrap;vertical-align:middle}
 /* in the score list a long name keeps its room: the tag gives way first */
@@ -1382,8 +1391,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     });
   }
   // Passkey options fetched ahead, so a tap can open the passkey prompt at once: Safari only allows the prompt within
-  // a short time of the tap, which a fetch over mobile data can use up. 'signin' and 'create' while the signed-out panel
-  // shows, 'add' once its fold is open. A set is used once; challenges live 5 minutes, so a set is fresh for 4.
+  // a short time of the tap, which a fetch over mobile data can use up. 'signin' and 'create' while the signed-out Profile
+  // screen shows, 'add' while the signed-in one shows. A set is used once; challenges live 5 minutes, so a set is fresh for 4.
   const PREP_FRESH_MS = 4 * 60 * 1000, PREP_RETRY_MS = 30 * 1000;
   const prep = { sets:{}, loading:{}, failedAt:{}, timer:null };
   const prepToken = purpose => purpose === 'add' ? (account ? account.token : null) : null;
@@ -1397,7 +1406,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         () => { delete prep.sets[purpose]; prep.failedAt[purpose] = Date.now(); })
       .then(() => { prep.loading[purpose] = false; });
   }
-  // after each render: get the sets the panel on screen may need (only on the home screen, never during a prompt)
+  // after each render: get the sets the Profile screen may need (only while it shows, never during a prompt)
   function prepareAccount(){
     if (!accountsAvailable() || ui.account.busy || !$app.querySelector('section.acct')) return;
     if (!account){ prefetchOptions('signin'); prefetchOptions('create'); }
@@ -1554,45 +1563,6 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     A.busy = false;
     refreshHome();
   }
-  // the account part of the You tab: a leather "Keep your scores" card (signed out) or the profile with its rows (signed in)
-  function accountBlock(){
-    if (!accountsAvailable()) return '';
-    // aria-disabled, not disabled: the tapped button keeps focus during a prompt (handle() ignores taps while busy)
-    const A = ui.account, dis = A.busy ? ' aria-disabled="true"' : '';
-    const hint = `<p class="hint acct-hint">${esc(A.hint || '')}</p>`; // announced through #acct-live
-    if (!account){
-      const name = A.name != null ? A.name : storedName();
-      return `<section class="acct out" aria-labelledby="acct-h">
-        <h2 class="acct-h" id="acct-h">Keep your scores</h2>
-        <p class="sub">A passkey makes your games count for you, on any phone. Optional.</p>
-        <label class="sr" for="aname">Your name</label>
-        <input type="text" id="aname" class="text-in" data-account="name" value="${esc(name)}" placeholder="Your name, for a new player" maxlength="16" autocomplete="nickname" enterkeyhint="go">
-        <div class="acct-btns"><button class="btn primary" data-act="asignin"${dis}>Sign in with a passkey</button><button class="btn" data-act="acreate"${dis}>New player</button></div>
-        ${hint}
-      </section>`;
-    }
-    const initial = (account.name.trim()[0] || '?').toUpperCase();
-    const who = `<div class="acct-me"><span class="ava big" data-i="${esc(initial)}" aria-hidden="true"></span>
-        <p class="acct-name"><span class="acct-nm">${esc(account.name)}</span> <small class="acct-tag">#${esc(tagOf(account.id))}</small></p></div>`;
-    const rename = A.rename
-      ? `<div class="acct-row"><label class="sr" for="arename">New name</label>
-          <input type="text" id="arename" class="text-in" data-account="rename" value="${esc(A.renameVal)}" maxlength="16" autocomplete="nickname" enterkeyhint="done">
-          <button class="btn primary" data-act="arenamesave"${dis}>Save</button><button class="btn ghost" data-act="arenamecancel"${dis}>Cancel</button></div>`
-      : `<button class="rowbtn" data-act="arename"${dis}>Rename</button>`;
-    const confirm = A.confirmDelete
-      ? `<div class="confirm"><span>Delete ${esc(account.name)} #${esc(tagOf(account.id))}? Your passkey stops working here and your stats keep only the name.</span><button class="btn small danger" data-act="adeleteyes"${dis}>Delete</button><button class="btn small" data-act="adeleteno"${dis}>Keep</button></div>`
-      : `<button class="rowbtn danger" data-act="adelete"${dis}>Delete player</button>`;
-    return `<section class="acct in" aria-labelledby="acct-h">
-        <h2 class="sr" id="acct-h">Your player</h2>
-        ${who}
-        <div class="pcard acct-rows">${rename}
-          <button class="rowbtn" data-act="aadd"${dis}>Add a passkey on this phone</button>
-          <button class="rowbtn" data-act="asignout"${dis}>Sign out</button></div>
-        ${hint}
-        <div class="acct-del">${confirm}</div>
-      </section>`;
-  }
-
   function newCode(){
     const b = new Uint8Array(5);
     crypto.getRandomValues(b);
@@ -2204,20 +2174,48 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         <button class="moderow" data-act="play" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'play'}"><span>${modeLine(s)}</span><span class="moderow-go">Change</span></button>
       </section>` + bar('<button class="btn primary" data-act="start">Start game</button>');
   }
-  // your player (the profile chip opens it): the account (accountBlock), then the settings list: Sound, Look, Shake to roll, How to play, Developer
-  function viewYou(){
-    const seg = (id, label, opts, cur, act) => `<div class="setrow"><span class="setlbl" id="${id}">${label}</span><div class="seg small" role="group" aria-labelledby="${id}">${opts.map(([v, l], i) =>
-      `<button class="segbtn${cur === v ? ' on' : ''}" data-act="${act}" data-id="${i}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div></div>`;
-    const shakeOn = shakePref && (shakeListening || needsMotionPermission());
-    const shake = canShake() ? `<div class="swrow"><span><b id="shake-l">Shake to roll</b><small id="shake-d">Shake the phone to roll the dice</small></span>
-        <button class="switch" role="switch" data-act="shake" data-id="${shakeOn ? 0 : 1}" aria-checked="${shakeOn}" aria-labelledby="shake-l" aria-describedby="shake-d"><span></span></button></div>` : '';
-    return `<header class="top slim"><div class="top-l"><button class="menubtn" data-act="home" aria-label="Back">${ICON_BACK}</button><h1 class="h2" id="you-h">You</h1></div></header>
-      ${accountBlock()}
-      <section class="panel" aria-labelledby="set-h">
-        <h2 class="h3" id="set-h">Settings</h2>
-        <div class="pcard setcard">${seg('snd-h', 'Sound', SOUND_OPTS, soundMode, 'sound')}${seg('look-h', 'Look', LOOK_OPTS, look, 'look')}${shake}</div>
-        <p class="hint shake-hint" aria-live="polite">${esc(ui.hint || '')}</p>
-        <div class="pcard foldcard">${rules()}${devBlock()}</div>
+  // your player (C3, the profile chip opens it), on paper: Back, then the account. Signed in: the avatar, the name and
+  // #tag, one line, the rows (Rename in place, add a passkey, sign out) and Delete player at the bottom. Signed out: an
+  // empty avatar, "Keep your scores", the line, the name field and the two passkey buttons
+  const ICON_CHEVRON = '<svg class="row-go" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg>';
+  const PROFILE_ROWS = [
+    ['arename', 'Rename', 'Shown to everyone at the table', 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4'],
+    ['aadd', 'Add a passkey on this phone', 'Sign in here without your other phone', 'M8 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM11 11l9 9M16 16l2-2'],
+    ['asignout', 'Sign out', 'Play here as a guest', 'M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10']
+  ];
+  function viewProfile(){
+    const head = `<header class="top slim prof-head"><button class="menubtn" data-act="home" aria-label="Back">${ICON_BACK}</button></header>`;
+    if (!accountsAvailable()) return head;
+    // aria-disabled, not disabled: the tapped button keeps focus during a prompt (handle() ignores taps while busy)
+    const A = ui.account, dis = A.busy ? ' aria-disabled="true"' : '';
+    const hint = `<p class="hint acct-hint">${esc(A.hint || '')}</p>`; // announced through #acct-live
+    const line = '<p class="sub">Your games count for you on any phone where you sign in.</p>';
+    if (!account){
+      const name = A.name != null ? A.name : storedName();
+      return head + `<section class="acct out" aria-labelledby="profile-h">
+        <div class="acct-me"><span class="ava prof empty" aria-hidden="true">${icon('you')}</span>
+          <h1 class="acct-name" id="profile-h" tabindex="-1">Keep your scores</h1>${line}</div>
+        <div class="acct-btns"><label class="sr" for="aname">Your name</label>
+          <input type="text" id="aname" class="text-in" data-account="name" value="${esc(name)}" placeholder="Your name, for a new player" maxlength="16" autocomplete="nickname" enterkeyhint="go">
+          <button class="btn primary" data-act="asignin"${dis}>Sign in with a passkey</button><button class="btn" data-act="acreate"${dis}>New player</button></div>
+        ${hint}
+      </section>`;
+    }
+    const initial = (account.name.trim()[0] || '?').toUpperCase();
+    const row = ([act, label, sub, d]) => act === 'arename' && A.rename
+      ? `<div class="acct-row"><label class="sr" for="arename">New name</label>
+          <input type="text" id="arename" class="text-in" data-account="rename" value="${esc(A.renameVal)}" maxlength="16" autocomplete="nickname" enterkeyhint="done">
+          <button class="btn primary" data-act="arenamesave"${dis}>Save</button><button class="btn ghost" data-act="arenamecancel"${dis}>Cancel</button></div>`
+      : `<button class="rowbtn" data-act="${act}"${dis}><svg class="row-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg><span class="row-t"><b>${label}</b><small>${sub}</small></span>${ICON_CHEVRON}</button>`;
+    const del = A.confirmDelete
+      ? `<div class="confirm"><span>Delete ${esc(account.name)} #${esc(tagOf(account.id))}? Your passkey stops working here and your stats keep only the name.</span><button class="btn small danger" data-act="adeleteyes"${dis}>Delete</button><button class="btn small" data-act="adeleteno"${dis}>Keep</button></div>`
+      : `<button class="delbtn" data-act="adelete"${dis}>Delete player</button>`;
+    return head + `<section class="acct in" aria-labelledby="profile-h">
+        <div class="acct-me"><span class="ava prof" data-i="${esc(initial)}" aria-hidden="true"></span>
+          <h1 class="acct-name" id="profile-h" tabindex="-1"><span class="acct-nm">${esc(account.name)}</span> <span class="acct-tag">#${esc(tagOf(account.id))}</span></h1>${line}</div>
+        <div class="pcard acct-rows">${PROFILE_ROWS.map(row).join('')}</div>
+        ${hint}
+        <div class="acct-del">${del}</div>
       </section>`;
   }
 
@@ -2370,6 +2368,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function closeSheet({ redraw = true } = {}){
     if (!ui.sheet) return;
+    if (ui.sheet === 'join' || ui.sheet === 'play') ui.hint = null; // its hint ("Enter your name first…") doesn't linger on the screen under it
     sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null; ui.shakeNote = null;
     if (redraw) render();
   }
@@ -2720,8 +2719,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       }
       case 'menu': openSheet('menu', ['menu', null]); return;
       // ----- home: the Play sheet, the Settings sheet, your player -----
-      case 'home': ui.screen = null; ui.hint = null; break;
-      case 'profile': if (!accountsAvailable()) return; ui.screen = 'profile'; ui.hint = null; break;
+      case 'home': ui.screen = ui.screen === 'profile' ? 'home' : null; ui.hint = null; break; // Profile's Back is always home, even over a saved game
+      case 'profile': if (!accountsAvailable()) return; ui.screen = 'profile'; ui.hint = null; focusNext = 'profile-h'; break;
       case 'settings': if (onHome()) openSheet('settings', ['settings', null]); return;
       case 'play':
         ui.hint = null;
@@ -2853,7 +2852,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'ojoin': { // home's Join, or Join in the Join sheet; it only ever joins the code shown, never creates a room
         if (!onlineAvailable() || !onHome()) return;
         const inSheet = ui.sheet === 'join', fields = readOnlineFields(), code = inSheet ? ui.joinCode : fields.code;
-        if (!CODE_RE.test(code)){ ui.hint = 'Enter the 5-letter room code.'; focusNext = 'ocode'; break; }
+        if (!CODE_RE.test(code)){ ui.hint = 'Enter the 5-character room code.'; focusNext = 'ocode'; break; }
         ui.joinCode = code;
         // a signed-in player joins at once; a guest gives a name in the Join sheet first
         if (!accountFor(serverBase()) && !inSheet){ joinSheet(); return; }
@@ -2912,7 +2911,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     let html;
     try {
       html = online() ? (!net.room ? viewConnecting() : (net.room.phase !== 'game' || !state.game) ? viewLobby() : gameView())
-        : ui.screen === 'profile' ? viewYou()
+        : ui.screen === 'profile' ? viewProfile()
         : onHome() ? viewHome()
         : state.phase === 'setup' ? viewPlayers()
         : gameView();
@@ -2923,6 +2922,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
     $app.innerHTML = html;
     $app.classList.toggle('has-bar', !!$app.querySelector(':scope > :is(.bar,.felt-home)'));
+    $app.classList.toggle('profile-on', !!$app.querySelector(':scope > section.acct')); // the profile fills the screen: Delete player sits at the bottom
     // home and the dice turn are on the leather: the whole page takes the table's colours (html.felt; home is leather-deep)
     const home = !!$app.querySelector(':scope > .felt-home');
     document.documentElement.classList.toggle('felt', home || !!$app.querySelector(':scope > .felt-turn'));

@@ -1,7 +1,7 @@
 // Playing as your player: online seats carry the player (tags, the seat back from any phone, an ended session),
 // and a one-phone game credits the phone owner's line. Runs against the Node server, or `wrangler dev` with TARGET=worker.
 import { test, expect } from '@playwright/test';
-import { AUTH, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll, openYou, toPlayers } from './helpers.js';
+import { AUTH, localUrl, account, storedAccount, addAuthenticator, copyCredential, net, live, enterScore, skipRace, noSideScroll, openProfile, toPlayers } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, reducedMotion: 'reduce' };
 
@@ -11,7 +11,7 @@ async function newPhone(browser, name = null) {
   const page = await ctx.newPage();
   const auth = await addAuthenticator(page);
   await page.goto(localUrl('/'));
-  await openYou(page);
+  await openProfile(page);
   if (name) {
     await expect(page.locator('[data-act=acreate]')).toBeVisible();
     await page.fill('#aname', name);
@@ -145,7 +145,7 @@ test('one phone: the signed-in player\'s line says "You", "This is me" moves it,
   await page.click('[data-act=again]');
   await expect(page.locator('[data-me]')).toHaveCount(2);           // Play again: Who's playing, still signed in
   await page.click('[data-act=home]');
-  await openYou(page);
+  await openProfile(page);
   await page.click('[data-act=asignout]');
   await page.click('[data-act=home]');
   await toPlayers(page, { mode: 'score' });
@@ -160,7 +160,7 @@ test('a waiting report goes out with its owner\'s session only', async ({ browse
   await addAuthenticator(page);
   await page.route('**/report', route => route.abort('internetdisconnected'));
   await page.goto(localUrl('/'));
-  await openYou(page);
+  await openProfile(page);
   await page.fill('#aname', 'Anna');
   await page.click('[data-act=acreate]');
   await expect(page.locator('.acct-name')).toContainText('Anna');
@@ -184,7 +184,7 @@ test('a waiting report goes out with its owner\'s session only', async ({ browse
   // someone else signs in on this phone before the report goes out: it goes without a session
   await page.click('[data-act=again]');
   await page.click('[data-act=home]');
-  await openYou(page);
+  await openProfile(page);
   await page.click('[data-act=asignout]');
   await page.fill('#aname', 'Cleo');
   await page.click('[data-act=acreate]');
@@ -196,7 +196,7 @@ test('a waiting report goes out with its owner\'s session only', async ({ browse
     await route.fulfill({ status: 204 });
   });
   await page.reload();
-  await openYou(page);
+  await openProfile(page);
   await expect.poll(() => sent.length).toBe(1);
   expect(sent[0].body.owner).toBe(0);
   expect(sent[0].auth).toBeNull();
