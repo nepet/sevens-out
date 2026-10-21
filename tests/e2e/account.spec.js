@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import { AUTH, url, localUrl, account, storedAccount, addAuthenticator, credentials, copyCredential, noSideScroll, openYou } from './helpers.js';
 
-// the account panel lives in the You tab
+// the account panel lives on your player's screen, opened from home's profile chip
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 const panel = page => page.locator('section.acct');
@@ -78,8 +78,36 @@ test('create a player, stay signed in, sign out and back in, rename', async ({ b
   await expect(page.locator('.acct-name')).toContainText('Annie');
   expect(await account(page)).toMatchObject({ id: me.id, name: 'Annie' });
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('sevens-out-name')))).toBe('Annie');
-  await page.click('[data-act=online]');
-  await expect(page.locator('.playing-as')).toHaveText(`Playing as Annie #${me.id.slice(0, 4)}`);
+  await page.click('[data-act=home]');
+  const chip = page.locator('.home-head [data-act=profile]');
+  await expect(chip).toHaveAttribute('aria-label', 'Your player: Annie');
+  await expect(chip).toHaveText('Annie');
+  await expect(chip.locator('.ava')).toHaveAttribute('data-i', 'A');
+  await ctx.close();
+});
+
+test('home\'s profile chip: "Sign in" for a guest, the name and initial when signed in; it opens your player, Back returns home', async ({ browser }) => {
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await addAuthenticator(page);
+  await page.goto(localUrl('/'));
+  const chip = page.locator('.home-head [data-act=profile]');
+  await expect(chip).toHaveText('Sign in');
+  await expect(chip.locator('svg')).toHaveCount(1);                  // the person icon
+  const box = await chip.boundingBox();
+  expect(box.height).toBeGreaterThanOrEqual(44);
+  expect(box.y).toBeLessThan(80);
+  await chip.click();
+  await expect(page.locator('[data-act=asignin]')).toBeVisible();
+  await expect(page.locator('nav.tabbar')).toHaveCount(0);
+  await page.fill('#aname', 'Bea');
+  await page.click('[data-act=acreate]');
+  await expect(page.locator('.acct-name')).toContainText('Bea');
+  await page.click('.menubtn[data-act=home][aria-label=Back]');
+  await expect(page.locator('[data-act=play]')).toBeVisible();
+  await expect(chip).toHaveAttribute('aria-label', 'Your player: Bea');
+  await expect(chip.locator('.ava')).toHaveAttribute('data-i', 'B');
+  expect(await noSideScroll(page)).toBe(true);
   await ctx.close();
 });
 
@@ -276,9 +304,9 @@ test('a probe that failed is tried again when the phone is back online; a 404 is
   let probes = 0, mode = 'offline';
   await page.route('**/auth/config', route => { probes++; return mode === 'offline' ? route.abort('internetdisconnected') : mode === '404' ? route.fulfill({ status: 404, body: '{}' }) : route.continue(); });
   await page.goto(localUrl('/'));
-  await openYou(page);
+  const chip = p => p.locator('.home-head [data-act=profile]');
   await expect.poll(() => probes).toBe(1);
-  await expect(panel(page)).toHaveCount(0);
+  await expect(chip(page)).toHaveCount(0);                         // no profile chip (and so no panel) yet
   mode = '404';
   await page.evaluate(() => dispatchEvent(new Event('online')));
   await expect.poll(() => probes).toBe(2);
@@ -286,16 +314,18 @@ test('a probe that failed is tried again when the phone is back online; a 404 is
   await page.evaluate(() => dispatchEvent(new Event('online')));
   await page.waitForTimeout(300);
   expect(probes).toBe(2); // no accounts on that server: no more probes
-  await expect(panel(page)).toHaveCount(0);
+  await expect(chip(page)).toHaveCount(0);
 
   const ctx2 = await browser.newContext(phone);
   const page2 = await ctx2.newPage();
   let n = 0;
   await page2.route('**/auth/config', route => (++n === 1 ? route.abort('internetdisconnected') : route.continue()));
   await page2.goto(localUrl('/'));
-  await openYou(page2);
   await expect.poll(() => n).toBe(1);
+  await expect(chip(page2)).toHaveCount(0);
   await page2.evaluate(() => dispatchEvent(new Event('online')));
+  await expect(chip(page2)).toHaveText('Sign in');                 // home redraws with the chip
+  await openYou(page2);
   await expect(panel(page2)).toBeVisible();
   await ctx.close(); await ctx2.close();
 });
@@ -306,9 +336,9 @@ test('the panel stays hidden where passkeys cannot work', async ({ browser }) =>
   await ctx.addInitScript(() => { delete window.PublicKeyCredential; });
   const page = await ctx.newPage();
   await page.goto(localUrl('/'));
-  await openYou(page);
   await page.waitForLoadState('networkidle');
-  await expect(page.locator('[data-act=online]')).toBeVisible();
+  await expect(page.locator('.home-head [data-act=settings]')).toBeVisible();
+  await expect(page.locator('.home-head [data-act=profile]')).toHaveCount(0);  // no profile chip, so no panel
   await expect(panel(page)).toHaveCount(0);
   expect((await account(page)).available).toBe(false);
   await ctx.close();
@@ -317,9 +347,9 @@ test('the panel stays hidden where passkeys cannot work', async ({ browser }) =>
   const ctx2 = await browser.newContext(phone);
   const page2 = await ctx2.newPage();
   await page2.goto(url('/'));
-  await openYou(page2);
   await page2.waitForLoadState('networkidle');
-  await expect(page2.locator('[data-act=online]')).toBeVisible();
+  await expect(page2.locator('.home-head [data-act=settings]')).toBeVisible();
+  await expect(page2.locator('.home-head [data-act=profile]')).toHaveCount(0);
   await expect(panel(page2)).toHaveCount(0);
   await ctx2.close();
 });

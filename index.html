@@ -344,32 +344,36 @@ html.sheet-open{overflow:hidden}
 @keyframes sheet-fade{from{opacity:0}}
 @media (prefers-reduced-motion:reduce){.sheet,.sheet-backdrop{animation:none}}
 
-/* home (viewHome(), html.felt.felt-home): full-bleed leather-deep, the title, two dice, one line and Play in the thumb zone */
+/* home (viewHome(), html.felt.felt-home): full-bleed leather-deep. The header (settings button, profile chip), the title,
+   two dice, one line, then Play and the room code row in the thumb zone */
 html.felt-home,html.felt-home body{background:var(--leather-deep)}
 html:root[data-look="vegas"].felt-home,html:root[data-look="vegas"].felt-home body{background-color:var(--leather-deep)}
 .felt-home{flex:1 0 auto;display:flex;flex-direction:column}
-.home-hero{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding-top:16px}
+.home-head{flex:none;min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+#app .home-head .menubtn{border-radius:22px;border:0;background:color-mix(in srgb,var(--ink) 10%,transparent)}
+.profile-chip{min-height:44px;max-width:65%;display:flex;align-items:center;gap:8px;padding:0 4px 0 14px;border:0;border-radius:22px;background:color-mix(in srgb,var(--ink) 10%,transparent);color:var(--ink);font-weight:600;font-size:15px}
+.profile-chip .pc-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.profile-chip .ava{width:36px;height:36px;font-size:1rem;margin:0}
+.profile-chip .pc-ic{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;flex:none;border:1.5px solid var(--line)}
+.profile-chip .pc-ic svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+@supports not (color:color-mix(in srgb,red 50%,blue)){#app .home-head .menubtn,.profile-chip{background:var(--card)}}
+.home-hero{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;text-align:center;padding-top:8px}
 .home-title{font-size:clamp(4.4rem,26vw,6.5rem);line-height:.85;letter-spacing:.01em}
 .home-dice{display:flex;gap:10px;--die:3.25rem}
 .home-dice .die:first-child{transform:rotate(-8deg)}
 .home-dice .die:last-child{transform:rotate(6deg)}
 .home-line{margin:0;max-width:19rem;font-size:1rem;line-height:1.45;opacity:.85}
-.home-go{padding-block:24px 18px}
+.home-go{display:flex;flex-direction:column;gap:14px;padding-block:24px calc(24px + env(safe-area-inset-bottom,0px))}
 .btn.play{width:100%;min-height:68px;border-radius:20px;font:800 2rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.04em;box-shadow:0 6px 0 var(--shade)}
 html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
-@media (max-height:700px){.home-hero{gap:18px}.home-title{font-size:clamp(3.6rem,20vw,5rem)}.home-go{padding-block:16px 12px}}
-
-/* the tab bar (tabBar()): Play · Online · You, on the home screens only; pinned like the bar, padded for the safe area */
-.tabbar{position:sticky;bottom:0;z-index:20;margin:auto -16px calc(-1 * env(safe-area-inset-bottom,0px));padding:6px 8px calc(8px + env(safe-area-inset-bottom,0px));display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);background:var(--card);border-top:1px solid var(--line)}
-html.felt-home .tabbar{background:var(--leather-deep)}
-.felt-home+.tabbar{margin-top:0}
-.tab{min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:0;border:0;background:transparent;color:var(--ink-soft);font-size:.75rem;font-weight:500}
-.tab[aria-current="page"]{color:var(--ink);font-weight:700}
-.tab-ic{width:56px;height:28px;border-radius:14px;display:grid;place-items:center}
-.tab[aria-current="page"] .tab-ic{background:color-mix(in srgb,var(--brass) 25%,transparent)}
-.tab svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.tab:focus-visible{outline-offset:-3px}
-@supports not (color:color-mix(in srgb,red 50%,blue)){.tab[aria-current="page"] .tab-ic{background:var(--line)}}
+.code-row{display:flex;gap:8px}
+.code-row .text-in{flex:1 1 auto;min-width:0;height:52px;border-radius:16px;border:1px solid var(--line);background:color-mix(in srgb,var(--ink) 8%,transparent);padding:0 16px;font-weight:600;color:var(--ink);text-transform:uppercase}
+.code-row .text-in::placeholder{color:var(--ink-soft);text-transform:none}
+.code-row .btn{flex:none;min-height:52px;padding:0 20px;border-radius:16px;border-color:var(--ink);font-weight:700}
+@supports not (color:color-mix(in srgb,red 50%,blue)){.code-row .text-in{background:var(--card)}}
+.home-hint{margin:-4px 0 0;text-align:center}
+.home-hint:empty{display:none}
+@media (max-height:700px){.home-hero{gap:18px}.home-title{font-size:clamp(3.6rem,20vw,5rem)}.home-go{gap:12px;padding-block:16px calc(16px + env(safe-area-inset-bottom,0px))}}
 
 /* the Play sheet (playBody()): where, dice, the 7s switch and the next step pinned to the sheet's bottom */
 .choice{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:8px;min-width:0}
@@ -585,8 +589,6 @@ html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
 .ptag{flex:none;font:600 .72rem/1 var(--font-body);letter-spacing:.02em;color:var(--ink-soft);white-space:nowrap;vertical-align:middle}
 /* in the score list a long name keeps its room: the tag gives way first */
 :is(.board,.race-card) .nm .ptag{flex:0 1000 auto;min-width:0;overflow:hidden}
-.playing-as{margin:0;font-size:1rem}
-.playing-as b{font-weight:700}
 .me-slot{flex:none;display:inline-flex;align-items:center;justify-content:center;min-width:4.6rem}
 .me-slot .you{margin:0}
 .me-slot .me-link{min-height:44px;padding:0 4px;font-size:.82rem}
@@ -594,7 +596,6 @@ html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
 .fld{display:flex;flex-direction:column;gap:6px}
 .text-in{height:48px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);padding:0 12px;font-size:1rem;width:100%}
 .text-in:focus-visible{border-color:var(--brass);outline:2px solid var(--brass);outline-offset:0}
-.code-in{font:800 1.6rem/1 var(--font-display);letter-spacing:.18em;text-transform:uppercase;text-align:center}
 .roomcode{margin:0;font:800 clamp(3rem,16vw,4.2rem)/1 var(--font-display);letter-spacing:.14em;color:var(--brass-text);font-variant-numeric:tabular-nums;user-select:all}
 .link-box{margin:0;padding:10px 12px;border-radius:10px;background:var(--card);border:1px solid var(--line);font-size:.85rem;overflow-wrap:anywhere;user-select:all}
 .seats{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
@@ -608,24 +609,12 @@ html:root[data-look="vegas"] .acct-name{font-size:1.25rem;line-height:1.1}
 .pickbtn.on{background:var(--ink);border-color:var(--ink);color:var(--paper)}
 .pickbtn:disabled{cursor:default}
 .pickbtn:disabled:not(.on){color:var(--ink-soft)}
-/* the Online tab (viewOnlineEntry) and the lobby (viewLobby) */
-.on-head{display:flex;flex-direction:column;gap:12px;padding-top:8px}
-.on-title{font-size:clamp(2.4rem,12vw,2.9rem);line-height:1}
-.playing-as{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:4px 14px 4px 4px;border-radius:20px;background:var(--card);border:1px solid var(--line);max-width:100%;overflow-wrap:anywhere}
+/* the lobby (viewLobby) */
 .ava{width:30px;height:30px;border-radius:50%;background:var(--brass);color:var(--brass-ink);display:grid;place-items:center;font-weight:700;font-size:.9rem;flex:none;margin-right:2px}
 .ava::before{content:attr(data-i)}
-.on-hint:empty{display:none}
-html:root[data-look="vegas"] .brand-xl.on-title{padding:4px 0;text-align:left;font-size:clamp(2rem,10vw,2.6rem)}
-.code-in::placeholder{color:var(--ink-soft);opacity:.45}
 .seat .tag{margin-right:10px}
 .oncard{display:flex;flex-direction:column;gap:12px;padding:18px 16px;border-radius:20px;background:var(--card);border:1px solid var(--line)}
 .oncard-h{margin:0;font-size:1.15rem;font-weight:700}
-.oncard .code-in{height:60px;font-size:2rem;background:var(--paper)}
-.oncard.host{flex-direction:row;align-items:center;gap:14px}
-.oncard.host>span{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
-.oncard.host small{font-size:.9rem;color:var(--ink-soft)}
-.oncard.host .btn{flex:none}
-.btn.dark{background:var(--ink);border-color:var(--ink);color:var(--paper);font-weight:700}
 .roomhead{gap:8px}
 .roomhead .sub{margin-bottom:4px}
 .sharebtn{display:inline-flex;align-items:center;justify-content:center;gap:8px}
@@ -1362,9 +1351,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (!res.ok) throw Object.assign(new Error('auth ' + res.status), { code:(data && data.error) || 'http', status:res.status, detail:data && data.detail });
     return data;
   }
-  // only the home screens (the You tab's panel, Who's playing, the Play sheet's name field) and the online entry ("Playing as") show the account,
+  // only the home screens (home's profile chip and Join, your player, Who's playing, the Play sheet's name field) show the account,
   // so answers that arrive later redraw only those
-  function refreshHome(){ if (!online() && (ui.screen === 'online' || ui.screen === 'you' || state.phase === 'setup') && !ui.busy && !ui.race) render(); }
+  function refreshHome(){ if (!online() && (ui.screen === 'profile' || onHome() || state.phase === 'setup') && !ui.busy && !ui.race) render(); }
   // the feature probe; offline or a server error tries again when the page comes back or the phone is online (a 404: no accounts there)
   function probeAuth(){
     if (authProbe.ok || authProbe.busy || !accountsSupported()) return;
@@ -1704,7 +1693,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked'){
       const code = net.code;
       netLeave();
-      ui.screen = 'online'; ui.joinCode = m.code === 'kicked' ? '' : code; ui.online = {};
+      // back to home (over a saved one-phone game too), with the code still in the code row
+      ui.screen = 'home'; ui.joinCode = m.code === 'kicked' ? '' : code; ui.online = {};
       ui.hint = m.code === 'no_room' ? `There's no room with the code ${code}. Check the code and try again.`
         : m.code === 'room_full' ? `Room ${code} is full. A room holds up to 6 players.`
         : 'The host removed you from the room.';
@@ -2132,31 +2122,42 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const mine = myLine(state.setup.names);
     $app.querySelectorAll('[data-me]').forEach(el => { const i = +el.dataset.me, h = meSlot(i, mine); if (el.innerHTML !== h) el.innerHTML = h; });
   }
-  // ----- the home screens: the Play tab (home, then Who's playing), Online and You, with the tab bar -----
+  // ----- the home screens: home (then Who's playing) and your player -----
   const ICONS = {
     play:'M4 4h16v16H4zM9 9h.01M15 15h.01M12 12h.01', online:'M2 6h7v12H2zM15 6h7v12h-7zM9 12h6',
     you:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c1.5-4 4.5-6 8-6s6.5 2 8 6',
     table:'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2', real:'M4 6h16M4 12h16M4 18h10'
   };
   const icon = k => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[k]}"/></svg>`;
-  // which home screen shows: ui.screen null means home (the Play tab)
+  // which home screen shows: ui.screen null (or 'home', a ?join landing over a saved game) means home
   const homeScreen = () => ui.screen || 'home';
-  // the bottom tab bar, on the home screens only; Online is left out where online play isn't available
-  function tabBar(cur){
-    const tabs = [['home', 'Play', 'play'], onlineAvailable() ? ['online', 'Online', 'online'] : null, ['you', 'You', 'you']].filter(Boolean);
-    return `<nav class="tabbar" aria-label="Main">${tabs.map(([act, label, ic]) =>
-      `<button class="tab" data-act="${act}"${act === cur ? ' aria-current="page"' : ''}><span class="tab-ic">${icon(ic)}</span>${label}</button>`).join('')}</nav>`;
+  // is home on screen? (a one-phone game in play shows only after a ?join landing or a failed join, ui.screen 'home')
+  const onHome = () => !online() && homeScreen() === 'home' && (state.phase === 'setup' || ui.screen === 'home');
+  const ICON_SLIDERS = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>';
+  // home's profile chip: the signed-in player (name and initial) or "Sign in"; left out when accounts aren't available here
+  function profileChip(){
+    if (!accountsAvailable()) return '';
+    if (!account) return `<button class="profile-chip" data-act="profile"><span class="pc-nm">Sign in</span><span class="pc-ic">${icon('you')}</span></button>`;
+    const initial = (account.name.trim()[0] || '?').toUpperCase();
+    return `<button class="profile-chip" data-act="profile" aria-label="Your player: ${esc(account.name)}"><span class="pc-nm">${esc(account.name)}</span><span class="ava" data-i="${esc(initial)}" aria-hidden="true"></span></button>`;
   }
-  // home asks one thing: Play (it opens the Play sheet)
+  // home: the settings button and the profile chip, the title, two dice, one line, then Play (it opens the Play sheet)
+  // and, where online play is available, the room code row (Join)
   function viewHome(){
+    const code = ui.online.code != null ? ui.online.code : ui.joinCode;
+    const join = onlineAvailable() ? `<div class="code-row"><label class="sr" for="ocode">Room code</label>
+          <input type="text" id="ocode" class="text-in" data-online="code" value="${esc(code || '')}" placeholder="Got a room code?" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go">
+          <button class="btn" data-act="ojoin">Join</button></div>
+        <p class="hint home-hint" aria-live="polite">${esc(ui.hint || '')}</p>` : '';
     return `<section class="felt-home">
+        <header class="home-head"><button class="menubtn" data-act="settings" aria-label="Settings" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'settings'}">${ICON_SLIDERS}</button>${profileChip()}</header>
         <div class="home-hero">
           <h1 class="brand-xl home-title marquee">Sevens<br><span>Out</span></h1>
           <div class="home-dice" aria-hidden="true"><span class="die">${face(3)}</span><span class="die">${face(4)}</span></div>
           <p class="home-line">Set aside every pair that makes 7. What's left counts against you.</p>
         </div>
-        <div class="home-go"><button class="btn primary play" data-act="play" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'play'}">Play</button></div>
-      </section>` + tabBar('home');
+        <div class="home-go"><button class="btn primary play" data-act="play" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'play'}">Play</button>${join}</div>
+      </section>`;
   }
   // the Play sheet: where everyone is, the dice, the 7s switch, then the next step. Choices go to state.setup
   // (where is optional: old saves have none and read as 'table')
@@ -2203,21 +2204,21 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         <button class="moderow" data-act="play" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'play'}"><span>${modeLine(s)}</span><span class="moderow-go">Change</span></button>
       </section>` + bar('<button class="btn primary" data-act="start">Start game</button>');
   }
-  // the You tab: your player (accountBlock), then the settings list: Sound, Look, Shake to roll, How to play, Developer
+  // your player (the profile chip opens it): the account (accountBlock), then the settings list: Sound, Look, Shake to roll, How to play, Developer
   function viewYou(){
     const seg = (id, label, opts, cur, act) => `<div class="setrow"><span class="setlbl" id="${id}">${label}</span><div class="seg small" role="group" aria-labelledby="${id}">${opts.map(([v, l], i) =>
       `<button class="segbtn${cur === v ? ' on' : ''}" data-act="${act}" data-id="${i}" aria-pressed="${cur === v}">${l}</button>`).join('')}</div></div>`;
     const shakeOn = shakePref && (shakeListening || needsMotionPermission());
     const shake = canShake() ? `<div class="swrow"><span><b id="shake-l">Shake to roll</b><small id="shake-d">Shake the phone to roll the dice</small></span>
         <button class="switch" role="switch" data-act="shake" data-id="${shakeOn ? 0 : 1}" aria-checked="${shakeOn}" aria-labelledby="shake-l" aria-describedby="shake-d"><span></span></button></div>` : '';
-    return `<header class="top slim"><div class="top-l"><h1 class="h2" id="you-h">You</h1></div></header>
+    return `<header class="top slim"><div class="top-l"><button class="menubtn" data-act="home" aria-label="Back">${ICON_BACK}</button><h1 class="h2" id="you-h">You</h1></div></header>
       ${accountBlock()}
       <section class="panel" aria-labelledby="set-h">
         <h2 class="h3" id="set-h">Settings</h2>
         <div class="pcard setcard">${seg('snd-h', 'Sound', SOUND_OPTS, soundMode, 'sound')}${seg('look-h', 'Look', LOOK_OPTS, look, 'look')}${shake}</div>
         <p class="hint shake-hint" aria-live="polite">${esc(ui.hint || '')}</p>
         <div class="pcard foldcard">${rules()}${devBlock()}</div>
-      </section>` + tabBar('you');
+      </section>`;
   }
 
   // ----- online screens -----
@@ -2229,28 +2230,6 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return `<div class="swrow"><span><b id="${idp}-l">The app finds the 7s</b>
         <small id="${idp}-d">${auto ? 'On: the app sets every pair of 7 aside' : 'Off: you spot them, and missed pairs count'}</small></span>
         <button class="switch" role="switch" data-act="${act}" aria-checked="${auto}" aria-labelledby="${idp}-l" aria-describedby="${idp}-d"${enabled ? '' : ' disabled'}><span></span></button></div>`;
-  }
-  // the Online tab: who you are (the player, or a name field), join a friend's room by code, or host a game
-  function viewOnlineEntry(){
-    const name = ui.online.name != null ? ui.online.name : storedName();
-    const code = ui.online.code != null ? ui.online.code : ui.joinCode;
-    const me = accountFor(serverBase());
-    const who = me ? `<p class="playing-as"><span class="ava" data-i="${esc((me.name.trim()[0] || '?').toUpperCase())}" aria-hidden="true"></span>Playing as <b>${esc(me.name)}</b> ${tagHtml(me.id)}</p>`
-      : `<label class="fld" for="oname"><span class="h3">Your name</span>
-          <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="done"></label>`;
-    return `<header class="on-head"><h1 class="brand-xl on-title">Play online</h1>${who}</header>
-      <p class="hint on-hint" aria-live="polite">${esc(ui.hint || '')}</p>
-      <section class="oncard" aria-labelledby="join-h">
-        <h2 class="oncard-h" id="join-h">Join a friend's room</h2>
-        <label class="sr" for="ocode">Room code</label>
-        <input type="text" id="ocode" class="text-in code-in" data-online="code" value="${esc(code || '')}" placeholder="ABCDE" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" enterkeyhint="go">
-        <button class="btn dark" data-act="ojoin">Join room</button>
-        <p class="sub">Got a link? Open it and the code is filled in.</p>
-      </section>
-      <section class="oncard host" aria-labelledby="host-h">
-        <span><h2 class="oncard-h" id="host-h">Host a game</h2><small>Get a code to share</small></span>
-        <button class="btn primary" data-act="ocreate">Create room</button>
-      </section>` + tabBar('online');
   }
   function viewConnecting(){
     return `<header class="top marquee"><div class="brand">Sevens <span>Out</span></div><div class="meta">Online</div></header>
@@ -2373,9 +2352,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 
   // Sheets by kind: { title, ok() (may it show on this screen?), body() (html, rebuilt on every render) }.
   // openSheet(kind, from) shows one; `from` is the opener's [data-act, data-id], which gets the focus back on close.
+  // (title may be a function of the moment, like "Join room K7QPM")
   const SHEETS = {
-    menu:{ title:'Game menu', ok:() => online() ? !!net.room : state.phase !== 'setup' && homeScreen() === 'home' && !!state.game, body:menuBody },
-    play:{ title:'New game', ok:() => !online() && state.phase === 'setup' && ['home', 'players'].includes(homeScreen()), body:playBody }
+    menu:{ title:'Game menu', ok:() => online() ? !!net.room : state.phase !== 'setup' && !ui.screen && !!state.game, body:menuBody },
+    play:{ title:'New game', ok:() => !online() && state.phase === 'setup' && ['home', 'players'].includes(homeScreen()), body:playBody },
+    settings:{ title:'Settings', ok:onHome, body:settingsBody },
+    join:{ title:() => `Join room ${ui.joinCode}`, ok:() => onHome() && CODE_RE.test(ui.joinCode || ''), body:joinBody }
   };
   let focusNext = null; // an element id to focus after the next render
   let sheetReturn = null; // the opener to focus after the next render
@@ -2406,7 +2388,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const typing = f && body.contains(f) && f.tagName === 'INPUT' && f.id ? f.id : null;
     const fold = f && body.contains(f) && f.tagName === 'SUMMARY' && f.parentElement.dataset.fold ? f.parentElement.dataset.fold : null;
     const top = body.scrollTop, title = $sheet.querySelector('#sheet-h');
-    if (title.textContent !== def.title) title.textContent = def.title;
+    const t = typeof def.title === 'function' ? def.title() : def.title;
+    if (title.textContent !== t) title.textContent = t;
     body.innerHTML = def.body();
     $sheet.hidden = false;
     body.scrollTop = top;
@@ -2419,6 +2402,18 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       const el = body.querySelector(`[data-act="${key[0]}"]` + (key[1] != null ? `[data-id="${key[1]}"]` : ''));
       (el || $sheet.querySelector('.sheet')).focus({ preventScroll:true });
     }
+  }
+  // home's Settings sheet: Sound, Look and Shake to roll (with the shake hint), then How to play and Developer as folds
+  function settingsBody(){
+    return `<section class="foot" aria-label="Settings">${settingsBlock()}<p class="hint shake-hint" aria-live="polite">${esc(ui.shakeNote || '')}</p></section>`
+      + `<div class="pcard foldcard">${rules()}${devBlock()}</div>`;
+  }
+  // the Join sheet (a guest joining by code from home): the name, the hint, and Join pinned at the bottom
+  function joinBody(){
+    const name = ui.online.name != null ? ui.online.name : storedName();
+    return `<label class="fld" for="oname"><span class="h3">Your name</span>
+        <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="go"></label>
+      <div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.hint || '')}</p><button class="btn primary" data-act="ojoin">Join</button></div>`;
   }
   // the game menu: score sheet, how to play, settings, new game or leave room, developer
   function menuBody(){
@@ -2654,6 +2649,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     dispatch({ type:'roll' }); // roll first, then show the tumbling dice until the result is revealed
     if (ui.rolling){ render(); startTumble(); }
   }
+  // the Join sheet for a guest, with the name field focused
+  function joinSheet(){
+    ui.hint = null;
+    openSheet('join', ['ojoin', null]);
+    const n = document.getElementById('oname'); if (n) n.focus({ preventScroll:true });
+  }
   function toSetup(){ state.phase = 'setup'; state.game = null; delete state.stats; resetUi(); ui.open = {}; ui.screen = 'players'; }
   function readOnlineFields(){
     const n = document.getElementById('oname'), c = document.getElementById('ocode');
@@ -2718,10 +2719,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         break;
       }
       case 'menu': openSheet('menu', ['menu', null]); return;
-      // ----- home: the tabs and the Play sheet -----
+      // ----- home: the Play sheet, the Settings sheet, your player -----
       case 'home': ui.screen = null; ui.hint = null; break;
-      case 'you': ui.screen = 'you'; ui.hint = null; break;
-      case 'play': ui.hint = null; if (state.phase === 'setup' && !online()) openSheet('play', ['play', null]); return;
+      case 'profile': if (!accountsAvailable()) return; ui.screen = 'profile'; ui.hint = null; break;
+      case 'settings': if (onHome()) openSheet('settings', ['settings', null]); return;
+      case 'play':
+        ui.hint = null;
+        if (online()) return;
+        if (state.phase !== 'setup'){ ui.screen = null; break; } // home over a saved game (a ?join landing): Play goes back to it
+        openSheet('play', ['play', null]); return;
       case 'where': ui.hint = null; state.setup.where = id === 1 && onlineAvailable() ? 'phones' : 'table'; break;
       case 'players': ui.hint = null; closeSheet({ redraw:false }); sheetReturn = null; focusNext = 'players-h'; ui.screen = 'players'; break;
       case 'roll': startRoll(); return;
@@ -2772,7 +2778,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         // ask right inside the tap, before anything async, or iPhone refuses
         askMotion().then(ok => {
           shakePref = ok; store(ok); listenMotion(ok);
-          ui.hint = ui.shakeNote = ok ? 'Shake the phone to roll the dice.' : "Your phone didn't allow motion access, so shake to roll stays off.";
+          ui.shakeNote = ok ? 'Shake the phone to roll the dice.' : "Your phone didn't allow motion access, so shake to roll stays off.";
+          if (!ui.sheet) ui.hint = ui.shakeNote; // your player's settings card shows it in the hint line
           render();
         });
         return;
@@ -2833,16 +2840,27 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'adeleteno': ui.account.confirmDelete = false; break;
 
       // ----- online -----
-      case 'online': if (!onlineAvailable()) return; if (ui.screen !== 'online'){ ui.screen = 'online'; ui.online = {}; } ui.hint = null; break;
-      case 'ocreate': case 'ojoin': {
-        const { name, code } = readOnlineFields();
+      case 'ocreate': {
+        const { name } = readOnlineFields();
         if (!name){ ui.hint = 'Enter your name first, so the others know who you are.'; break; }
-        try { localStorage.setItem('sevens-out-name', JSON.stringify(name)); } catch (e) {}
-        if (a === 'ojoin' && !CODE_RE.test(code)){ ui.hint = 'A room code has 5 letters and digits, like K7QPM.'; break; }
+        storeName(name);
         ui.hint = null;
         // a new room starts with the server's defaults; the remembered dice and 7s follow right after welcome
         const s = state.setup, settings = { mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' };
-        netStart(a === 'ocreate' ? { create:true, name, settings } : { create:false, code, name });
+        netStart({ create:true, name, settings });
+        return;
+      }
+      case 'ojoin': { // home's Join, or Join in the Join sheet; it only ever joins the code shown, never creates a room
+        if (!onlineAvailable() || !onHome()) return;
+        const inSheet = ui.sheet === 'join', fields = readOnlineFields(), code = inSheet ? ui.joinCode : fields.code;
+        if (!CODE_RE.test(code)){ ui.hint = 'Enter the 5-letter room code.'; focusNext = 'ocode'; break; }
+        ui.joinCode = code;
+        // a signed-in player joins at once; a guest gives a name in the Join sheet first
+        if (!accountFor(serverBase()) && !inSheet){ joinSheet(); return; }
+        if (!fields.name){ ui.hint = 'Enter your name first, so the others know who you are.'; focusNext = 'oname'; break; }
+        storeName(fields.name);
+        ui.hint = null; closeSheet({ redraw:false }); sheetReturn = null;
+        netStart({ create:false, code, name:fields.name });
         return;
       }
       case 'omode': if (amHost()) netSend({ t:'lobby', op:'settings', mode:id === 1 ? 'score' : 'dice' }); break;
@@ -2894,9 +2912,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     let html;
     try {
       html = online() ? (!net.room ? viewConnecting() : (net.room.phase !== 'game' || !state.game) ? viewLobby() : gameView())
-        : ui.screen === 'online' ? viewOnlineEntry()
-        : ui.screen === 'you' ? viewYou()
-        : state.phase === 'setup' ? (ui.screen === 'players' ? viewPlayers() : viewHome())
+        : ui.screen === 'profile' ? viewYou()
+        : onHome() ? viewHome()
+        : state.phase === 'setup' ? viewPlayers()
         : gameView();
     } catch (err){
       console.error(err);
@@ -2904,7 +2922,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       state = blank(); resetUi(); ui.screen = null; html = viewHome();
     }
     $app.innerHTML = html;
-    $app.classList.toggle('has-bar', !!$app.querySelector(':scope > :is(.bar,.tabbar)'));
+    $app.classList.toggle('has-bar', !!$app.querySelector(':scope > :is(.bar,.felt-home)'));
     // home and the dice turn are on the leather: the whole page takes the table's colours (html.felt; home is leather-deep)
     const home = !!$app.querySelector(':scope > .felt-home');
     document.documentElement.classList.toggle('felt', home || !!$app.querySelector(':scope > .felt-turn'));
@@ -3046,11 +3064,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const tag = e.target && e.target.tagName;
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.online){
       e.preventDefault();
-      if (e.target.dataset.online === 'code'){ handle('ojoin', null); return; }
-      if ($sheet.contains(e.target)){ handle('ocreate', null); return; }
-      // the Online tab's name field never creates a room: with a code on screen it joins, without one it moves on to the code field
-      const oc = document.getElementById('ocode');
-      if (oc && !oc.value.trim()) oc.focus(); else handle('ojoin', null);
+      // the code row and the Join sheet join; only the Play sheet's name field creates a room
+      handle(e.target.dataset.online === 'code' || ui.sheet === 'join' ? 'ojoin' : 'ocreate', null);
       return;
     }
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.account){
@@ -3075,7 +3090,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (state.phase === 'roundEnd'){ const r = E.apply(state, { type:'nextround' }); if (!r.error){ state = r.state; save(); } }
     startAccounts(); // first: a waiting report goes out with the owner's session
     flushReports();
-    // ?join=CODE opens the join screen with the code filled in
+    // ?join=CODE opens home with the code filled in (a guest also gets the Join sheet); it never joins by itself
     let join = '';
     try { join = (new URLSearchParams(location.search).get('join') || '').toUpperCase(); } catch (e) {}
     let saved = null;
@@ -3087,10 +3102,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       return;
     }
     const joining = join && CODE_RE.test(join) && onlineAvailable();
-    if (joining){ ui.screen = 'online'; ui.joinCode = join; }
+    if (joining){ ui.screen = state.phase === 'setup' ? null : 'home'; ui.joinCode = join; }
     render();
-    // a guest with no saved name types one first, then taps Join room
-    if (joining){ const n = document.getElementById('oname'); if (n && !n.value) n.focus(); }
+    if (joining && !accountFor(serverBase())) joinSheet();
   }
   // read-only view for tests and debugging in the console
   window.SevensDebug = Object.freeze({

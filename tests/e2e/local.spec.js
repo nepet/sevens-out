@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openYou, toPlayers } from './helpers.js';
+import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -197,8 +197,8 @@ test.describe('on a phone', () => {
 
   test('shake to roll: one bump does nothing, a shake rolls', async ({ page }) => {
     await page.goto('/');
-    await openYou(page);
-    await page.click('[data-act=shake][data-id="1"]');
+    await openSettings(page);
+    await page.click('.sheet-layer [data-act=shake][data-id="1"]');
     await startLocal(page);
     await expect(page.locator('.hint')).toContainText('shake the phone');
     const jolt = x => page.evaluate(v => window.dispatchEvent(new DeviceMotionEvent('devicemotion', { acceleration: { x: v, y: 0, z: 0 } })), x);
@@ -209,12 +209,13 @@ test.describe('on a phone', () => {
     await expect.poll(async () => (await saved(page)).game.turn.rolls).toBe(1);
   });
 
-  test('a refused motion permission says so in the You tab and in the game menu', async ({ page }) => {
+  test('a refused motion permission says so in the Settings sheet and in the game menu', async ({ page }) => {
     await page.addInitScript(() => { DeviceMotionEvent.requestPermission = () => Promise.resolve('denied'); });
     await page.goto('/');
-    await openYou(page);
-    await page.click('[data-act=shake][data-id="1"]');
-    await expect(page.locator('.shake-hint')).toContainText("didn't allow motion access");
+    await openSettings(page);
+    await page.click('.sheet-layer [data-act=shake][data-id="1"]');
+    await expect(page.locator('.sheet-layer .shake-hint')).toContainText("didn't allow motion access");
+    await expect(page.locator('#app .home-hint')).toHaveText(''); // only the sheet says it
     await startLocal(page);
     await openMenu(page);
     await page.click('.sheet-layer [data-act=shake][data-id="1"]');
@@ -224,8 +225,8 @@ test.describe('on a phone', () => {
   test('shaking during the race between rounds does not roll', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/');
-    await openYou(page);
-    await page.click('[data-act=shake][data-id="1"]');
+    await openSettings(page);
+    await page.click('.sheet-layer [data-act=shake][data-id="1"]');
     await startLocal(page);
     await page.click('[data-act=roll]'); await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
     await idle(page);
@@ -584,10 +585,10 @@ test('a score list scrolled away comes back into view, and the race starts from 
 test('no sideways scrolling at phone width, in both looks', async ({ page }) => {
   await page.goto('/');
   expect(await noSideScroll(page)).toBe(true);
-  await openYou(page);
+  await openSettings(page);
   expect(await noSideScroll(page)).toBe(true);
-  await page.click('[data-act=look][data-id="1"]');
-  await page.click('[data-act=home]');
+  await page.click('.sheet-layer [data-act=look][data-id="1"]');
+  await closeMenu(page);
   expect(await noSideScroll(page)).toBe(true);
   await page.click('[data-act=play]');
   expect(await noSideScroll(page)).toBe(true);
@@ -1125,46 +1126,72 @@ test.describe('the real-dice turn, corrections and game over', () => {
 test.describe('home and the Play sheet', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
-  test('home asks one thing: Play, with the tab bar Play · Online · You at the bottom', async ({ page }) => {
+  test('home C1: the settings button, the title, Play and the room code row; no tab bar anywhere', async ({ page }) => {
     await page.goto('/');
-    await expect(page.locator('#app button.btn')).toHaveCount(1);
     await expect(page.locator('#app [data-act=play]')).toHaveText('Play');
-    await expect(page.locator('.acct, [data-act=start], [data-act=mode], details.fold')).toHaveCount(0);
+    const settings = page.locator('.home-head [data-act=settings]');
+    await expect(settings).toHaveAttribute('aria-label', 'Settings');
+    await expect(page.locator('.home-head [data-act=profile]')).toHaveCount(0);       // 127.0.0.1: no accounts here
+    await expect(page.locator('#ocode')).toHaveAttribute('placeholder', 'Got a room code?');
+    await expect(page.locator('#ocode')).toHaveAttribute('maxlength', '5');
+    await expect(page.locator('label[for=ocode]')).toHaveText('Room code');
+    await expect(page.locator('.code-row [data-act=ojoin]')).toHaveText('Join');
+    await expect(page.locator('.acct, [data-act=start], [data-act=mode], details.fold, [data-act=ocreate]')).toHaveCount(0);
+    await expect(page.locator('nav.tabbar')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
-    const tabs = page.locator('.tabbar .tab');
-    await expect(tabs).toHaveText(['Play', 'Online', 'You']);
-    await expect(page.locator('.tabbar [aria-current=page]')).toHaveText('Play');
-    for (const box of await tabs.evaluateAll(els => els.map(el => el.getBoundingClientRect().height))) expect(box).toBeGreaterThanOrEqual(48);
-    const bar = await page.locator('.tabbar').boundingBox(), play = await page.locator('[data-act=play]').boundingBox();
-    expect(Math.abs(bar.y + bar.height - 844)).toBeLessThanOrEqual(1);   // on the bottom edge
-    expect(play.y + play.height).toBeLessThanOrEqual(bar.y);           // Play sits just above it, in the thumb zone
-    expect(play.y).toBeGreaterThan(844 / 2);
-    // the tabs switch screens; the tab bar goes away in a game
-    await page.click('[data-act=online]');
-    await expect(page.locator('.tabbar [aria-current=page]')).toHaveText('Online');
-    await expect(page.locator('#oname')).toBeVisible();
-    await openYou(page);
-    await expect(page.locator('[data-act=sound]')).toHaveCount(3);
-    await page.click('[data-act=home]');
-    await expect(page.locator('[data-act=play]')).toBeVisible();
+    for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
+      await page.setViewportSize(vp);
+      const s = await settings.boundingBox(), play = await page.locator('[data-act=play]').boundingBox();
+      const code = await page.locator('#ocode').boundingBox(), join = await page.locator('.code-row [data-act=ojoin]').boundingBox();
+      expect(Math.min(s.width, s.height)).toBeGreaterThanOrEqual(44);
+      expect(join.height).toBeGreaterThanOrEqual(44);
+      expect(s.y).toBeLessThan(80);                                                   // the header on top
+      expect(play.y).toBeGreaterThan(vp.height / 2);                                  // Play in the thumb zone...
+      expect(code.y).toBeGreaterThan(play.y + play.height);                           // ...the code row under it...
+      expect(code.y + code.height).toBeLessThanOrEqual(vp.height);                    // ...on screen, without scrolling
+      expect(Math.abs(code.y - join.y)).toBeLessThanOrEqual(1);
+      expect(await noSideScroll(page)).toBe(true);
+    }
+    // the code field takes letters and digits only, in capitals
+    await page.fill('#ocode', 'k7-q');
+    await expect(page.locator('#ocode')).toHaveValue('K7Q');
     await startLocal(page);
-    await expect(page.locator('.tabbar')).toHaveCount(0);
+    await expect(page.locator('nav.tabbar')).toHaveCount(0);
+    await openMenu(page);
+    await page.click('.sheet-layer [data-act=new]');
+    await page.click('.sheet-layer [data-act=newyes]');                 // New game: Who's playing, then back home
+    await expect(page.locator('[data-act=start]')).toBeVisible();
+    await page.click('.menubtn[data-act=home]');
+    await expect(page.locator('.home-head [data-act=settings]')).toBeVisible();
+    await expect(page.locator('nav.tabbar')).toHaveCount(0);
   });
 
-  test('the You tab settings rows change sound and look, and How to play and Developer fold open', async ({ page }) => {
+  test('the Settings sheet changes sound and look, and How to play and Developer fold open', async ({ page }) => {
     await page.goto('/');
-    await openYou(page);
-    await page.click('[data-act=sound][data-id="2"]');
-    await expect(page.locator('[data-act=sound][data-id="2"]')).toHaveAttribute('aria-pressed', 'true');
+    const settings = page.locator('.home-head [data-act=settings]');
+    await openSettings(page);
+    await expect(settings).toHaveAttribute('aria-expanded', 'true');
+    const sheet = page.locator('.sheet-layer .sheet');
+    await sheet.locator('[data-act=sound][data-id="2"]').click();
+    await expect(sheet.locator('[data-act=sound][data-id="2"]')).toHaveAttribute('aria-pressed', 'true');
     expect(await page.evaluate(() => localStorage.getItem('sevens-out-sound'))).toBe('bandit');
-    await page.click('[data-act=look][data-id="1"]');
+    await sheet.locator('[data-act=look][data-id="1"]').click();
     await expect(page.locator('html')).toHaveAttribute('data-look', 'vegas');
-    await expect(page.locator('[data-act=shake]')).toHaveCount(0); // a desktop pointer: no shake switch
+    expect(await page.evaluate(() => localStorage.getItem('sevens-out-look'))).toBe('vegas');
+    await expect(sheet.locator('[data-act=shake]')).toHaveCount(0); // a desktop pointer: no shake setting
     for (const f of ['rules', 'dev']) {
-      const d = page.locator(`details[data-fold=${f}]`);
+      const d = sheet.locator(`details[data-fold=${f}]`);
       await d.locator('summary').click();
       await expect(d).toHaveAttribute('open', '');
     }
+    expect(await noSideScroll(page)).toBe(true);
+    await page.keyboard.press('Escape');                                // closes; the focus goes back to the settings button
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await expect(settings).toBeFocused();
+    await page.reload();                                                // the choices are kept
+    await expect(page.locator('html')).toHaveAttribute('data-look', 'vegas');
+    await openSettings(page);
+    await expect(page.locator('.sheet-layer [data-act=sound][data-id="2"]')).toHaveAttribute('aria-pressed', 'true');
   });
 
   test('the Play sheet: choices are kept in state.setup, the switch sets the 7s, Next leads to Who\'s playing', async ({ page }) => {
@@ -1223,13 +1250,14 @@ test.describe('home and the Play sheet', () => {
     expect([g.mode, g.pairing]).toEqual(['dice', 'auto']);
   });
 
-  test('without a server there is no Online tab and no "Where is everyone?"', async ({ page }) => {
+  test('without a server there is no room code row and no "Where is everyone?"', async ({ page }) => {
     await page.route(u => u.pathname === '/', async route => {
       const res = await route.fetch();
       await route.fulfill({ response: res, body: (await res.text()).replace(/(name="sevens-out-server" content=")[^"]*"/, '$1"') });
     });
     await page.goto('/');
-    await expect(page.locator('.tabbar .tab')).toHaveText(['Play', 'You']);
+    await expect(page.locator('.home-head [data-act=settings]')).toBeVisible();
+    await expect(page.locator('.code-row, #ocode, [data-act=ojoin]')).toHaveCount(0); // no room code row without online
     await page.click('[data-act=play]');
     await expect(page.locator('.sheet-layer legend')).toHaveText(['Dice']);
     await expect(page.locator('[data-act=where]')).toHaveCount(0);
@@ -1373,7 +1401,7 @@ test.describe("Who's playing", () => {
     await expect(page.locator('.rack .pair')).toHaveCount(1);
     await expect(page.locator('.bar [data-act=stop]')).toContainText('+16');
     await expect(page.locator('.bar [data-act=roll]')).toContainText('last roll');
-    await expect(page.locator('.tabbar')).toHaveCount(0);
+    await expect(page.locator('nav.tabbar')).toHaveCount(0);
     await page.click('.bar [data-act=roll]');
     await expect.poll(async () => (await saved(page)).game.turn.rolls).toBe(2);
     await expect(page.locator('.bar [data-act=end]')).toBeVisible();

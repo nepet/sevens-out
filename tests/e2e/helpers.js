@@ -37,10 +37,20 @@ export async function toPlayers(page, { mode = 'dice', pairing = 'manual' } = {}
   await page.click('[data-act=players]');
   await expect(page.locator('[data-act=start]')).toBeVisible();
 }
-// the You tab: your player, settings, how to play and the developer menu
+// your player (home's profile chip; only where accounts are available): the account, settings, how to play and the developer menu
 export async function openYou(page) {
-  await page.click('.tabbar [data-act=you]');
-  await expect(page.locator('.tabbar [data-act=you]')).toHaveAttribute('aria-current', 'page');
+  await page.click('.home-head [data-act=profile]');
+  await expect(page.locator('#you-h')).toBeVisible();
+}
+// home's Settings sheet: Sound, Look, Shake, then How to play and Developer as folds; `fold` also opens one ('rules', 'dev')
+export async function openSettings(page, fold) {
+  if (!(await page.locator('.sheet-layer').isVisible())) await page.click('.home-head [data-act=settings]');
+  await expect(page.locator('.sheet-layer .sheet')).toBeVisible();
+  await expect(page.locator('#sheet-h')).toHaveText('Settings');
+  if (fold) {
+    const d = page.locator(`.sheet-layer details[data-fold=${fold}]`);
+    if (!(await d.evaluate(el => el.open))) await d.locator('summary').click();
+  }
 }
 
 export async function startLocal(page, { names = ['Anna', 'Ben'], mode = 'dice', pairing = 'manual', starter = 0 } = {}) {

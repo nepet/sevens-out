@@ -12,7 +12,6 @@ async function newPhone(browser, name = null) {
   const auth = await addAuthenticator(page);
   await page.goto(localUrl('/'));
   await openYou(page);
-  await expect(page.locator('[data-act=online]')).toBeVisible();
   if (name) {
     await expect(page.locator('[data-act=acreate]')).toBeVisible();
     await page.fill('#aname', name);
@@ -21,21 +20,30 @@ async function newPhone(browser, name = null) {
   }
   return { ctx, page, auth, me: name ? await account(page) : null };
 }
+// open the invite link: a guest names themselves in the Join sheet; a signed-in player taps home's Join and joins at once
 async function joinRoom(page, code, guestName = null) {
   await page.goto(localUrl(`/?join=${code}`));
   await expect(page.locator('#ocode')).toHaveValue(code);
-  if (guestName) await page.fill('#oname', guestName);
-  await page.click('[data-act=ojoin]');
+  if (guestName) {
+    await page.fill('.sheet-layer #oname', guestName);
+    await page.click('.sheet-layer [data-act=ojoin]');
+  } else {
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    await page.click('.code-row [data-act=ojoin]');
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+  }
 }
 const tag = p => `#${p.me.id.slice(0, 4)}`;
 const seatOf = async (page, name) => (await net(page)).room.seats.find(s => s.name === name);
 
 test('online: players show their tag, take their seat back from another phone, and an ended session plays as a guest', async ({ browser }) => {
   const A = await newPhone(browser, 'Anna');
-  await A.page.click('[data-act=online]');
-  await expect(A.page.locator('.playing-as')).toHaveText(`Playing as Anna ${tag(A)}`);
-  await expect(A.page.locator('#oname')).toHaveCount(0);
-  await A.page.click('[data-act=ocreate]');
+  await A.page.click('[data-act=home]');
+  await expect(A.page.locator('.home-head [data-act=profile]')).toHaveAttribute('aria-label', 'Your player: Anna');
+  await A.page.click('[data-act=play]');
+  await A.page.click('[data-act=where][data-id="1"]');
+  await expect(A.page.locator('.sheet-layer #oname')).toHaveCount(0);  // a player plays under the player name
+  await A.page.click('.sheet-layer [data-act=ocreate]');
   await expect(A.page.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
   const code = await A.page.locator('.roomcode').innerText();
 
@@ -52,10 +60,10 @@ test('online: players show their tag, take their seat back from another phone, a
   const E = await newPhone(browser, 'Eve');
   const dead = (await storedAccount(E.page)).token;
   expect((await E.page.request.post(`${AUTH}/auth/signout`, { headers: { authorization: `Bearer ${dead}` } })).status()).toBe(204);
-  await E.page.click('[data-act=online]'); // no reload: the page still holds the session and sends it in hello
-  await expect(E.page.locator('.playing-as')).toContainText('Eve');
+  await E.page.click('[data-act=home]'); // no reload: the page still holds the session and sends it in hello
+  await expect(E.page.locator('.home-head [data-act=profile]')).toContainText('Eve');
   await E.page.fill('#ocode', code);
-  await E.page.click('[data-act=ojoin]');
+  await E.page.click('.code-row [data-act=ojoin]');                   // signed in: joins at once, no Join sheet
   await expect(E.page.locator('.roomcode')).toHaveText(code);
   await expect.poll(async () => (await account(E.page)).signedIn).toBe(false);
   expect(await storedAccount(E.page)).toBeNull();

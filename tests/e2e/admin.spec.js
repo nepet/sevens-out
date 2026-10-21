@@ -29,11 +29,12 @@ test('an online game played to the end shows up', async ({ browser, page }) => {
   const A = await browser.newContext(phone), B = await browser.newContext(phone);
   const a = await A.newPage(), b = await B.newPage();
   await a.goto(gameUrl('/'));
-  await a.click('[data-act=online]'); await a.fill('#oname', 'Anna'); await a.click('[data-act=ocreate]');
+  await a.click('[data-act=play]'); await a.click('[data-act=where][data-id="1"]');   // Play sheet: Own phones, then Create room
+  await a.fill('.sheet-layer #oname', 'Anna'); await a.click('.sheet-layer [data-act=ocreate]');
   await expect(a.locator('.roomcode')).toHaveText(/^[A-Z2-9]{5}$/);
   const code = await a.locator('.roomcode').innerText();
   await b.goto(gameUrl(`/?join=${code}`));
-  await b.fill('#oname', 'Ben'); await b.click('[data-act=ojoin]');
+  await b.fill('.sheet-layer #oname', 'Ben'); await b.click('.sheet-layer [data-act=ojoin]');   // the Join sheet
   await expect(a.locator('.seat')).toHaveCount(2);
   await a.click('[data-act=omode][data-id="1"]');
   await a.click('[data-act=ostart]');
