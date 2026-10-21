@@ -52,7 +52,7 @@ The server accepts the origins in `ALLOWED_ORIGINS` and checks each passkey agai
   new player, unless the old domain lists the new one as a related origin (`/.well-known/webauthn`).
   Decide on a custom domain before many people sign up.
 - **IP addresses** can't hold passkeys. Open the page as `http://localhost:…`, not `http://127.0.0.1:…`,
-  when testing. The page hides the panel on an IP address.
+  when testing. The page hides the profile chip (home, top right) on an IP address.
 
 ## What is stored
 

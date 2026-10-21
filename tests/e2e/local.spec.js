@@ -591,11 +591,12 @@ test('a score chip scrolled away comes back into view, and the race starts from 
   await page.click('[data-act=commit]');
   const start = await raceStart(page);
   expect(start.from).toBe('chip');
-  expect(Math.abs(start.card.x - start.board.x)).toBeLessThanOrEqual(2);           // it starts from the chip...
-  expect(Math.abs(start.card.y - start.board.y)).toBeLessThanOrEqual(2);
-  expect(Math.abs(start.card.width - start.board.width)).toBeLessThanOrEqual(2);
-  expect(start.board.y).toBeGreaterThanOrEqual(0);                                  // ...which is back in view
-  expect(start.board.y).toBeLessThanOrEqual(20);
+  for (const k of ['x', 'y', 'width']) expect(Math.abs(start.card[k] - start.board[k]), k).toBeLessThanOrEqual(2); // it starts from the chip...
+  // ...clipped to the chip's height: the card shows exactly the chip's box
+  expect(start.clip).toContain(`calc(100% - ${Math.round(start.board.height)}px)`);
+  expect(Math.abs(start.board.height - 44)).toBeLessThanOrEqual(2);
+  expect(Math.abs(start.board.y - 8)).toBeLessThanOrEqual(2);                       // ...which is back in view, at the top
+  expect(start.scrollY).toBe(0);
   await expect(page.locator('.race')).toHaveCount(0, { timeout: 7000 });
   await idle(page);
   await openScores(page);
@@ -1434,6 +1435,33 @@ test.describe('the real-dice turn, corrections and game over', () => {
     const [box, h] = [await page.locator('#app > .bar').boundingBox(), await page.evaluate(() => innerHeight)];
     expect(Math.abs(box.y + box.height - h)).toBeLessThanOrEqual(1);
   };
+
+  // played to 101, not loaded: Anna and Ben take 36 each round, so Anna is at 108 in round 3 with Ben still to play
+  for (const mode of ['score', 'dice']) {
+    test(`the 101 alert shows under the name on the ${mode === 'score' ? 'real-dice' : 'dice'} turn once someone is at 101, until the game is over`, async ({ page, context }) => {
+      if (mode === 'dice') await fixDice(context, Array(36).fill(6));       // six 6s every turn: no 7s, 36 on the table
+      await startLocal(page, { mode });
+      const alert = page.locator('#app .turnhead .alert');
+      for (let round = 1; round <= 3; round++) for (const who of [0, 1]) {
+        await expect(page.locator('.turnhead h2.who')).toHaveText(who ? 'Ben' : 'Anna');
+        if (round === 3 && who === 1) break;
+        await expect(alert).toHaveCount(0);
+        if (mode === 'score') await enterScore(page, 36, who ? undefined : 1);
+        else if (who === 0) { await page.click('[data-act=roll]'); await idle(page); await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); }
+        else { await page.click('[data-act=roll]'); await idle(page); await page.click('[data-act=end]'); }
+        if (who === 1) await skipRace(page);
+      }
+      await expect(alert).toHaveText('Anna is at 108. Last round: the highest score loses.');
+      const [who, box] = [await page.locator('.turnhead h2.who').boundingBox(), await alert.boundingBox()];
+      expect(box.y).toBeGreaterThanOrEqual(who.y + who.height - 0.5);              // under the big name
+      expect(box.y + box.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight));
+      if (mode === 'score') await enterScore(page, 0);
+      else { await page.click('[data-act=roll]'); await idle(page); await page.click('[data-act=end]'); }
+      await idle(page);
+      expect((await live(page)).phase).toBe('over');
+      await expect(page.locator('#app .alert')).toHaveCount(0);                      // game over says who lost instead
+    });
+  }
 
   for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
     test(`Save stays pinned on screen at ${vp.width}×${vp.height} with six players, in both looks; the chip shows all six totals`, async ({ page }) => {

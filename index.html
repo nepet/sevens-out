@@ -30,7 +30,7 @@
   --die:clamp(3.5rem,17vw,4.5rem);
   /* used by the Vegas look; harmless defaults here */
   --chrome:#CBD1DA; --bulb:#D8B06A; --led:#18202C; --meter:#F9FAFB;
-  --reel:#FFFFFF; --reel-mid:#EBE6DC; --reel-edge:#77706A; --reel-ink:#2A0A10; --die-hi:#FFFFFF;
+  --die-hi:#FFFFFF;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
@@ -139,7 +139,6 @@ button.die:active{transform:translateY(2px)}
 .die.can{box-shadow:0 4px 0 var(--bone-edge),0 0 0 2px var(--stitch),0 8px 14px var(--shade)}
 .die.sel{transform:translateY(-7px);box-shadow:0 4px 0 var(--bone-edge),0 0 0 4px var(--brass),0 14px 18px var(--shade)}
 .die.blank{opacity:.3;box-shadow:none}
-.die.gone{background:transparent;box-shadow:none;border:1.5px dashed var(--stitch);opacity:.4}
 .die.tumble{animation:tumble .5s ease-out}
 .die.nope{animation:nope .3s}
 .die.mini{--die:1.9rem;padding:calc(var(--die) * .12);box-shadow:0 2px 0 var(--bone-edge)}
@@ -230,6 +229,7 @@ html.felt .race-card.solid{background:var(--leather-deep)}
 .roomrow{display:flex;justify-content:flex-end;margin-top:-4px}
 .turnhead.c4{display:flex;flex-direction:column;align-items:center;gap:0;padding-top:10px;text-align:center}
 .turnhead.c4 .eyebrow{font-size:13px;letter-spacing:1.2px}
+@media (max-width:389px){.turnhead.c4 .eyebrow{font-size:12.5px;letter-spacing:.5px}} /* "Round 12 · Starts the round · up to 3 rolls" on one line at 375 */
 .felt-turn .turnhead.c4 .who{margin:4px 0 0;max-width:100%;font:800 48px/1 var(--font-display);text-transform:uppercase}
 html:root[data-look="vegas"] .felt-turn .turnhead.c4 .who{font-size:2rem}
 .turnhead.c4 .who .you{text-transform:none;vertical-align:middle}
@@ -698,7 +698,7 @@ html:root[data-look="vegas"] .acct-tag{font-size:1rem}
 .segbtn:disabled:not(.on){color:var(--ink-soft)}
 .die[role="img"]{cursor:default}
 
-/* ===== Vegas look: candy-red cabinet, chrome trim, chasing marquee bulbs, reel-window tray, red casino dice, LED meters.
+/* ===== Vegas look: candy-red cabinet, chrome trim, chasing marquee bulbs, red casino dice, LED meters.
    One deliberate dark visual world, so it ignores the light/dark setting. ===== */
 html:root[data-look="vegas"]{
   --paper:#12060F; --card:#1E0C1B; --ink:#FFF3D6; --ink-soft:#CDAFBD; --line:#43233E;
@@ -760,10 +760,9 @@ html:root[data-look="vegas"] .race-round{font-size:clamp(2.2rem,11.5vw,3.2rem);l
   html:root[data-look="vegas"] .race-badge{box-shadow:0 0 8px var(--brass)}
   html:root[data-look="vegas"] .race-round{text-shadow:0 0 8px var(--brass)}
 }
-/* reel window */
+/* LED entry and glossy dice */
 html:root[data-look="vegas"] .entry{color:var(--led);text-shadow:0 0 8px rgba(255,42,61,.35)}
 html:root[data-look="vegas"] .entry{font-size:4rem}
-html:root[data-look="vegas"] .die.gone{border-color:var(--reel-edge)}
 html:root[data-look="vegas"] .die:not(.gone){background:radial-gradient(circle at 30% 25%,var(--die-hi),var(--bone) 58%)}
 /* gold cabinet buttons */
 html:root[data-look="vegas"] .btn{border-radius:999px}
@@ -771,7 +770,7 @@ html:root[data-look="vegas"] .btn.primary{background:linear-gradient(180deg,#FFE
 html:root[data-look="vegas"] .btn.primary:active{transform:translateY(3px);box-shadow:0 1px 0 #7A5000}
 html:root[data-look="vegas"] .doom-title{font-size:clamp(2.3rem,10.5vw,3.8rem);line-height:1.05}
 html:root[data-look="vegas"] .key{border-radius:14px;font-size:1.35rem;background:linear-gradient(180deg,#2C1729,var(--card))}
-/* the keypad sits in the light reel window, whose text is dark: the keys keep their own light digits */
+/* the keys keep their own light digits */
 html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 @media (prefers-reduced-motion:reduce){html:root[data-look="vegas"] .marquee::before{animation:none}}
 </style>
