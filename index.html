@@ -1198,6 +1198,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + dur * 0.4); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       src.connect(f); f.connect(g); g.connect(master); src.start(t, Math.random() * 0.2); src.stop(t + dur + 0.02);
     }
+    // the race's counter: one tick per step of the count (6–22), at the times the ease-out curve passes each step
+    const raceTicks = pts => { const n = Math.max(6, Math.min(22, pts)); return Array.from({ length:n }, (_, i) => [0.9 * (1 - Math.cbrt(1 - (i + 1) / n)), i]); };
     function woodKnock(t, pitch, vol){ noiseHit(t, 0.03, 'lowpass', 900, 0.7, vol); tone(t, pitch, 0.07, 'triangle', vol * 0.5); }
     const TABLE = {
       // the roll: n dice thrown onto the mat (instant: reduced motion, the dice appear at once)
@@ -1233,11 +1235,6 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           [1567.98, 2093, 2637].forEach((f, i) => tone(end + i * 0.03, f, 0.25, 'sine', 0.035));
         }
       },
-      // a die picked up (on) or put down
-      pick:{
-        pub(t0, on){ boneClick(t0, on ? 0.22 : 0.15); },
-        vegas(t0, on){ tone(t0, on ? 880 : 660, 0.045, 'square', 0.07); }
-      },
       // the two dice don't make 7
       nope:{
         pub(t0){ woodKnock(t0, 150, 0.28); woodKnock(t0 + 0.09, 120, 0.22); },
@@ -1262,20 +1259,23 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         pub(t0){ whoosh(t0, 0.1, 1400, 700, 0.06); woodKnock(t0 + 0.08, 190, 0.16); },
         vegas(t0){ tone(t0, 1046.5, 0.07, 'triangle', 0.07); tone(t0 + 0.07, 783.99, 0.12, 'triangle', 0.07); }
       },
-      // points booked for a turn: chalk on the slate (more strokes for more points), or the register
-      bank:{
-        pub(t0, pts){
-          const strokes = pts >= 20 ? 4 : pts >= 10 ? 3 : 2;
-          for (let i = 0; i < strokes; i++){
-            const t = t0 + i * rnd(0.1, 0.13);
-            noiseHit(t, rnd(0.06, 0.09), 'bandpass', rnd(2300, 3000), 1.6, 0.2); tone(t, 420, 0.03, 'triangle', 0.04);
-          }
+      // the race between rounds: the totals count up (fast, then slowing: 900 ms, an ease-out cube) and, when the order
+      // changes, the lines slide into place a second later; pts = the round's biggest turn
+      bars:{
+        pub(t0, pts, moved){ // beads on the scoring rail
+          raceTicks(pts).forEach(([t, i]) => { noiseHit(t0 + t, 0.006, 'bandpass', 2200, 3, 0.2); tone(t0 + t, 900 + i * 25, 0.025, 'triangle', 0.07); });
+          if (moved) whoosh(t0 + 1, 0.35, 400, 1600, 0.08);
         },
-        vegas(t0, pts){
-          tone(t0, 110, 0.08, 'sine', 0.2); noiseHit(t0, 0.03, 'lowpass', 800, 0.7, 0.3); // the drawer
-          noiseHit(t0 + 0.09, 0.02, 'highpass', 4000, 0.7, 0.08);
-          tone(t0 + 0.1, 2637, 0.4, 'sine', 0.07); tone(t0 + 0.1, 3520, 0.25, 'sine', 0.035);
-          if (pts >= 20) tone(t0 + 0.24, 2637, 0.3, 'sine', 0.05);
+        vegas(t0, pts, moved){ // a points counter climbing two octaves, and a ding when it stops
+          const ticks = raceTicks(pts);
+          ticks.forEach(([t, i]) => tone(t0 + t, 262 * Math.pow(4, i / ticks.length), 0.03, 'square', 0.045));
+          tone(t0 + 0.9, 1568, 0.3, 'triangle', 0.08);
+          if (moved){
+            const o = ctx.createOscillator(), g = ctx.createGain(), t = t0 + 1;
+            o.type = 'triangle'; o.frequency.setValueAtTime(400, t); o.frequency.exponentialRampToValueAtTime(1600, t + 0.2);
+            g.gain.setValueAtTime(0.06, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+            o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.27);
+          }
         }
       },
       // online: it's this phone's turn now
@@ -1986,8 +1986,6 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const ses = net.session, left = () => ses !== net.session;
     const so = events.find(e => e.type === 'sevensOut'), miss = events.find(e => e.type === 'missed');
     let rest = events.filter(e => e !== so && e !== miss), swapped = false;
-    const booked = events.find(e => e.type === 'turn');
-    if (booked && booked.pts) sound.cue('bank', booked.pts);
     const swap = () => {
       if (swapped || left()) return;
       swapped = true;
@@ -2020,9 +2018,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         case 'started': if (events.some(x => x.type === 'roundEnd')){ resetInputs(); ui.reveal = null; } else resetUi(); break;
         case 'turn': {
           resetInputs();
-          if (events.some(x => x.type === 'roundEnd')) break; // presentRound booked it; the race's curtain says who starts
-          if (e.pts) sound.cue('bank', e.pts);
-          if (state.phase === 'play' && myTurn()) sound.cue('yourturn', { delay:e.pts ? 0.45 : 0 });
+          if (events.some(x => x.type === 'roundEnd')) break; // the race's curtain says who starts
+          if (state.phase === 'play' && myTurn()) sound.cue('yourturn');
           break;
         }
         case 'rolled': {
@@ -2051,7 +2048,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         case 'undone': sound.cue('undo'); resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
         case 'edited': ui.hint = `${nm(e.player)}'s scores were corrected.`; break;
         case 'gameOver': case 'ended':
-          sound.cue('over', { delay:events.some(x => x.type === 'sevensOut' || x.type === 'missed') ? 3 : 0.6 }); // after the booked points, the fanfare or the trombone
+          sound.cue('over', { delay:events.some(x => x.type === 'sevensOut' || x.type === 'missed') ? 3 : 0.35 }); // after the fanfare or the trombone
           ui.open.sheet = true; ui.confirmEnd = false; ui.scoresOpen = false; break;
       }
     }
@@ -3092,7 +3089,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         }
         if (!from) card.animate([{ opacity:0, transform:'scale(.96)' }, { opacity:1, transform:'none' }], { duration:250, easing:'ease-out' });
         raf = requestAnimationFrame(() => { raf = requestAnimationFrame(grow); }); // the first frame is the list, exactly where it was
-        later(700, () => { bars(); countUp(); });
+        later(700, () => {
+          bars(); countUp();
+          const moved = recap.order.some((i, k, o) => k && recap.after[i] > recap.after[o[k - 1]]); // the sort changes the order
+          if (recap.pts.some(p => p)) sound.cue('bars', Math.max(...recap.pts), moved);
+        });
         later(1700, () => sort(true));
         later(2400, pop);
         later(3400, drop);
@@ -3121,10 +3122,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (ui.selected === null){
       const hand = E.byHand(state.game);
       if (!hand && !pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; sound.cue('nope'); return; }
-      sound.cue('pick', true);
       ui.selected = id; ui.hint = hand ? `Now tap a ${7 - d.value}, or tap the ${d.value} again to put it down.` : `Now tap a ${7 - d.value}.`; return;
     }
-    if (ui.selected === id){ ui.selected = null; ui.hint = null; sound.cue('pick', false); return; }
+    if (ui.selected === id){ ui.selected = null; ui.hint = null; return; }
     const s = t.dice[ui.selected];
     if (s.value + d.value === 7){ ui.selected = null; ui.hint = null; dispatch({ type:'pair', a:s.id, b:d.id }); return; }
     ui.hint = `${s.value} + ${d.value} makes ${s.value + d.value}, not 7.`; ui.nope = id; sound.cue('nope');
