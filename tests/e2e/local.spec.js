@@ -1241,10 +1241,40 @@ test.describe('the dice turn screen', () => {
     await same(at, 'a resize event');
     await page.setViewportSize({ width: 390, height: 900 });            // a taller mat: the same fractions still fit
     await same(at, 'a taller screen');
+    await page.setViewportSize({ width: 375, height: 900 });            // a narrower screen: the dice still lie apart inside the mat
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => r())));   // the resize event has run
+    let d = await drawnDice(page);
+    expect(d.dice).toHaveLength(6);
+    checkDice(d, 'resized to 375 wide');
+    await page.setViewportSize({ width: 320, height: 568 });            // much smaller: dice that no longer fit get new spots
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => r())));   // the resize event has run
+    d = await drawnDice(page);
+    expect(d.dice).toHaveLength(6);
+    checkDice(d, 'resized to 320×568');
+    const small = spots(d);
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+    await same(small, 'settled after the resize');
     await page.click('.bar [data-act=roll]');
     const next = spots(await drawnDice(page));
     expect(Object.keys(next)).toHaveLength(6);
     expect(Object.keys(next).filter(id => next[id] === at[id])).toHaveLength(0);   // every rolled die lands on a new spot
+  });
+
+  test('a new game draws its own spots: it never reuses the last game\'s', async ({ page }) => {
+    await seedRandom(page, 9);
+    await startLocal(page, { names: ['Anna', 'Ben'] });
+    const old = await drawnDice(page);
+    expect(old.dice.some(x => x.rot !== '0deg')).toBe(true);             // a loose, tilted cluster
+    await openMenu(page);
+    await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
+    await expect(page.locator('[data-act=start]')).toBeVisible();
+    await page.evaluate(() => { Math.random = () => 0.5; });             // from here every new layout is the untilted grid
+    await page.click('[data-act=start]');
+    const cluster = await drawnDice(page);
+    expect(cluster.dice.map(x => x.rot)).toEqual(Array(6).fill('0deg'));   // drawn anew, not the old game's cluster
+    checkDice(cluster, 'the new game');
+    await page.click('.bar [data-act=roll]');
+    expect((await drawnDice(page)).dice.map(x => x.rot)).toEqual(Array(6).fill('0deg'));
   });
 
   test('reduced motion: the dice appear on their spots at once, with no throw', async ({ page }) => {

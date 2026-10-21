@@ -1298,7 +1298,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function celebrate(name){
     fx.banner('Sevens out!', `${name} cleared all six dice`);
     playSound();
-    if (!reduceMotion) fx.burst(document.querySelector('.tray'));
+    if (!reduceMotion) fx.burst(document.querySelector('#app .mat, #app .tray')); // from the dice mat (the real-dice table elsewhere)
   }
 
   // ---------- a missed 7: every phone at the table gets to laugh ----------
@@ -1879,7 +1879,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
   }
   function resetInputs(){ ui.selected = null; ui.hint = null; ui.armed = null; ui.nope = null; ui.entry = ''; ui.rolls = null; }
-  function resetUi(){ resetInputs(); ui.edit = null; ui.editVals = {}; ui.reveal = null; ui.scoresOpen = false; }
+  function resetUi(){ resetInputs(); ui.edit = null; ui.editVals = {}; ui.reveal = null; ui.scoresOpen = false; ui.layout = {}; } // a new game: new spots
 
   // ---------- correcting past scores (scoreboard mode) ----------
   function editState(){
@@ -2108,7 +2108,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     ui.scoresOpen = false; render();
     const c = $app.querySelector('.scorechip'); if (c) c.focus({ preventScroll:true });
   }
-  try { document.fonts.addEventListener('loadingdone', fitChip); } catch (e) {} // the display font changes the widths
+  // the display font changes the widths, and with them the header's height and the mat's
+  try { document.fonts.addEventListener('loadingdone', () => { fitChip(); placeDice(); }); } catch (e) {}
 
   // the dice turn (C4): the chip header, the eyebrow and the big name, the mat with the dice and the hint at its
   // bottom, and the bar: Stop | the round Roll (End when no rolls are left) | the rack with the pairs set aside
@@ -2636,7 +2637,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the spots are kept per turn (round, player, rolls), so redraws, taps, a pair put back and the score list never move
   // the dice; a roll draws new spots for the rolled dice. A few recent turns are kept: a roll the server refuses falls
   // back to the old spots
-  const turnKey = (g, rolls) => `${g.round}:${g.order[g.pos]}:${rolls}`;
+  // (the game's start time, or online the seats, tells two games apart; resetUi() also clears the spots for a new game)
+  const turnKey = (g, rolls) => `${(state.stats && state.stats.id) || (g.seats || []).join('.')}:${g.round}:${g.order[g.pos]}:${rolls}`;
   function matSpots(g, t, w, h){
     const bottom = matFoot(g), die = matDie(w, h, bottom), rolls = t.rolls + (ui.rolling ? 1 : 0);
     const key = turnKey(g, rolls), ids = t.dice.filter(d => d.held === null).map(d => d.id);
@@ -2645,22 +2647,31 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (L && (L.w !== w || L.h !== h || L.die !== die)){
       const here = ids.filter(id => L.pos[id]).map(id => L.pos[id]);
       // only the height changed (the rack in the bar took a second row): the dice stay where they are while they fit;
-      // the dice layer keeps the layout's height (placeDice)
-      if (L.w === w && spotsFit(here, L.w, L.h, L.die, bottom, h)){}
-      else if (spotsFit(here, w, h, die, bottom)) Object.assign(L, { w, h, die }); // a resize: the same fractions while they fit
-      else L = null;
+      // the dice layer keeps the layout's height (placeDice). Otherwise (a resize) the same fractions at the new size;
+      // the dice that no longer fit get new spots below
+      if (!(L.w === w && spotsFit(here, L.w, L.h, L.die, bottom, h))) Object.assign(L, { w, h, die });
     }
-    const need = ids.filter(id => !L || !L.pos[id]);
-    if (L && need.length){ // a pair put back from an older layout: new spots around the dice still lying there
-      const spots = layoutDice(need.length, w, h, die, Math.random, { ...opts, fixed:ids.filter(id => L.pos[id]).map(id => L.pos[id]) });
-      if (spots) need.forEach((id, i) => { L.pos[id] = spots[i]; }); else L = null;
-    }
-    if (!L){
-      const spots = layoutDice(ids.length, w, h, die, Math.random, opts);
+    const fresh = () => {
       delete ui.layout[key];
-      L = ui.layout[key] = { w, h, die, pos:{} };
-      ids.forEach((id, i) => { L.pos[id] = spots[i]; });
-      const keys = Object.keys(ui.layout); keys.slice(0, Math.max(0, keys.length - 4)).forEach(k => { delete ui.layout[k]; });
+      const keys = Object.keys(ui.layout); keys.slice(0, Math.max(0, keys.length - 3)).forEach(k => { delete ui.layout[k]; });
+      return (ui.layout[key] = { w, h, die, pos:{} });
+    };
+    if (!L) L = fresh();
+    // the dice on the table keep their spots while they fit, in order (a die put back is checked too); the others
+    // (a new roll, or dice that no longer fit) get new spots around them. Spots are fractions of the layout's box
+    // (L.w × L.h), whose foot sits at the mat's real bottom
+    const foot = L.h - h + bottom, kept = [], need = [];
+    for (const id of ids){
+      const sp = L.pos[id];
+      if (sp && spotsFit(kept.map(k => L.pos[k]).concat([sp]), L.w, L.h, L.die, bottom, h)) kept.push(id); else need.push(id);
+    }
+    if (need.length){
+      const spots = layoutDice(need.length, L.w, L.h, L.die, Math.random, { ...opts, bottom:foot, fixed:kept.map(k => L.pos[k]) });
+      if (spots) need.forEach((id, i) => { L.pos[id] = spots[i]; });
+      else { // no room around them (a dense mat): every die gets a new spot
+        L = fresh();
+        layoutDice(ids.length, w, h, die, Math.random, opts).forEach((sp, i) => { L.pos[ids[i]] = sp; });
+      }
     }
     return L;
   }
