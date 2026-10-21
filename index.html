@@ -2194,7 +2194,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     else if (g.crosser !== L) why =`${pname(g.crosser)} reached ${LIMIT} first, but ${pname(L)} finished the round higher with ${ls}.`;
     else why = `${pname(L)} reached ${LIMIT} and finished with the highest score, ${ls}.`;
     const winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(1 - L))}</b> wins with ${g.players[1 - L].score}.</p>` : '';
-    const again = !online() ? '<button class="btn primary" data-act="again">Play again</button>'
+    // one phone: Home leaves the finished game (to join or start a room), Play again goes to Who's playing
+    const again = !online() ? '<div class="row"><button class="btn two cancel" data-act="home">Home</button><button class="btn two primary go" data-act="again">Play again</button></div>'
       : amHost() ? '<button class="btn primary" data-act="oreopen">Play again with this room</button>'
       : waiting(hostName(), 'start a new game');
     const undo = undoLink(g);
@@ -3026,7 +3027,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'menu': openSheet('menu', ['menu', null]); return;
       case 'scores': ui.scoresOpen = !ui.scoresOpen; break; // the score chip opens and closes the full list
       // ----- home: the Play sheet, the Settings sheet, your player -----
-      case 'home': ui.screen = ui.screen === 'profile' ? 'home' : null; ui.hint = null; break; // Profile's Back is always home, even over a saved game
+      case 'home':
+        if (!online() && state.phase === 'over' && ui.screen !== 'profile'){ toSetup(); ui.screen = null; break; } // game over's Home: the finished game is done with
+        ui.screen = ui.screen === 'profile' ? 'home' : null; ui.hint = null; break; // Profile's Back is always home, even over a saved game
       case 'profile': if (!accountsAvailable()) return; ui.screen = 'profile'; ui.hint = null; focusNext = 'profile-h'; break;
       case 'settings': if (onHome()) openSheet('settings', ['settings', null]); return;
       case 'play':

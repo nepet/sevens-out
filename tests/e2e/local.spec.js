@@ -833,6 +833,23 @@ test.describe('game menu', () => {
     await expect(page.locator('.sheet-layer [data-fold=sheet] tfoot')).toContainText('12');
     await expect(page.locator('.sheet-layer [data-act=new]')).toHaveCount(0); // Play again is on the screen
   });
+
+  test('game over on one phone: Home goes back to home, where online play starts, and stays there after a reload', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben'] });
+    await page.click('.bar [data-act=roll]');
+    await openMenu(page, 'dev');
+    await page.click('[data-act=endearly]'); await page.click('[data-act=endyes]');
+    await expect(page.locator('.verdict')).toBeVisible();
+    await expect(page.locator('.bar [data-act=again]')).toBeVisible();
+    await page.click('.bar [data-act=home]');
+    await expect(page.locator('.felt-home [data-act=play]')).toBeVisible();
+    await expect(page.locator('#ocode')).toBeVisible();                   // join a room from here
+    await page.reload();
+    await expect(page.locator('.felt-home [data-act=play]')).toBeVisible(); // the finished game doesn't come back
+    await page.click('[data-act=play]');
+    await page.click('[data-act=players]');
+    expect(await page.locator('.prow input[id^=name-]').evaluateAll(els => els.map(e => e.value))).toEqual(['Anna', 'Ben']);   // the last players
+  });
 });
 
 test.describe('the dice turn screen', () => {
@@ -1702,8 +1719,10 @@ test.describe('the real-dice turn, corrections and game over', () => {
       const again = page.locator('.bar [data-act=again]');
       await expect(again).toHaveText('Play again');
       await onScreen(page, '.bar [data-act=again]');
+      await onScreen(page, '.bar [data-act=home]');                     // and Home next to it, back to home
       await barAtBottom(page);
       expect((await again.boundingBox()).height).toBeGreaterThanOrEqual(44);
+      expect((await page.locator('.bar [data-act=home]').boundingBox()).height).toBeGreaterThanOrEqual(44);
       expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(false);
       expect(await page.locator('.board .pl .nm').allTextContents()).toEqual(['Anna', 'Ben']);
       await expect(page.locator('.board .pl.lost .dl')).toHaveText('Loses');

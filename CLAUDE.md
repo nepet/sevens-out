@@ -255,7 +255,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 
 **Corrections** (`viewEdit()`), on paper: opened from a line in the chip's list (or the list at game over). The slim header, the full list, the player's rows with steppers, and a pinned bar with Cancel (`ecancel`, about 40%) and Save changes (`esave`, about 60%). Back on the turn, the chip shows closed.
 
-**Game over** (`viewOver()`), on paper: the slim header, verdict and reason, the full list sorted by total, the shots summary, a small Undo link (scoreboard games) and the pinned bar with Play again (`again`), "Play again with this room" for the online host (`oreopen`) or the waiting note. The score sheet is in the game menu.
+**Game over** (`viewOver()`), on paper: the slim header, verdict and reason, the full list sorted by total, the shots summary, a small Undo link (scoreboard games) and the pinned bar with, on one phone, Home (`home`, about 40%: drops the finished game and goes home, where online play starts) and Play again (`again`, about 60%), "Play again with this room" for the online host (`oreopen`) or the waiting note. The score sheet is in the game menu.
 
 **The score list** (`board(g, cur)`, one `lineHtml(g, i, opts)` per player) opens from the score chip on the turn screens and sits on the page in corrections and under the verdict at game over:
 - During play and corrections the lines follow this round's playing order (`g.order`), with the current player (or the player being corrected) highlighted; players still to play are dimmed (only their names in Vegas, whose LED numbers stay lit). At game over they are sorted by total, highest first (equal totals keep seating order), and the loser's line says "Loses".
@@ -281,7 +281,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - **Scoreboard:** `key`, `back`, `clear`, `rolls`, `commit`, `undo`, `drop`
 - **Turn screens:** `scores` (the score chip)
 - **Corrections:** `edit`, `estep`, `esave`, `ecancel`
-- **Flow:** `again`, `new`/`newyes`/`newno`, `menu`, `sheetclose`
+- **Flow:** `again`, `home` (at game over on one phone), `new`/`newyes`/`newno`, `menu`, `sheetclose`
 - **Developer:** `endearly`/`endyes`/`endno`, `devconfetti`, `devdoom`, `devmiss`, `devround`
 - **Settings:** `sound`, `look`, `shake`
 - **Online:** `ocreate`, `ojoin`, `omode`, `opairing`, `ostarter`, `ostart`, `oreopen`, `okick`, `ocopy`, `oshare`, `oleave`/`oleaveyes`/`oleaveno`
