@@ -170,18 +170,20 @@ export const stopPts = page => page.locator('#app > .bar :is([data-act=stop], [d
 
 // ----- a fake room server (online play without the real one) -----
 // page.routeWebSocket answers the page's hello with welcome, the chat log (only when `log` is given: null or left out
-// is an old server that doesn't speak chat) and the room; push(m) sends any message to the page. Set it up before goto
+// is an old server that doesn't speak chat) and the room; push(m) sends any message to the page, close() drops the socket
+// (the page reconnects, and the next hello gets the same answers), hellos() counts the hellos. Set it up before goto
 export async function fakeRoom(page, { room, state = null, seat, log }) {
-  let sock = null;
+  let sock = null, hellos = 0;
   await page.routeWebSocket(/\/room\//, ws => {
     sock = ws;
     ws.onMessage(raw => {
       let m; try { m = JSON.parse(raw); } catch (e) { return; }
       if (m.t !== 'hello') return;
+      hellos++;
       ws.send(JSON.stringify({ t: 'welcome', seat, token: 't' }));
       if (log != null) ws.send(JSON.stringify({ t: 'chat', log }));
       ws.send(JSON.stringify({ t: 'room', rev: 1, room, state, events: [] }));
     });
   });
-  return { push: m => { if (sock) sock.send(JSON.stringify(m)); } };
+  return { push: m => { if (sock) sock.send(JSON.stringify(m)); }, close: () => { if (sock) sock.close(); }, hellos: () => hellos };
 }

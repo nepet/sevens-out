@@ -1009,6 +1009,35 @@ test.describe('chat', () => {
     await A.ctx.close(); await B.ctx.close();
   });
 
+  test('a dropped connection: the chat stays open through the reconnect, and the log never doubles', async ({ page }) => {
+    const seats = [{ id: 's1', name: 'Anna', connected: true, user: null }, { id: 's2', name: 'Ben', connected: true, user: null }];
+    const room = { code: 'ABCDE', phase: 'lobby', host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats };
+    const msg = (id, text) => ({ id, at: Date.now(), from: 's2', seat: 's2', name: 'Ben', user: null, text });
+    const fake = await fakeRoom(page, { room, seat: 's1', log: [msg(1, 'one'), msg(2, 'two')] });
+    await page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Anna', server: '', seen: 0 })));
+    await page.goto(url('/'));
+    await expect(page.locator('#app [data-act=chat]')).toHaveAttribute('aria-label', 'Chat, 2 new');
+    await page.click('#app [data-act=chat]');
+    await page.fill('#chattext', 'half a th');
+    // watch the button and the sheet on every frame while the socket drops and comes back
+    await page.evaluate(() => { window.gone = []; const tick = () => {
+      if (!document.querySelector('#app [data-act=chat]')) window.gone.push('button');
+      if (document.querySelector('.sheet-layer').hidden) window.gone.push('sheet');
+      window.watching = requestAnimationFrame(tick); }; tick(); });
+    fake.close();
+    await expect.poll(() => fake.hellos()).toBe(2);
+    await expect.poll(async () => (await net(page)).status).toBe('open');
+    fake.push({ t: 'chat', msg: msg(2, 'two') });                 // a message the log already has
+    fake.push({ t: 'chat', msg: msg(3, 'three') });
+    await expect(page.locator('.chat-log li')).toHaveCount(3);
+    expect(await page.evaluate(() => { cancelAnimationFrame(window.watching); return window.gone; })).toEqual([]);
+    await expect(page.locator('#sheet-h')).toHaveText('Chat');
+    await expect(page.locator('#chattext')).toHaveValue('half a th');
+    expect((await page.evaluate(() => window.SevensDebug.chat)).log.map(m => m.id)).toEqual([1, 2, 3]);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#app [data-act=chat]')).toHaveAttribute('aria-label', 'Chat');
+  });
+
   test('an old server: no chat button, and the chip keeps its online dot', async ({ page }) => {
     const E = globalThis.SevensEngine;
     const seats = [{ id: 's1', name: 'Anna', connected: true, user: null }, { id: 's2', name: 'Ben', connected: true, user: null }];

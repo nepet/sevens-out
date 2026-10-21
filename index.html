@@ -1523,8 +1523,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const ONLINE_KEY = 'sevens-out-online';
   const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
   // session: bumped when this phone leaves a room, so changes still queued from that room are dropped
-  // chat: the room's table talk (log, unread = others' messages since the chat was last open, ready = this connection got the log,
-  // so the server speaks chat; seen = the last message id this phone has seen, kept in sevens-out-online). viewer: a spectator's own id
+  // chat: the room's table talk (log, unread = others' messages since the chat was last open, ready = the room sent its log since
+  // this phone joined or the page loaded, so the server speaks chat; it stays through reconnects, so the button and an open chat
+  // stay too; seen = the last message id this phone has seen, kept in sevens-out-online). viewer: a spectator's own id
   const net = { ws:null, want:false, code:null, token:null, seat:null, name:'', server:'', room:null, status:'off', tries:0, timer:null, creating:false, rev:0, inGame:false, session:0,
     chat:{ log:[], unread:0, ready:false, seen:null }, viewer:null };
   const noChat = (seen = null) => ({ log:[], unread:0, ready:false, seen });
@@ -1840,8 +1841,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function netConnect(){
     clearTimeout(net.timer);
     if (net.ws){ try { net.ws.onclose = null; net.ws.close(); } catch (e) {} net.ws = null; }
-    net.status = 'connecting'; net.chat.ready = false; // until this connection brings the log (an old server never does)
-    render();
+    net.status = 'connecting'; render();
     let ws;
     try { ws = new WebSocket(`${net.server}/room/${net.code}`); }
     catch (e){ net.status = 'closed'; scheduleReconnect(); return; }
