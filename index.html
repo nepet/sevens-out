@@ -24,7 +24,7 @@
   --leather:#6A2129; --leather-deep:#3F1218; --on-leather:#F4E7E1; --stitch:#D8B06A;
   --brass:#B5832A; --brass-ink:#1A1306; --brass-text:#866018;
   --bone:#F7F2E7; --bone-edge:#D3C8B1; --pip:#1D1915; --shade:rgba(10,12,18,.28);
-  --danger:#B3261E; --danger-ink:#FFFFFF; --on-leather-danger:#FF9A8F; --ok:#2E9E5B;
+  --danger:#B3261E; --danger-ink:#FFFFFF; --on-leather-danger:#FF9A8F; --ok:#2E9E5B; --ok-ink:#04170B;
   --font-display:"Big Shoulders Display","Arial Narrow","Roboto Condensed",sans-serif;
   --font-body:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
   --die:clamp(3.5rem,17vw,4.5rem);
@@ -468,13 +468,13 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .sheet-foot .btn{min-height:56px}
 .sheet-foot .hint:empty{display:none}
 
-/* table talk: the chat button (chatButton(), the right end of every online header) with the unread badge and the connection dot,
+/* table talk: the chat button (chatButton(), the right end of every online header) with the unread badge (green) and, only
+   while the room isn't connected, a red dot,
    and the chat sheet (chatBody()): quick reactions, the log, the text field and Send */
 .chatbtn{position:relative}
 .chiprow .scorechip{margin-left:auto}
-.chat-badge{position:absolute;top:-5px;right:-5px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--brass);color:var(--brass-ink);box-shadow:0 0 0 2px var(--paper);font:700 12px/20px var(--font-body);text-align:center;font-variant-numeric:tabular-nums}
-.chat-dot{position:absolute;right:6px;bottom:6px;width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--paper)}
-.chat-dot.warn{background:var(--danger)}
+.chat-badge{position:absolute;top:-5px;right:-5px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--ok);color:var(--ok-ink);box-shadow:0 0 0 2px var(--paper);font:700 12px/20px var(--font-body);text-align:center;font-variant-numeric:tabular-nums}
+.chat-dot{position:absolute;right:6px;bottom:6px;width:9px;height:9px;border-radius:50%;background:var(--danger);box-shadow:0 0 0 2px var(--paper)}
 .chat-react{display:flex;flex-wrap:wrap;gap:8px;flex:none}
 .reactbtn{min-height:44px;min-width:44px;padding:0 14px;border-radius:22px;border:1.5px solid var(--line);background:var(--card);font-weight:600;font-size:.95rem}
 .reactbtn.emoji{padding:0 8px;font-size:1.35rem;line-height:1}
@@ -490,21 +490,27 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .chat-send .text-in{flex:1 1 auto;min-width:0;height:52px}
 .chat-send .btn{flex:none;min-height:52px;padding-inline:20px}
 @supports not (color:color-mix(in srgb,red 50%,blue)){.chat-msg.mine{background:var(--card)}}
-/* the ticker (tickerHtml()): another phone's message as one line for TICKER_MS. On the turns it lies over the eyebrow
-   (.eyeslot.ticking: the eyebrow stays at opacity 0, so its box keeps its own height, one line or two, and screen readers
-   keep it; the ticker is one line centred in that box, cut with an ellipsis), so nothing under it moves; on paper it hangs
-   just under the slim header, over the content and never taking a tap. The inline negative animation-delay lets a redraw
-   carry on with the fade */
-.ticker{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);animation:ticker 3s linear both}
-.ticker b{color:var(--brass-text);font-weight:700}
-.turnhead.c4 .eyeslot{position:relative;align-self:stretch}
-.eyeslot.ticking > .eyebrow{opacity:0}
-.eyeslot > .ticker{position:absolute;left:0;right:0;top:50%;height:1.45em;margin-top:-.725em;font-size:13px;line-height:1.45;font-weight:500;pointer-events:none}
-@media (max-width:389px){.eyeslot > .ticker{font-size:12.5px}}
+/* the feed (feedArea(), feedBox(), feedLines()): others' messages, the newest two, each for FEED_MS. The newest is on the
+   top line (.feed-line); the one before sits under it, fainter (.old, which slides down into place). Each line is one line
+   of --feed-line, cut with an ellipsis; emoji (.emo) are larger, and a line of only emoji (.big) larger still, within the
+   same line height. On the turns the area sits under the name (and the 101 alert) and is always two lines high, empty or
+   not, so nothing under it ever moves; on paper it floats just under the slim header, over the content, while it has a
+   message, never taking a tap. The inline negative animation-delays let a redraw carry on with the fade and the slide */
+.feed{--feed-line:34px;pointer-events:none}
+/* width 0 and min-width 100%: a long line never widens the turn head, it is cut */
+.turnhead.c4 .feed{align-self:stretch;width:0;min-width:100%;height:calc(2 * var(--feed-line));margin-top:4px;overflow:hidden}
+.feed-line{height:var(--feed-line);overflow:hidden}
+.feed-line.old{opacity:.55;animation:feed-down .25s ease-out both}
+.feed-msg{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:16px;line-height:var(--feed-line);font-weight:500;color:var(--ink);animation:feed-life 4s linear both}
+.feed-msg b{color:var(--brass-text);font-weight:700}
+/* an emoji run is a box one line high, its glyphs centred in it, so a larger emoji never makes the line taller */
+.feed-msg .emo{display:inline-block;height:var(--feed-line);line-height:var(--feed-line);vertical-align:top;font-size:22px}
+.feed-msg.big .emo{font-size:30px}
 .top.slim{position:relative}
-.ticker.under{position:absolute;z-index:14;top:100%;left:0;right:0;margin-top:4px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 8px 20px var(--shade);font-size:.9rem;line-height:1.3;pointer-events:none}
-@keyframes ticker{0%{opacity:0;transform:translateY(-4px)}6.67%,90%{opacity:1;transform:none}100%{opacity:0;transform:none}}
-@media (prefers-reduced-motion:reduce){.ticker{animation:none}}
+.feed.under{position:absolute;z-index:14;top:100%;left:0;right:0;margin-top:4px;padding:2px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 8px 20px var(--shade)}
+@keyframes feed-life{0%{opacity:0;transform:translateY(-6px)}5%,88%{opacity:1;transform:none}100%{opacity:0;transform:none}}
+@keyframes feed-down{from{opacity:1;transform:translateY(-100%)}to{opacity:.55;transform:none}}
+@media (prefers-reduced-motion:reduce){.feed .feed-line,.feed .feed-msg{animation:none}}
 
 /* scoreboard mode */
 .pick{display:flex;flex-direction:column;gap:6px}
@@ -846,7 +852,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const $acctLive = document.createElement('p');
   $acctLive.className = 'sr'; $acctLive.id = 'acct-live'; $acctLive.setAttribute('aria-live', 'polite');
   document.body.appendChild($acctLive);
-  // the chat ticker is aria-hidden; this region reads each message out instead ("Cleo: 101 is calling you")
+  // the chat feed is aria-hidden; this region reads each message out instead ("Cleo: 101 is calling you")
   const $chatLive = document.createElement('p');
   $chatLive.className = 'sr'; $chatLive.id = 'chat-live'; $chatLive.setAttribute('aria-live', 'polite');
   document.body.appendChild($chatLive);
@@ -1541,7 +1547,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
-  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null, ticker:{ queue:[], cur:null, held:false, last:0 } });
+  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null, feed:{ items:[], held:[], last:0 } });
 
   // ---------- online play: one WebSocket per phone to the room server ----------
   const ONLINE_KEY = 'sevens-out-online';
@@ -1875,7 +1881,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const server = serverBase(), kept = opts.create ? null : seatsKept()[`${server} ${opts.code}`];
     Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, createWith: opts.create ? opts.settings || null : null, token: typeof kept === 'string' ? kept : null, seat:null,
       room:null, want:true, server, rev:0, inGame:false, tries:0, chat:noChat(), viewer:null });
-    resetUi(); ui.screen = null; ui.open = {}; ui.showLink = false; ui.chatDraft = ''; ui.chatHint = null; tickerReset();
+    resetUi(); ui.screen = null; ui.open = {}; ui.showLink = false; ui.chatDraft = ''; ui.chatHint = null; feedReset();
     netConnect();
   }
   function netConnect(){
@@ -1922,7 +1928,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     net.want = false; clearTimeout(net.timer);
     if (net.ws){ const w = net.ws; net.ws = null; try { w.onclose = null; setTimeout(() => w.close(), 50); } catch (e) {} }
     Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false, chat:noChat(), viewer:null });
-    net.session++; ui.chatDraft = ''; ui.chatHint = null; tickerReset();
+    net.session++; ui.chatDraft = ''; ui.chatHint = null; feedReset();
     try { localStorage.removeItem(ONLINE_KEY); } catch (e) {}
     state = load() || blank(); resetUi(); ui.open = {}; ui.showLink = false;
   }
@@ -2024,57 +2030,96 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       chatArrived(m.msg, { replay:false });
     }
   }
-  // a message this phone hasn't seen: read at once while the chat is open, otherwise one more on the badge and a turn on
-  // the ticker (unless it's this phone's own). replay: it came with the log after a (re)connect rather than live; only a
-  // fresh one gets the ticker
+  // a message this phone hasn't seen: read at once while the chat is open, otherwise one more on the badge and a line in
+  // the feed (unless it's this phone's own). replay: it came with the log after a (re)connect rather than live; only a
+  // fresh one gets into the feed
   function chatArrived(msg, { replay = false } = {}){
     const c = net.chat;
     if (ui.sheet === 'chat'){ c.seen = Math.max(c.seen || 0, msg.id); c.unread = 0; }
     else if (!chatMine(msg)){
       c.unread++;
-      // once per message: a reconnect's replay never ticks again what was already queued
-      if ((!replay || Date.now() - msg.at <= TICKER_FRESH_MS) && msg.id > ui.ticker.last){
-        ui.ticker.last = msg.id;
-        ui.ticker.queue = [...ui.ticker.queue, { msg, got:Date.now() }].slice(-TICKER_QUEUE);
-        tickNext();
-      }
+      // once per message: a reconnect's replay never shows again what the feed already took
+      if ((!replay || Date.now() - msg.at <= FEED_FRESH_MS) && msg.id > ui.feed.last) feedAdd(msg);
     }
     saveOnline();
   }
-  // opening the chat reads everything in it, the ticker's line and queue too (the log shows them)
+  // opening the chat reads everything in it, the feed's lines too (the log shows them)
   function chatRead(){
     const c = net.chat, last = c.log.length ? c.log[c.log.length - 1].id : 0;
     c.seen = Math.max(c.seen || 0, last); c.unread = 0;
-    tickerReset();
+    feedClear();
     saveOnline();
   }
-  // the ticker: others' messages one at a time, oldest first, TICKER_MS each; a backlog keeps the newest TICKER_QUEUE.
-  // It holds during the race between rounds (held), and afterwards shows only what is younger than TICKER_FRESH_MS.
-  // ui.ticker = {queue:[{msg, got}], cur:{msg, start}|null, held, last}; last: the highest message id queued, so a message
-  // ticks once; tickNext() is called again when the race ends
-  const TICKER_MS = 3000, TICKER_FRESH_MS = 5000, TICKER_QUEUE = 3;
-  let tickTimer = 0;
-  function tickerReset(){ clearTimeout(tickTimer); ui.ticker = { queue:[], cur:null, held:false, last:0 }; }
-  function tickNext(){
-    const tk = ui.ticker;
-    if (ui.race){ tk.held = true; return; }
-    if (tk.cur) return;
-    const now = Date.now();
-    if (tk.held){ tk.held = false; tk.queue = tk.queue.filter(x => now - x.got <= TICKER_FRESH_MS); }
-    const next = tk.queue.shift();
-    if (!next) return;
-    tk.cur = { msg:next.msg, start:now };
-    $chatLive.textContent = `${next.msg.name}: ${next.msg.text}`;
-    render();
-    tickTimer = setTimeout(() => { tk.cur = null; tickNext(); if (!tk.cur) render(); }, TICKER_MS);
+  // the feed: others' messages, the newest FEED_KEEP at a time, newest on top; each goes FEED_MS after it showed (the older
+  // one first, so the newer one is always on top). It holds during the race between rounds (held) and afterwards shows
+  // only what is younger than FEED_FRESH_MS. ui.feed = {items:[{msg, start, down}] newest first (down: when it moved to
+  // the second line), held:[{msg, got}], last}; last: the highest message id taken, so a message shows once.
+  // feedResume() runs when the race ends
+  const FEED_MS = 4000, FEED_FRESH_MS = 5000, FEED_KEEP = 2;
+  let feedTimer = 0;
+  // empty the feed (the chat opened); last stays, so nothing in it shows again
+  function feedClear(){ clearTimeout(feedTimer); ui.feed = { items:[], held:[], last:ui.feed.last }; }
+  // a new room (joined, left): from scratch
+  function feedReset(){ clearTimeout(feedTimer); ui.feed = { items:[], held:[], last:0 }; }
+  function feedAdd(msg){
+    const f = ui.feed;
+    f.last = msg.id;
+    if (ui.race){ f.held = [...f.held, { msg, got:Date.now() }].slice(-FEED_KEEP); return; }
+    feedShow([msg]);
   }
-  // the line itself, for the screen's slot (cls: 'over' the eyebrow in the turn head, 'under' below a slim header); nothing
-  // during the race. aria-hidden: #chat-live has said it. The negative delay carries the fade on through redraws.
-  // The name and the text are each isolated (<bdi>), so right-to-left text can't reorder "Name · text"
-  function tickerHtml(cls){
-    const cur = ui.ticker.cur;
-    if (!cur || ui.race || !online()) return '';
-    return `<p class="${cls} ticker" aria-hidden="true" style="animation-delay:-${Date.now() - cur.start}ms"><b><bdi>${esc(cur.msg.name)}</bdi></b> · <bdi>${esc(cur.msg.text)}</bdi></p>`;
+  function feedShow(msgs){
+    const f = ui.feed, now = Date.now();
+    for (const msg of msgs){
+      f.items.forEach(x => { if (x.down === null) x.down = now; });
+      f.items = [{ msg, start:now, down:null }, ...f.items].slice(0, FEED_KEEP);
+    }
+    $chatLive.textContent = msgs.map(m => `${m.name}: ${m.text}`).join('\n');
+    feedTick();
+    render();
+  }
+  // the next line to go: the timer is set for the oldest one
+  function feedTick(){
+    clearTimeout(feedTimer);
+    const items = ui.feed.items;
+    if (!items.length) return;
+    const due = Math.min(...items.map(x => x.start + FEED_MS));
+    feedTimer = setTimeout(() => {
+      const f = ui.feed, now = Date.now(), n = f.items.length;
+      f.items = f.items.filter(x => x.start + FEED_MS > now);
+      feedTick();
+      if (f.items.length !== n && !ui.race) render();
+    }, Math.max(0, due - Date.now()));
+  }
+  function feedResume(){
+    const f = ui.feed;
+    if (ui.race || !f.held.length) return;
+    const now = Date.now(), fresh = f.held.filter(x => now - x.got <= FEED_FRESH_MS).map(x => x.msg);
+    f.held = [];
+    if (fresh.length) feedShow(fresh);
+  }
+  // emoji in a message: each run in a span (larger); a message of only a few emoji shows them larger still. Runs on text
+  // that has been through esc(), which never makes or breaks an emoji
+  const EMO_ONE = '(?:[#*0-9]\\uFE0F?\\u20E3|\\p{Regional_Indicator}{2}|(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}\\uFE0F)\\p{Emoji_Modifier}?(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?\\p{Emoji_Modifier}?)*)';
+  const EMO_RUN = new RegExp(`${EMO_ONE}(?:\\s*${EMO_ONE})*`, 'gu'), EMO_ALL = new RegExp(EMO_ONE, 'gu');
+  const emojiOnly = text => { const t = String(text).trim(), n = (t.match(EMO_ALL) || []).length; return n > 0 && n <= 6 && !t.replace(EMO_ALL, '').trim(); };
+  const emo = html => html.replace(EMO_RUN, m => `<span class="emo">${m}</span>`);
+  // the lines, newest on top. aria-hidden on the area: #chat-live has said them. The name and the text are each isolated
+  // (<bdi>), so right-to-left text can't reorder "Name · text"
+  function feedLines(){
+    const now = Date.now();
+    return ui.feed.items.map((x, i) => `<div class="feed-line${i ? ' old' : ''}"${i && x.down !== null ? ` style="animation-delay:-${now - x.down}ms"` : ''}>`
+      + `<p class="feed-msg${emojiOnly(x.msg.text) ? ' big' : ''}" style="animation-delay:-${now - x.start}ms"><b><bdi>${esc(x.msg.name)}</bdi></b> · <bdi>${emo(esc(x.msg.text))}</bdi></p></div>`).join('');
+  }
+  // on the turns, under the name: online once the room speaks chat the area is always there, two lines high, so a message
+  // coming or going never moves anything; empty during the race
+  function feedArea(){
+    if (!online() || !net.chat.ready) return '';
+    return `<div class="feed" aria-hidden="true">${ui.race ? '' : feedLines()}</div>`;
+  }
+  // on paper, under the slim header: a box over the content, only while it has a message
+  function feedBox(){
+    if (!online() || !net.chat.ready || ui.race || !ui.feed.items.length) return '';
+    return `<div class="feed under" aria-hidden="true">${feedLines()}</div>`;
   }
   function chatSend(text, typed = false){
     text = String(text || '').trim();
@@ -2174,7 +2219,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       const recap = typeof E.roundRecap === 'function' ? E.roundRecap(g) : null;
       if (recap) await playRace(recap, swap, g);
     } catch (err){ console.error(err); }
-    finally { ui.race = false; swap(); tickNext(); }
+    finally { ui.race = false; swap(); feedResume(); }
   }
   function afterEvents(events){
     const g = state.game, nm = i => (g && g.players[i] ? g.players[i].name : '');
@@ -2265,7 +2310,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function header(g){
     const lim = state.phase === 'over' ? 'Game over'
       : g.mark != null ? `${plural(g.mark, 'roll')} max` : `${esc(pname(g.starter))} sets the limit (max ${MAX_ROLLS})`;
-    return `<header class="top slim">${tickerHtml('under')}<div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
+    return `<header class="top slim">${feedBox()}<div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}`;
   }
   function netChip(){
@@ -2439,13 +2484,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </header>
       ${online() && net.status !== 'open' ? `<div class="roomrow">${netChip()}</div>` : ''}`;
   }
-  // under the chip, centred: the eyebrow ("Round 4 · Roll 1 of 2"), the big name, and the 101 alert when it applies.
-  // The chat ticker lies over the eyebrow for its 3 s: the eyebrow keeps its box (one line or two) and only turns
-  // invisible, so the name, the mat and the keypad never move and screen readers still have it
+  // under the chip, centred: the eyebrow ("Round 4 · Roll 1 of 2"), the big name, the 101 alert when it applies, and
+  // online the chat feed (its area always two lines high, so the mat and the keypad never move)
   function turnHead(g, cur, eyebrow){
-    const tk = tickerHtml('over');
-    return `<div class="turnhead c4"><div class="eyeslot${tk ? ' ticking' : ''}"><p class="eyebrow">${eyebrow}</p>${tk}</div><h2 class="who">${nameOf(cur)}</h2>
-        ${g.ending ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}</div>`;
+    return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who">${nameOf(cur)}</h2>
+        ${g.ending ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}${feedArea()}</div>`;
   }
   // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
   // in two steps (the second drops the chevron), then the names shorten to their first letter (six 3-digit totals on
@@ -2737,7 +2780,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const n = seats.length;
     const main = !host ? waiting(hostName(), 'start')
       : `<button class="btn primary" data-act="ostart"${n < 2 ? ' disabled' : ''}>${n < 2 ? 'Waiting for one more player' : `Start · ${n} players`}</button>`;
-    return `<header class="top slim">${tickerHtml('under')}<div class="top-l">${menuButton()}<h1 class="h2" id="lobby-h">Room</h1></div>${net.status === 'open' ? '' : netChip()}${chatButton()}</header>
+    return `<header class="top slim">${feedBox()}<div class="top-l">${menuButton()}<h1 class="h2" id="lobby-h">Room</h1></div>${net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       <section class="oncard roomhead" aria-labelledby="room-h">
         <p class="eyebrow" id="room-h">Room code</p>
         <p class="roomcode">${esc(net.code)}</p>
@@ -2828,15 +2871,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const ICON_BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
   const menuButton = () => `<button class="menubtn" data-act="menu" aria-label="Game menu" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'menu'}">${ICON_MENU}</button>`;
   const ICON_CHAT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z"/></svg>';
-  // the chat button, at the right end of every online header once the server speaks chat: the unread badge (9+ above 9)
-  // and the connection dot (red while the room isn't connected)
+  // the chat button, at the right end of every online header once the server speaks chat: unread messages are a green
+  // badge with the number (9+ above 9); a red dot only while the room isn't connected
   function chatButton(){
     if (!online() || !net.chat.ready) return '';
     const n = net.chat.unread, on = net.status === 'open';
     const label = 'Chat' + (n ? `, ${n} new` : '') + (on ? '' : ', reconnecting');
     return `<button class="menubtn chatbtn" data-act="chat" aria-label="${label}" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'chat'}">${ICON_CHAT}`
       + (n ? `<span class="chat-badge" aria-hidden="true">${n > 9 ? '9+' : n}</span>` : '')
-      + `<i class="chat-dot${on ? '' : ' warn'}" aria-hidden="true"></i></button>`;
+      + (on ? '' : '<i class="chat-dot" aria-hidden="true"></i>') + '</button>';
   }
 
   // Sheets by kind: { title, ok() (may it show on this screen?), body() (html, rebuilt on every render) }.
@@ -2862,7 +2905,6 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function closeSheet({ redraw = true } = {}){
     if (!ui.sheet) return;
     if (ui.sheet === 'join' || ui.sheet === 'play') ui.hint = null; // its hint ("Enter your name first…") doesn't linger on the screen under it
-    if (ui.sheet === 'chat') queueMicrotask(tickNext); // the ticker carries on (after this redraw, never inside one)
     sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null; ui.shakeNote = null; ui.chatHint = null;
     if (redraw) render();
   }
@@ -3208,7 +3250,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // best moment pops up, then a curtain drops, swap() switches the screen under it and the curtain slides away.
   // A tap (or Escape, Enter, Space) skips to the end, and so does a step that fails; swap() is called exactly once either way.
   async function playRace(recap, swap, g = state.game){
-    if (document.hidden){ swap(); ui.race = false; tickNext(); return; } // nobody is looking
+    if (document.hidden){ swap(); ui.race = false; feedResume(); return; } // nobody is looking
     ui.race = true; dropMissed();
     closeSheet(); // the race is the moment everyone shares: an open game menu makes way for it
     await listInView();
@@ -3225,7 +3267,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         if (done) return;
         done = true; timers.forEach(clearTimeout); cancelAnimationFrame(raf);
         document.removeEventListener('keydown', onKey, true);
-        doSwap(); if (el) el.remove(); ui.race = false; tickNext(); resolve();
+        doSwap(); if (el) el.remove(); ui.race = false; feedResume(); resolve();
       }
       // a step that fails ends the race at once: the new state shows as after a skip
       const later = (ms, fn) => timers.push(setTimeout(() => { try { fn(); } catch (err){ console.error(err); finish(); } }, ms));

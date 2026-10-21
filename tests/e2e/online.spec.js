@@ -261,7 +261,8 @@ test.describe('real dice, scores here', () => {
     // Ben goes offline: the host gets the keypad and Save for him
     await expect(B.page.locator('#app > .bar [data-act=commit]')).toBeVisible();
     await B.ctx.close();
-    await expect(A.page.locator('#app .chiprow [data-act=chat] .chat-dot')).toBeVisible(); // online, the connection dot sits on the chat button
+    await expect(A.page.locator('#app .chiprow [data-act=chat]')).toBeVisible(); // online, connected: the chat button without a dot
+    await expect(A.page.locator('#app .chiprow [data-act=chat] .chat-dot')).toHaveCount(0);
     await openScores(A.page);
     await expect(A.page.locator('.pl-away')).toHaveText('Offline');
     await closeScores(A.page);
@@ -873,7 +874,7 @@ test.describe('chat', () => {
       await expect(P.page.locator('#app [data-act=chat] .chat-badge')).toHaveCount(0);
       expect(await noSideScroll(P.page)).toBe(true);
     }
-    // the dice turn: in the chip row, right of the score chip, and the online dot has moved from the chip onto it
+    // the dice turn: in the chip row, right of the score chip; the chip has no online dot
     const inChipRow = async P => {
       const btn = P.page.locator('#app .chiprow > [data-act=chat]');
       await expect(btn).toBeVisible();
@@ -881,7 +882,8 @@ test.describe('chat', () => {
       expect(chip.x + chip.width).toBeLessThanOrEqual(b.x);
       expect(b.width).toBeGreaterThanOrEqual(44); expect(b.height).toBeGreaterThanOrEqual(44);
       await expect(P.page.locator('.scorechip .sc-dot')).toHaveCount(0);
-      await expect(btn.locator('.chat-dot')).toHaveCount(1);
+      await expect(btn.locator('.chat-dot')).toHaveCount(0);     // connected and nothing new: no dot, no badge
+      await expect(btn.locator('.chat-badge')).toHaveCount(0);
       expect(await noSideScroll(P.page)).toBe(true);
     };
     await A.page.click('[data-act=ostart]');
@@ -913,6 +915,48 @@ test.describe('chat', () => {
     await expect(A.page.locator('.sheet-layer')).toBeHidden();
     await expect(A.page.locator('.entry')).toHaveText(entry);
     await A.ctx.close(); await B.ctx.close();
+  });
+
+  test('the chat button: no dot while connected with nothing new; unread messages are a green badge with the count; not connected, a red dot', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    const btn = chatBtn(page);
+    await expect(btn).toHaveAttribute('aria-label', 'Chat');
+    await expect(btn.locator('.chat-dot')).toHaveCount(0);
+    await expect(btn.locator('.chat-badge')).toHaveCount(0);
+    fake.push({ t: 'chat', msg: msg(1, 'one') });
+    await expect(btn).toHaveAttribute('aria-label', 'Chat, 1 new');
+    await expect(btn.locator('.chat-badge')).toHaveText('1');
+    await expect(btn.locator('.chat-dot')).toHaveCount(0);
+    // green (--ok), its number readable on it (4.5:1) in Pub table light and dark and in Vegas
+    const contrast = () => btn.locator('.chat-badge').evaluate(el => {
+      const lum = c => { const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map(Number).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+      const cs = getComputedStyle(el), ok = getComputedStyle(document.documentElement).getPropertyValue('--ok').trim();
+      const probe = document.createElement('i'); probe.style.color = ok; document.body.append(probe);
+      const okRgb = getComputedStyle(probe).color; probe.remove();
+      const [a, b] = [lum(cs.backgroundColor), lum(cs.color)];
+      return { green: cs.backgroundColor === okRgb, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+    });
+    for (const [scheme, look] of [['light', 'pub'], ['dark', 'pub'], ['dark', 'vegas']]) {
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.evaluate(l => { if (l === 'vegas') document.documentElement.dataset.look = 'vegas'; else delete document.documentElement.dataset.look; }, look);
+      const c = await contrast();
+      expect(c.green, `${scheme} ${look}`).toBe(true);
+      expect(c.ratio, `${scheme} ${look}`).toBeGreaterThanOrEqual(4.5);
+    }
+    for (let i = 2; i <= 10; i++) fake.push({ t: 'chat', msg: msg(i, `m${i}`) });
+    await expect(btn.locator('.chat-badge')).toHaveText('9+');
+    await expect(btn).toHaveAttribute('aria-label', 'Chat, 10 new');
+    // the socket drops: a red dot (and the badge stays) until it is back
+    fake.close();
+    await expect(btn.locator('.chat-dot')).toBeVisible();
+    await expect(btn).toHaveAttribute('aria-label', 'Chat, 10 new, reconnecting');
+    expect(await btn.locator('.chat-dot').evaluate(el => { const p = document.createElement('i'); p.style.color = getComputedStyle(el).getPropertyValue('--danger'); document.body.append(p);
+      const c = getComputedStyle(p).color; p.remove(); return getComputedStyle(el).backgroundColor === c; })).toBe(true);
+    await expect(btn.locator('.chat-badge')).toHaveText('9+');
+    await expect.poll(async () => (await net(page)).status).toBe('open');
+    await expect(btn.locator('.chat-dot')).toHaveCount(0);
   });
 
   test('a quick reaction and a typed line reach the other phone; the badge counts and clears', async ({ browser }) => {
@@ -1120,7 +1164,7 @@ test.describe('chat', () => {
   });
 });
 
-test.describe('chat ticker', () => {
+test.describe('chat feed', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
   const rm = { reducedMotion: 'reduce' };
   const chatBtn = page => page.locator('#app header [data-act=chat]');
@@ -1133,17 +1177,20 @@ test.describe('chat ticker', () => {
     await page.press('#chattext', 'Enter');
   }
   const logHas = (page, n) => expect.poll(async () => (await page.evaluate(() => window.SevensDebug.chat)).log.length).toBe(n);
-  // every change of the ticker on this phone, with the time and whether the page was busy: {text|null, t, busy}
-  const watchTicker = page => page.evaluate(() => {
-    window.ticks = []; let last = null;
+  const lines = page => page.locator('#app .feed .feed-line');
+  // every change of the feed on this phone, with the time and whether the page was busy: {lines:[text..], t, busy}
+  const watchFeed = page => page.evaluate(() => {
+    window.feedSeen = []; let last = null;
     const look = () => {
-      const el = document.querySelector('#app .ticker'), text = el ? el.textContent.replace(/\s+/g, ' ').trim() : null;
-      if (text !== last) { last = text; window.ticks.push({ text, t: performance.now(), busy: window.SevensDebug.busy }); }
+      const ls = [...document.querySelectorAll('#app .feed-line')].map(el => el.textContent.replace(/\s+/g, ' ').trim()), key = JSON.stringify(ls);
+      if (key !== last) { last = key; window.feedSeen.push({ lines: ls, t: performance.now(), busy: window.SevensDebug.busy }); }
     };
-    new MutationObserver(look).observe(document.body, { childList: true, subtree: true }); look();
+    new MutationObserver(look).observe(document.body, { childList: true, subtree: true, characterData: true }); look();
   });
-  const ticks = page => page.evaluate(() => window.ticks);
-  const shown = async page => (await ticks(page)).filter(x => x.text).map(x => x.text);
+  const seen = page => page.evaluate(() => window.feedSeen);
+  // every message that showed, in the order it first showed
+  const shown = async page => [...new Set((await seen(page)).flatMap(x => [...x.lines].reverse()))];
+  const opacity = loc => loc.evaluate(el => Number(getComputedStyle(el).opacity));
   async function started(browser) {
     const A = await host(browser, 'Anna', rm);
     const B = await join(browser, A.code, 'Ben', rm);
@@ -1151,25 +1198,62 @@ test.describe('chat ticker', () => {
     await expect(A.page.locator('[data-act=roll]')).toBeVisible();
     return { A, B };
   }
+  const boxesOf = (page, sels) => page.evaluate(sels => sels.flatMap(sel => [...document.querySelectorAll('#app ' + sel)].map(el => {
+    const r = el.getBoundingClientRect(); return [sel, r.x, r.y, r.width, r.height];
+  })), sels);
 
-  test('the ticker shows another phone\'s message under the name, once, for about 3 s', async ({ browser }) => {
+  test('the feed shows another phone\'s message under the name, once, for about 4 s; the eyebrow stays', async ({ browser }) => {
     const { A, B } = await started(browser);
-    await watchTicker(A.page);
+    await watchFeed(A.page);
     await openChat(B.page);
     await say(B.page, 'nice roll');
-    const t = A.page.locator('#app .turnhead .ticker');
-    await expect(t).toHaveText('Ben · nice roll');
-    await expect(t).toHaveAttribute('aria-hidden', 'true');
+    const t = lines(A.page);
+    await expect(t).toHaveText(['Ben · nice roll']);
+    await expect(A.page.locator('#app .turnhead .feed')).toHaveAttribute('aria-hidden', 'true');
     await expect(A.page.locator('#chat-live')).toHaveText('Ben: nice roll');
+    // under the name, and the eyebrow keeps showing above it
+    const eb = A.page.locator('#app .turnhead .eyebrow');
+    await expect(eb).toHaveText('Round 1 · Anna sets the limit');
+    expect(await opacity(eb)).toBe(1);
+    const [who, line] = [await A.page.locator('#app .turnhead .who').boundingBox(), await t.boundingBox()];
+    expect(line.y).toBeGreaterThanOrEqual(who.y + who.height - 0.5);
     await B.page.keyboard.press('Escape');
-    await expect(B.page.locator('.ticker')).toHaveCount(0);           // not on the sender's own phone
-    await expect(A.page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
-    await expect(A.page.locator('#app .turnhead .eyebrow')).toHaveText('Round 1 · Anna sets the limit');
-    const seen = await ticks(A.page), on = seen.find(x => x.text), off = seen[seen.indexOf(on) + 1];
+    await expect(B.page.locator('#app .turnhead .feed')).toHaveCount(1);   // the sender's phone has the area, but
+    await expect(lines(B.page)).toHaveCount(0);                            // never its own message
+    await expect(t).toHaveCount(0, { timeout: 5000 });
+    const log = await seen(A.page), on = log.find(x => x.lines.length), off = log[log.indexOf(on) + 1];
     expect(await shown(A.page)).toEqual(['Ben · nice roll']);
-    expect(off.t - on.t).toBeGreaterThan(2700);
-    expect(off.t - on.t).toBeLessThan(3600);
+    expect(off.lines).toEqual([]);
+    expect(off.t - on.t).toBeGreaterThan(3700);
+    expect(off.t - on.t).toBeLessThan(4700);
     await A.ctx.close(); await B.ctx.close();
+  });
+
+  test('two at a time: the newest on top at full strength, the one before under it and fainter; each goes 4 s after it came', async ({ page }) => {
+    await page.clock.install();
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben', 'Cleo']), state: begin(['Anna', 'Ben', 'Cleo']), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    fake.push({ t: 'chat', msg: msg(1, 'first') });
+    await expect(lines(page)).toHaveText(['Ben · first']);
+    expect(await opacity(lines(page).first())).toBe(1);
+    await page.clock.runFor(1000);
+    fake.push({ t: 'chat', msg: msg(2, 'second', 'Cleo', 's3') });
+    await expect(lines(page)).toHaveText(['Cleo · second', 'Ben · first']);
+    await expect(page.locator('#chat-live')).toHaveText('Cleo: second');
+    expect(await opacity(lines(page).first())).toBe(1);
+    const older = await opacity(lines(page).last());
+    expect(older).toBeGreaterThan(0.4);
+    expect(older).toBeLessThan(0.7);
+    await page.clock.runFor(2600);                                 // ~3.6 s after the first: both still there
+    await expect(lines(page)).toHaveCount(2);
+    await page.clock.runFor(800);                                  // ~4.4 s: the first has gone, the second moves up
+    await expect(lines(page)).toHaveText(['Cleo · second']);
+    expect(await opacity(lines(page).first())).toBe(1);
+    await page.clock.runFor(1000);                                 // ~4.4 s after the second
+    await expect(lines(page)).toHaveCount(0);
+    await expect(page.locator('#app .turnhead .feed')).toHaveCount(1);   // the area stays, empty
   });
 
   // the online twin of the chip-fit loop in local.spec.js: the chat button takes 44 px + 8 px of the row
@@ -1225,163 +1309,239 @@ test.describe('chat ticker', () => {
     });
   }
 
-  test('the ticker never moves or covers the dice', async ({ page }) => {
-    await page.setViewportSize({ width: 375, height: 667 });
-    await seedRandom(page, 375);
-    const names = ['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'];
-    let s = begin(names);
-    s.game.players.forEach((p, i) => { p.score = [88, 104, 95, 100, 79, 99][i]; });
-    Object.assign(s.game, { ending: true, crosser: 1 });
-    s = play(s, { type: 'roll' }).state;
-    const fake = await fakeRoom(page, { room: roomOf(names), state: s, seat: 's1', log: [] });
-    await inRoom(page);
-    await page.goto(url('/'));
-    await expect(page.locator('.turnhead .alert')).toBeVisible();
-    await expect(page.locator('#app .mat .dice .die')).toHaveCount(6);
-    const boxes = () => page.evaluate(() => [...document.querySelectorAll('#app .mat, #app .mat .die')].map(el => {
-      const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height };
-    }));
-    const before = await boxes();
-    const long = 'So close! '.repeat(14);
-    expect(long).toHaveLength(140);
-    fake.push({ t: 'chat', msg: msg(1, long, 'Benjamin') });
-    const t = page.locator('#app .turnhead .ticker');
-    await expect(t).toBeVisible();
-    expect(await boxes()).toEqual(before);
-    const [tb, mat] = [await t.boundingBox(), before[0]];
-    expect(tb.y + tb.height <= mat.y || tb.y >= mat.y + mat.h || tb.x + tb.width <= mat.x || tb.x >= mat.x + mat.w).toBe(true);
-    expect(await t.evaluate(el => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth > el.clientWidth)).toBe(true); // one line, cut with an ellipsis
-    expect(await noSideScroll(page)).toBe(true);
-  });
-
-  // the ticker lies over the eyebrow, which keeps its own box (one line or two), so nothing under it moves
-  const boxesOf = (page, sels) => page.evaluate(sels => sels.map(sel => {
-    const r = document.querySelector('#app ' + sel).getBoundingClientRect(); return [sel, r.x, r.y, r.width, r.height];
-  }), sels);
-  const lines = el => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
-  async function overEyebrow(page) {
-    const eb = page.locator('#app .turnhead .eyebrow'), t = page.locator('#app .turnhead .ticker');
-    await expect(eb).toHaveCount(1);                               // the eyebrow stays for screen readers, only unseen
-    expect(await eb.evaluate(el => getComputedStyle(el).opacity)).toBe('0');
-    const [e, tb, who] = [await eb.boundingBox(), await t.boundingBox(), await page.locator('#app .turnhead .who').boundingBox()];
-    expect(tb.y).toBeGreaterThanOrEqual(e.y - 0.5);
-    expect(tb.y + tb.height).toBeLessThanOrEqual(e.y + e.height + 0.5);
-    expect(tb.y + tb.height, 'clear of the name').toBeLessThanOrEqual(who.y + 0.5);
-    expect(await t.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
-  }
-
-  test('the ticker never moves the real-dice keypad, with the eyebrow on two lines at 320 px', async ({ page }) => {
-    await page.setViewportSize({ width: 320, height: 667 });
-    const names = ['Anna', 'Ben'];
-    const fake = await fakeRoom(page, { room: { ...roomOf(names), settings: { mode: 'score', pairing: 'manual', starter: 0 } }, state: begin(names, 'score'), seat: 's1', log: [] });
-    await inRoom(page);
-    await page.goto(url('/'));
-    await page.evaluate(() => document.fonts.ready);
-    const eb = page.locator('#app .turnhead .eyebrow');
-    await expect(eb).toHaveText('Round 1 · Starts the round · up to 3 rolls');
-    expect(await eb.evaluate(lines)).toBe(2);
-    const sels = ['.pad', '.entry', '.turnhead .who', '.keymat'];
-    const before = await boxesOf(page, sels);
-    fake.push({ t: 'chat', msg: msg(1, 'So close! '.repeat(14)) });
-    await expect(page.locator('#app .turnhead .ticker')).toBeVisible();
-    expect(await boxesOf(page, sels)).toEqual(before);
-    await overEyebrow(page);
-    await expect(page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
-    expect(await boxesOf(page, sels)).toEqual(before);
-    await expect(eb).toHaveCSS('opacity', '1');
-  });
-
-  // (at 375 px no 16-letter name wraps it with the page's fonts; 320 px does, as the system fallback font does wider)
-  test('the ticker over a two-line eyebrow on the dice turn ("… sets the limit") never moves the mat', async ({ page }) => {
-    await page.setViewportSize({ width: 320, height: 667 });
-    const names = ['Wilhelmina Wolff', 'Ben'];
-    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's1', log: [] });
-    await inRoom(page);
-    await page.goto(url('/'));
-    await page.evaluate(() => document.fonts.ready);
-    const eb = page.locator('#app .turnhead .eyebrow');
-    await expect(eb).toHaveText('Round 1 · Wilhelmina Wolff sets the limit');
-    expect(await eb.evaluate(lines)).toBe(2);
-    const sels = ['.mat', '.turnhead .who', '.bar .rollbtn'];
-    const before = await boxesOf(page, sels);
-    fake.push({ t: 'chat', msg: msg(1, 'Nice roll!') });
-    await expect(page.locator('#app .turnhead .ticker')).toHaveText('Ben · Nice roll!');
-    expect(await boxesOf(page, sels)).toEqual(before);
-    await overEyebrow(page);
-    await expect(page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
-    expect(await boxesOf(page, sels)).toEqual(before);
-  });
-
-  test('a message ticks once, even when a quick reconnect replays it', async ({ page }) => {
+  test('a third message pushes the oldest out; the feed shows the newest two', async ({ page }) => {
     const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
     await inRoom(page);
     await page.goto(url('/'));
     await expect(page.locator('.roomcode')).toHaveText('ABCDE');
-    // every line the ticker reads out (#chat-live is set once per turn on the ticker, the same text again included)
+    await watchFeed(page);
+    for (let i = 1; i <= 3; i++) fake.push({ t: 'chat', msg: msg(i, `m${i}`) });
+    await expect(lines(page)).toHaveText(['Ben · m3', 'Ben · m2']);
+    await expect(page.locator('#chat-live')).toHaveText('Ben: m3');
+    expect((await seen(page)).every(x => x.lines.length <= 2)).toBe(true);
+    await expect(lines(page)).toHaveCount(0, { timeout: 5000 });
+    expect((await shown(page)).slice(-2)).toEqual(['Ben · m2', 'Ben · m3']);
+    expect((await page.evaluate(() => window.SevensDebug.chat)).unread).toBe(3);
+  });
+
+  test('the feed area: online with chat it is always there, two lines high; one phone and an old server have none', async ({ page, browser }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben']), state: begin(['Anna', 'Ben']), seat: 's1', log: null });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    await expect(page.locator('#app .feed')).toHaveCount(0);       // an old server: no chat, no area
+    fake.push({ t: 'chat', log: [] });
+    const area = page.locator('#app .turnhead .feed');
+    await expect(area).toHaveCount(1);
+    const empty = await area.boundingBox();
+    expect(empty.height).toBeGreaterThanOrEqual(2 * 16 * 1.2);    // room for two lines
+    fake.push({ t: 'chat', msg: msg(1, 'one') });
+    await expect(lines(page)).toHaveCount(1);
+    expect(await area.boundingBox()).toEqual(empty);
+    fake.push({ t: 'chat', msg: msg(2, '🔥🔥') });
+    await expect(lines(page)).toHaveCount(2);
+    expect(await area.boundingBox()).toEqual(empty);
+    // one phone: no area
+    const ctx = await browser.newContext({ ...phone, ...rm }), local = await ctx.newPage();
+    await local.goto(url('/'));
+    await local.click('[data-act=play]');
+    await local.click('.sheet-layer [data-act=players]');
+    await local.click('#app > .bar [data-act=start]');
+    await expect(local.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    await expect(local.locator('#app .feed')).toHaveCount(0);
+    await ctx.close();
+  });
+
+  test('sizes: text about 16 px, an emoji in a line about 22 px, a line of only emoji larger (about 30 px); every line inside the area', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben', 'Cleo']), state: begin(['Anna', 'Ben', 'Cleo']), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    const area = page.locator('#app .turnhead .feed'), empty = await area.boundingBox();
+    fake.push({ t: 'chat', msg: msg(1, 'Nice one 🔥 <b>x</b>') });
+    fake.push({ t: 'chat', msg: msg(2, '🔥👏', 'Cleo', 's3') });
+    await expect(lines(page)).toHaveText(['Cleo · 🔥👏', 'Ben · Nice one 🔥 <b>x</b>']);
+    await expect(page.locator('#app .feed b b')).toHaveCount(0);   // the text is text
+    const size = loc => loc.evaluate(el => parseFloat(getComputedStyle(el).fontSize));
+    const [big, small] = [lines(page).first().locator('.emo'), lines(page).last().locator('.emo')];
+    await expect(big).toHaveCount(1); await expect(small).toHaveCount(1);
+    const [b, s, text] = [await size(big), await size(small), await size(lines(page).last())];
+    expect(text).toBeGreaterThanOrEqual(15); expect(text).toBeLessThanOrEqual(17);
+    expect(s).toBeGreaterThanOrEqual(20); expect(s).toBeLessThanOrEqual(24);
+    expect(b).toBeGreaterThan(s);
+    expect(b).toBeGreaterThanOrEqual(27); expect(b).toBeLessThanOrEqual(32);
+    // the area never grows, and the lines and their emoji lie inside it
+    expect(await area.boundingBox()).toEqual(empty);
+    const out = await page.evaluate(() => {
+      const a = document.querySelector('#app .turnhead .feed').getBoundingClientRect();
+      return [...document.querySelectorAll('#app .feed-line, #app .feed-line .emo')].filter(el => {
+        const r = el.getBoundingClientRect(); return r.top < a.top - 0.5 || r.bottom > a.bottom + 0.5;
+      }).map(el => el.className + ' ' + el.textContent);
+    });
+    expect(out).toEqual([]);
+    // the names stay brass and bold
+    expect(await lines(page).first().locator('b').evaluate(el => getComputedStyle(el).fontWeight)).toBe('700');
+  });
+
+  // nothing on the turn moves while messages come and go (online, with chat): the dice, the mat, the name, the bar,
+  // the keypad and the entry
+  for (const vp of [{ width: 375, height: 667 }, { width: 390, height: 844 }]) {
+    test(`nothing moves on the dice turn at ${vp.width}×${vp.height}: six players, the 101 alert, two messages come and go`, async ({ page }) => {
+      await page.clock.install();
+      await page.setViewportSize(vp);
+      await seedRandom(page, vp.width);
+      const names = ['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'];
+      let s = begin(names);
+      s.game.players.forEach((p, i) => { p.score = [88, 104, 95, 100, 79, 99][i]; });
+      Object.assign(s.game, { ending: true, crosser: 1 });
+      s = play(s, { type: 'roll' }).state;
+      const fake = await fakeRoom(page, { room: roomOf(names), state: s, seat: 's1', log: [] });
+      await inRoom(page);
+      await page.goto(url('/'));
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('.turnhead .alert')).toBeVisible();
+      await expect(page.locator('#app .mat .dice .die')).toHaveCount(6);
+      const sels = ['.mat', '.mat .die', '.turnhead .who', '.turnhead .alert', '.turnhead .feed', '> .bar'];
+      const before = await boxesOf(page, sels);
+      expect(before.filter(b => b[0] === '.mat .die')).toHaveLength(6);
+      fake.push({ t: 'chat', msg: msg(1, 'So close! '.repeat(14), 'Benjamin') });
+      fake.push({ t: 'chat', msg: msg(2, '🔥', 'Cleo', 's3') });
+      await expect(lines(page)).toHaveCount(2);
+      expect(await boxesOf(page, sels)).toEqual(before);
+      // under the alert, above the mat; a long line is one line, cut with an ellipsis
+      const [alert, area, mat] = [await page.locator('.turnhead .alert').boundingBox(), await page.locator('.turnhead .feed').boundingBox(), await page.locator('#app .mat').boundingBox()];
+      expect(area.y).toBeGreaterThanOrEqual(alert.y + alert.height - 0.5);
+      expect(area.y + area.height).toBeLessThanOrEqual(mat.y + 0.5);
+      expect(await lines(page).last().locator('.feed-msg').evaluate(el => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth > el.clientWidth)).toBe(true);
+      await page.clock.runFor(4500);
+      await expect(lines(page)).toHaveCount(0);
+      expect(await boxesOf(page, sels)).toEqual(before);
+      // the dice-turn fit, with the feed area: the chip on one line, the dice apart inside the mat, Stop, Roll and the rack on screen
+      await chipFits(page);
+      const fit = await page.evaluate(() => {
+        const box = el => el.getBoundingClientRect(), mat = box(document.querySelector('#app .mat')), hint = box(document.querySelector('#app .mat .hint'));
+        const dice = [...document.querySelectorAll('#app .mat .dice .die')].map(box);
+        const on = sel => { const r = box(document.querySelector('#app ' + sel)); return r.top >= 0 && r.bottom <= innerHeight + 0.5 && r.left >= -0.5 && r.right <= innerWidth + 0.5; };
+        return { die: dice[0].width, inside: dice.every(d => d.left >= mat.left + 8 - 0.5 && d.right <= mat.right - 8 + 0.5 && d.top >= mat.top + 8 - 0.5 && d.bottom <= hint.top + 0.5),
+          apart: dice.every((d, i) => dice.slice(i + 1).every(e => d.right <= e.left || e.right <= d.left || d.bottom <= e.top || e.bottom <= d.top)),
+          on: ['> .bar [data-act=stop]', '> .bar [data-act=roll]', '> .bar .rackcell', '.scorechip'].map(on), fits: document.documentElement.scrollHeight <= innerHeight,
+          bar: Math.abs(box(document.querySelector('#app > .bar')).bottom - innerHeight) };
+      });
+      expect(fit.die).toBeGreaterThanOrEqual(48);
+      expect(fit.inside).toBe(true);
+      expect(fit.apart).toBe(true);
+      expect(fit.on).toEqual([true, true, true, true]);
+      expect(fit.fits).toBe(true);
+      expect(fit.bar).toBeLessThanOrEqual(1);
+      expect(await noSideScroll(page)).toBe(true);
+    });
+
+    test(`nothing moves on the real-dice turn at ${vp.width}×${vp.height}: two messages come and go`, async ({ page }) => {
+      await page.clock.install();
+      await page.setViewportSize(vp);
+      const names = ['Anna', 'Ben', 'Cleo'];
+      let s = begin(names, 'score');
+      s = play(s, { type: 'score', pts: 12, rolls: 2 }).state;     // Ben's turn, with something to undo
+      const fake = await fakeRoom(page, { room: { ...roomOf(names), settings: { mode: 'score', pairing: 'manual', starter: 0 } }, state: s, seat: 's2', log: [] });
+      await inRoom(page);
+      await page.goto(url('/'));
+      await page.evaluate(() => document.fonts.ready);
+      await expect(page.locator('#app > .bar [data-act=commit]')).toBeVisible();
+      const sels = ['.pad', '.entry', '.keymat', '.turnhead .who', '.turnhead .feed', '[data-act=undo]', '> .bar'];
+      const before = await boxesOf(page, sels);
+      expect(before).toHaveLength(sels.length);
+      fake.push({ t: 'chat', msg: msg(1, 'So close! '.repeat(14), 'Anna', 's1') });
+      fake.push({ t: 'chat', msg: msg(2, '👏👏', 'Cleo', 's3') });
+      await expect(lines(page)).toHaveCount(2);
+      expect(await boxesOf(page, sels)).toEqual(before);
+      await page.clock.runFor(4500);
+      await expect(lines(page)).toHaveCount(0);
+      expect(await boxesOf(page, sels)).toEqual(before);
+    });
+  }
+
+  // CLAUDE.md: "With three players it fits a 390×844 phone without scrolling, Rolls used and Undo included" — online too,
+  // with the feed area under the name
+  test('the real-dice turn online with three players still fits 390×844 without scrolling, Rolls used and Undo included', async ({ page }) => {
+    const names = ['Anna', 'Ben', 'Cleo'];
+    let s = begin(names, 'score');
+    for (const [pts, rolls] of [[12, 2], [5], [7]]) s = play(s, { type: 'score', pts, ...(rolls ? { rolls } : {}) }).state;
+    const starter = s.game.order[s.game.pos];                       // round 2: its starter chooses the rolls used
+    const fake = await fakeRoom(page, { room: { ...roomOf(names), settings: { mode: 'score', pairing: 'manual', starter: 0 } }, state: s, seat: `s${starter + 1}`, log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.locator('#app .turnhead .feed')).toHaveCount(1);
+    await expect(page.locator('[data-act=rolls]')).toHaveCount(3);
+    await expect(page.locator('[data-act=undo]')).toBeVisible();
+    fake.push({ t: 'chat', msg: msg(1, 'go go go', names[(starter + 1) % 3], `s${(starter + 1) % 3 + 1}`) });
+    await expect(lines(page)).toHaveCount(1);
+    const m = await page.evaluate(() => ({ sh: document.documentElement.scrollHeight, ih: innerHeight,
+      undo: document.querySelector('#app [data-act=undo]').getBoundingClientRect().bottom, bar: document.querySelector('#app > .bar').getBoundingClientRect().top }));
+    expect(m.sh).toBeLessThanOrEqual(m.ih);
+    expect(m.undo).toBeLessThanOrEqual(m.bar + 0.5);
+  });
+
+  test('a message shows once, even when a quick reconnect replays it', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('.roomcode')).toHaveText('ABCDE');
+    // every line the feed reads out (#chat-live is set once per message)
     await page.evaluate(() => { window.said = 0; new MutationObserver(() => window.said++).observe(document.getElementById('chat-live'), { childList: true, characterData: true, subtree: true }); });
+    await watchFeed(page);
     const m = msg(1, 'hey');
     fake.push({ t: 'chat', msg: m });
-    await expect(page.locator('#app .ticker')).toHaveText('Ben · hey');
+    await expect(lines(page)).toHaveText(['Ben · hey']);
     fake.set({ log: [m] });
     fake.close();                                                  // the socket drops and comes back within 5 s: the log replays it
     await expect.poll(() => fake.hellos()).toBe(2);
     await expect.poll(async () => (await net(page)).status).toBe('open');
-    await expect(page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
+    await expect(lines(page)).toHaveCount(0, { timeout: 5000 });
     await page.waitForTimeout(500);
-    await expect(page.locator('#app .ticker')).toHaveCount(0);
+    await expect(lines(page)).toHaveCount(0);
+    expect((await seen(page)).filter(x => x.lines.length).every(x => x.lines.length === 1)).toBe(true);
     expect(await page.evaluate(() => window.said)).toBe(1);
     await expect(page.locator('#app [data-act=chat]')).toHaveAttribute('aria-label', 'Chat, 1 new');
   });
 
-  test('the ticker on paper screens sits under the header (lobby and game over)', async ({ browser }) => {
+  test('the feed on paper screens floats under the header while it has a message (lobby and game over)', async ({ browser }) => {
     const A = await host(browser, 'Anna', rm);
     const B = await join(browser, A.code, 'Ben', rm);
-    const under = async () => {
-      const t = A.page.locator('#app .ticker');
-      await expect(t).toBeVisible();
-      const [tb, hb] = [await t.boundingBox(), await A.page.locator('#app header.top.slim').boundingBox()];
+    const under = async n => {
+      const box = A.page.locator('#app .feed.under');
+      await expect(box).toBeVisible();
+      await expect(box.locator('.feed-line')).toHaveCount(n);
+      const [tb, hb] = [await box.boundingBox(), await A.page.locator('#app header.top.slim').boundingBox()];
       expect(tb.y).toBeGreaterThanOrEqual(hb.y + hb.height - 0.5);
-      expect(await t.evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none');
+      expect(await box.evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none');
+      expect(await box.evaluate(el => getComputedStyle(el).position)).toBe('absolute');
       expect(await noSideScroll(A.page)).toBe(true);
     };
+    await expect(A.page.locator('#app .feed')).toHaveCount(0);     // nothing while there is nothing to say
     await openChat(B.page);
     await say(B.page, 'hi all');
-    await expect(A.page.locator('#app .ticker')).toHaveText('Ben · hi all');
-    await under();
+    await expect(lines(A.page)).toHaveText(['Ben · hi all']);
+    await under(1);
+    await say(B.page, 'ready?');
+    await expect(lines(A.page)).toHaveText(['Ben · ready?', 'Ben · hi all']);
+    await under(2);
     await A.page.click('[data-act=ostart]');
     await expect(A.page.locator('[data-act=roll]')).toBeVisible();
     await openMenu(A.page, 'dev');
     await A.page.click('[data-act=endearly]'); await A.page.click('[data-act=endyes]');
     await expect(A.page.locator('.verdict')).toBeVisible();
-    await expect(A.page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
+    await expect(A.page.locator('#app .feed')).toHaveCount(0, { timeout: 5000 });
     await say(B.page, 'good game');
-    await expect(A.page.locator('#app .ticker')).toHaveText('Ben · good game');
-    await under();
+    await expect(lines(A.page)).toHaveText(['Ben · good game']);
+    await under(1);
     await A.ctx.close(); await B.ctx.close();
   });
 
-  test('queued messages take turns, newest three', async ({ page }) => {
-    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
-    await inRoom(page);
-    await page.goto(url('/'));
-    await expect(page.locator('.roomcode')).toHaveText('ABCDE');
-    await watchTicker(page);
-    for (let i = 1; i <= 5; i++) fake.push({ t: 'chat', msg: msg(i, `m${i}`) });
-    // the first shows at once; the four behind it back up, so the oldest of them drops and the newest three follow
-    // one hands over to the next without a gap; done when the line is gone again
-    await expect.poll(async () => { const t = await ticks(page); return t.length > 1 && !t[t.length - 1].text; }, { timeout: 16000 }).toBe(true);
-    expect(await shown(page)).toEqual(['Ben · m1', 'Ben · m3', 'Ben · m4', 'Ben · m5']);
-    const on = (await ticks(page)).filter(x => x.text).map(x => x.t);
-    for (let i = 1; i < on.length; i++) {
-      expect(on[i] - on[i - 1]).toBeGreaterThan(2700);
-      expect(on[i] - on[i - 1]).toBeLessThan(3600);
-    }
-    expect((await page.evaluate(() => window.SevensDebug.chat)).unread).toBe(5);
-  });
-
-  test('the ticker waits for the race', async ({ browser }) => {
+  test('the feed waits for the race', async ({ browser }) => {
     const { A, B } = await started(browser);
-    await watchTicker(A.page);
+    await watchFeed(A.page);
     await A.page.click('[data-act=roll]');
     await A.page.click('[data-act=stop]'); await A.page.click('[data-act=stop]');
     await expect(B.page.locator('[data-act=roll]')).toBeVisible();
@@ -1393,14 +1553,14 @@ test.describe('chat ticker', () => {
     await say(B.page, 'what a round');
     await logHas(A.page, 1);
     expect(await A.page.evaluate(() => window.SevensDebug.busy)).toBe(true); // it arrived during Anna's race
-    await expect(A.page.locator('#app .ticker')).toHaveCount(0);
+    await expect(lines(A.page)).toHaveCount(0);
     await idle(A.page);
-    await expect(A.page.locator('#app .ticker')).toHaveText('Ben · what a round');
-    expect((await ticks(A.page)).filter(x => x.text && x.busy)).toEqual([]);
+    await expect(lines(A.page)).toHaveText(['Ben · what a round']);
+    expect((await seen(A.page)).filter(x => x.lines.length && x.busy)).toEqual([]);
     await A.ctx.close(); await B.ctx.close();
   });
 
-  test('the ticker waits for the race: held over 5 s, it never shows', async ({ page }) => {
+  test('the feed waits for the race: held over 5 s, it never shows', async ({ page }) => {
     await page.clock.install();
     const names = ['Anna', 'Ben'];
     let s = begin(names);
@@ -1413,7 +1573,7 @@ test.describe('chat ticker', () => {
     await inRoom(page);
     await page.goto(url('/'));
     await expect(page.locator('#app .scorechip')).toBeVisible();
-    await watchTicker(page);
+    await watchFeed(page);
     fake.push({ t: 'room', rev: 2, room, state: end.state, events: end.events });
     await expect(page.locator('.race')).toBeVisible();
     fake.push({ t: 'chat', msg: msg(1, 'too late') });
@@ -1427,17 +1587,20 @@ test.describe('chat ticker', () => {
     await expect(chatBtn(page)).toHaveAttribute('aria-label', 'Chat, 1 new'); // still counted on the badge
   });
 
-  test('no ticker while the chat is open', async ({ browser }) => {
+  test('no feed while the chat is open, and opening it clears the feed', async ({ browser }) => {
     const { A, B } = await started(browser);
-    await watchTicker(A.page);
-    await openChat(A.page);
     await openChat(B.page);
+    await say(B.page, 'before');
+    await expect(lines(A.page)).toHaveText(['Ben · before']);
+    await watchFeed(A.page);
+    await openChat(A.page);
+    await expect(lines(A.page)).toHaveCount(0);
     await say(B.page, 'you read this in the log');
-    await expect(A.page.locator('.chat-log li')).toHaveCount(1);
+    await expect(A.page.locator('.chat-log li')).toHaveCount(2);
     await A.page.keyboard.press('Escape');
     await expect(A.page.locator('.sheet-layer')).toBeHidden();
-    expect(await shown(A.page)).toEqual([]);
-    await expect(A.page.locator('#app .ticker')).toHaveCount(0);
+    await expect(lines(A.page)).toHaveCount(0);
+    expect((await seen(A.page)).filter(x => x.lines.length).map(x => x.lines)).toEqual([['Ben · before']]);
     await A.ctx.close(); await B.ctx.close();
   });
 
@@ -1454,19 +1617,34 @@ test.describe('chat ticker', () => {
     await A.ctx.close(); await B.ctx.close();
   });
 
-  test('reduced motion: the ticker appears without animation; otherwise it fades', async ({ page, browser }) => {
-    const fakeAt = async (p, id) => {
+  test('reduced motion: the lines appear without animation; otherwise they fade, and a redraw carries the fade on', async ({ page, browser }) => {
+    const fakeAt = async p => {
       const fake = await fakeRoom(p, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
       await inRoom(p);
       await p.goto(url('/'));
       await expect(p.locator('.roomcode')).toHaveText('ABCDE');
-      fake.push({ t: 'chat', msg: msg(id, 'hello') });
-      await expect(p.locator('#app .ticker')).toBeVisible();
-      return p.locator('#app .ticker').evaluate(el => getComputedStyle(el).animationName);
+      fake.push({ t: 'chat', msg: msg(1, 'hello') });
+      await expect(lines(p)).toHaveCount(1);
+      fake.push({ t: 'chat', msg: msg(2, 'again') });
+      await expect(lines(p)).toHaveCount(2);
+      const names = await p.evaluate(() => [...document.querySelectorAll('#app .feed-line')].flatMap(el => [el, ...el.children]).map(el => getComputedStyle(el).animationName).filter(n => n !== 'none'));
+      return { fake, names };
     };
-    expect(await fakeAt(page, 1)).toBe('none');
+    expect((await fakeAt(page)).names).toEqual([]);
     const ctx = await browser.newContext({ ...phone, reducedMotion: 'no-preference' });
-    expect(await fakeAt(await ctx.newPage(), 1)).toBe('ticker');
+    const p = await ctx.newPage();
+    const { fake, names } = await fakeAt(p);
+    expect(names).toContain('feed-life');
+    // a redraw (the room changes) keeps each line's place in its fade: the delay is negative and grows with its age
+    const delays = () => p.evaluate(() => [...document.querySelectorAll('#app .feed-line .feed-msg')].map(el => parseFloat(el.style.animationDelay)));
+    const d1 = await delays();
+    expect(d1).toHaveLength(2);
+    for (const d of d1) expect(d).toBeLessThanOrEqual(0);
+    await p.waitForTimeout(300);
+    fake.push({ t: 'room', rev: 2, room: { ...roomOf(['Anna', 'Ben'], 'lobby'), settings: { mode: 'score', pairing: 'manual', starter: 0 } }, state: null, events: [] });
+    await expect(p.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    const d2 = await delays();
+    d2.forEach((d, i) => expect(d).toBeLessThanOrEqual(d1[i] - 250));
     await ctx.close();
   });
 });
@@ -1533,13 +1711,13 @@ test.describe('chat on a stand-in room', () => {
     await expect(page.locator('#app .mat-foot .hint')).toHaveText("You're watching this game, so you can't play.");
   });
 
-  test('right-to-left names and text stay in their place: the name and the text are isolated in the log and the ticker', async ({ page }) => {
+  test('right-to-left names and text stay in their place: the name and the text are isolated in the log and the feed', async ({ page }) => {
     const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben']), state: begin(['Anna', 'Ben']), seat: 's1', log: [] });
     await inRoom(page);
     await page.goto(url('/'));
     await expect(page.locator('#app > .bar [data-act=roll]')).toBeVisible();
     fake.push({ t: 'chat', msg: { ...msg(1, 'שלום 123'), name: 'דנה', from: 'w1', seat: null } });
-    const t = page.locator('#app .turnhead .ticker');
+    const t = page.locator('#app .turnhead .feed-line');
     await expect(t.locator('bdi')).toHaveText(['דנה', 'שלום 123']);
     await openChat(page);
     const line = page.locator('.chat-log li').last();
@@ -1552,7 +1730,7 @@ test.describe('chat on a stand-in room', () => {
     await page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Dan', server: '', seen: 0 })));
     await page.goto(url('/'));
     await expect(page.locator('#app .scorechip')).toBeVisible();
-    await page.evaluate(() => { window.ticked = 0; new MutationObserver(() => { if (document.querySelector('#app .ticker')) window.ticked++; }).observe(document.body, { childList: true, subtree: true }); });
+    await page.evaluate(() => { window.ticked = 0; new MutationObserver(() => { if (document.querySelector('#app .feed-line')) window.ticked++; }).observe(document.body, { childList: true, subtree: true }); });
     await openChat(page);
     await page.fill('#chattext', 'go Anna');
     await page.press('#chattext', 'Enter');
