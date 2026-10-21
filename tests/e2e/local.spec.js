@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, stopPts } from './helpers.js';
+import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, closeScores, editLine, stopPts } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -149,7 +149,7 @@ test.describe('scoreboard mode', () => {
   test('corrections recompute totals, the starter and the 101 rule; undo takes them back', async ({ page }) => {
     await startLocal(page, { mode: 'score' });
     await enterScore(page, 10, 1); await enterScore(page, 20); await skipRace(page);
-    await page.click('.pl[data-act=edit][data-id="1"]');
+    await editLine(page, 1);
     await page.fill('#edit-1', '40');
     await expect(page.locator('[data-act=esave]')).toBeDisabled();
     await page.fill('#edit-1', '5');
@@ -159,13 +159,13 @@ test.describe('scoreboard mode', () => {
     expect(s.game.players.map(p => p.score)).toEqual([10, 5]);
     expect([s.game.round, s.game.starter]).toEqual([2, 0]);          // round 2 starts again, now with Anna
     await enterScore(page, 36, 3); await enterScore(page, 0); await skipRace(page);
-    await page.click('.pl[data-act=edit][data-id="0"]');
+    await editLine(page, 0);
     await page.fill('#edit-1', '36');
     await page.click('[data-act=esave]');
     expect((await saved(page)).game.players.map(p => p.score)).toEqual([72, 5]);
     await enterScore(page, 30, 1); await enterScore(page, 0);
     expect((await saved(page)).phase).toBe('over');
-    await page.click('.pl[data-act=edit][data-id="0"]');
+    await editLine(page, 0);
     await page.fill('#edit-3', '10');
     await page.click('[data-act=esave]');
     s = await saved(page);
@@ -184,7 +184,9 @@ test.describe('scoreboard mode', () => {
     await expect(page.locator('.doom-sub')).toContainText('Anna dropped the third die');
     await page.click('.doom-ok');
     await expect(page.locator('.doom')).toHaveCount(0);
+    await openScores(page);
     await expect(page.locator('.pl-shots')).toContainText('Paid 1 round of shots');
+    await closeScores(page);                                           // a tap on the mat would only close the list
     await page.click('[data-act=undo]');
     const s = await saved(page);
     expect(s.game.drops).toBe(2);
@@ -290,6 +292,7 @@ test.describe('the score list', () => {
     await startLocal(page, { names: ['Anna', 'Ben', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'], mode: 'score' });
     for (const lookId of ['0', '1']) {
       await openMenu(page); await page.click(`[data-act=look][data-id="${lookId}"]`); await closeMenu(page);
+      await openScores(page);                                     // the full list opens from the chip
       await expect(page.locator('.board .pl')).toHaveCount(6);
       const box = await page.locator('.board').boundingBox();
       expect(box.height).toBeLessThanOrEqual(340);   // real dice: tappable 44 px rows (the dice turn's dense list is about 260)
@@ -348,6 +351,7 @@ test.describe('between rounds', () => {
     await expect(race.locator('.race-curtain .race-why')).toHaveText('Highest score: 26');
     await expect(race).toHaveCount(0);
     await idle(page);
+    await openScores(page);
     expect(await names(page)).toEqual(['Cleo', 'Anna', 'Ben']);
     await expect(page.locator('.board .bhead')).toContainText('Round 2 · Cleo starts');
   });
@@ -359,6 +363,7 @@ test.describe('between rounds', () => {
     await expect(page.locator('.race')).toHaveCount(0, { timeout: 1000 });
     const s = await live(page);
     expect([s.game.round, s.game.starter]).toEqual([2, 1]);
+    await openScores(page);
     await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
     await idle(page);
   });
@@ -369,10 +374,12 @@ test.describe('between rounds', () => {
     await expect(page.locator('.race')).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(page.locator('.race')).toHaveCount(0);
+    await openScores(page);
     await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
     await enterScore(page, 5, 1); await enterScore(page, 30);       // Anna 40, Ben 25: Anna starts round 3
     await expect(page.locator('.race')).toBeVisible();
     await page.reload();
+    await openScores(page);
     await expect(page.locator('.board .bhead')).toContainText('Round 3 · Anna starts');
     await expect(page.locator('.race')).toHaveCount(0);
     expect((await saved(page)).game.players.map(p => p.score)).toEqual([40, 25]);
@@ -388,11 +395,12 @@ test.describe('between rounds', () => {
     await startLocal(page, { mode: 'score' });
     await enterScore(page, 10, 1); await enterScore(page, 20);
     await skipRace(page);
-    await page.click('.pl[data-act=edit][data-id="1"]');
+    await editLine(page, 1);
     await page.fill('#edit-1', '5');
     await page.click('[data-act=esave]');
     await expect(page.locator('.race')).toHaveCount(0);
     await idle(page);
+    await openScores(page);
     expect((await names(page))[0]).toBe('Anna');
     await expect(page.locator('.board .bhead')).toContainText('Round 2 · Anna starts');
   });
@@ -437,6 +445,7 @@ test.describe('between rounds', () => {
     await idle(page);
     await expect(page.locator('.race')).toHaveCount(0);
     await expect(page.locator('#app')).not.toHaveClass(/racing/);
+    await openScores(page);
     await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
     const s = await saved(page);
     expect([s.phase, s.game.round, s.game.starter]).toEqual(['play', 2, 1]);
@@ -549,13 +558,15 @@ const trackCurtain = page => page.evaluate(() => {
 test('with normal motion the race starts exactly over the score list, and the curtain gives time to read who starts', async ({ page }) => {
   await startLocal(page, { mode: 'score' });
   await enterScore(page, 10, 1);
-  // the list in view at the top; Ben types and saves on the keyboard, so nothing scrolls
+  // the list opened from the chip; Ben types and saves on the keyboard, so nothing scrolls or closes it
+  await openScores(page);
   await page.evaluate(() => { document.activeElement.blur(); scrollTo(0, 0); });
   const board = await page.locator('.board').boundingBox();
   await recordRaceStart(page);
   await trackCurtain(page);
   await page.keyboard.type('20'); await page.keyboard.press('Enter');
   const start = await raceStart(page);
+  expect(start.from).toBe('list');
   sameBox(start.card, board);
   expect(start.scrollY).toBe(0);
   await expect(page.locator('.race')).toHaveCount(0, { timeout: 7000 }); // it ends by itself
@@ -568,21 +579,26 @@ test('with normal motion the race starts exactly over the score list, and the cu
   expect(c.gone - c.shown).toBeGreaterThanOrEqual(800);
 });
 
-test('a score list scrolled away comes back into view, and the race starts from it', async ({ page }) => {
+test('a score chip scrolled away comes back into view, and the race starts from it', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 460 });                          // a screen too short for the whole turn
   await startLocal(page, { mode: 'score' });
   await enterScore(page, 10, 1);
   await page.click('[data-act=key][data-id="2"]'); await page.click('[data-act=key][data-id="0"]');
   await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));   // down at the bottom of the page
-  const away = await page.locator('.board').boundingBox();
-  expect(away.y + away.height).toBeLessThan(0);                                     // the list is off screen
+  const away = await page.locator('.scorechip').boundingBox();
+  expect(away.y + away.height).toBeLessThan(0);                                     // the chip is off screen
   await recordRaceStart(page);
   await page.click('[data-act=commit]');
   const start = await raceStart(page);
-  sameBox(start.card, start.board);                                                 // it starts from the list...
-  expect(Math.abs(start.board.y - 16)).toBeLessThanOrEqual(2);                      // ...which is back in view
+  expect(start.from).toBe('chip');
+  expect(Math.abs(start.card.x - start.board.x)).toBeLessThanOrEqual(2);           // it starts from the chip...
+  expect(Math.abs(start.card.y - start.board.y)).toBeLessThanOrEqual(2);
+  expect(Math.abs(start.card.width - start.board.width)).toBeLessThanOrEqual(2);
+  expect(start.board.y).toBeGreaterThanOrEqual(0);                                  // ...which is back in view
+  expect(start.board.y).toBeLessThanOrEqual(20);
   await expect(page.locator('.race')).toHaveCount(0, { timeout: 7000 });
   await idle(page);
+  await openScores(page);
   await expect(page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
 });
 
@@ -607,6 +623,7 @@ test('without color-mix() (iOS 16.1 and older) the current line and the danger h
     await route.fulfill({ response: res, body: (await res.text()).replaceAll('color-mix(', 'color-old(') });
   });
   await startLocal(page, { mode: 'score' });
+  await openScores(page);                                             // the list opens from the chip, over the mat
   expect(await page.evaluate(() => document.querySelector('style').textContent.includes('color-mix('))).toBe(false);
   const look = () => page.evaluate(() => {
     const now = getComputedStyle(document.querySelector('.board .pl.now'));
@@ -716,7 +733,7 @@ test('a game saved between rounds carries on', async ({ page }) => {
   expect(now.game.round).toBe(2);
   expect(now.game.starter).toBe(1);
   await expect(page.locator('[data-act=nextround]')).toHaveCount(0);
-  await expect(page.locator('.board')).toBeVisible();
+  await expect(page.locator('.scorechip .sc-p')).toHaveText(['Ben 20', 'Anna 10']);
 });
 
 test.describe('game menu', () => {
@@ -1419,14 +1436,20 @@ test.describe('the real-dice turn, corrections and game over', () => {
   };
 
   for (const vp of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
-    test(`Save stays pinned on screen at ${vp.width}×${vp.height} with six players, in both looks`, async ({ page }) => {
+    test(`Save stays pinned on screen at ${vp.width}×${vp.height} with six players, in both looks; the chip shows all six totals`, async ({ page }) => {
       await page.setViewportSize(vp);
       await startLocal(page, { names: six, mode: 'score' });
       for (let turn = 0; turn < 2; turn++) {                           // the starter (rolls used) and then a player who isn't
         for (const lookId of ['0', '1']) {
           await openMenu(page); await page.click(`[data-act=look][data-id="${lookId}"]`); await closeMenu(page);
           expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
-          await expect(page.locator('.board .pl')).toHaveCount(6);
+          // the chip on one line with every total, in this round's playing order
+          const g = (await saved(page)).game;
+          expect(await page.locator('#app .scorechip .sc-p b').allTextContents()).toEqual(g.order.map(i => String(g.players[i].score)));
+          const chipBox = await page.locator('#app .scorechip').boundingBox();
+          expect(chipBox.height).toBeLessThanOrEqual(44.5);
+          expect(await page.evaluate(() => { const c = document.querySelector('#app .scorechip'); return c.scrollWidth <= c.clientWidth + 0.5; })).toBe(true);
+          await expect(page.locator('#app .board')).toHaveCount(0);   // the full list is one tap away
           await page.click('[data-act=clear]');
           await page.click('[data-act=key][data-id="7"]');
           if (turn === 0) await page.click('[data-act=rolls][data-id="2"]');
@@ -1435,25 +1458,40 @@ test.describe('the real-dice turn, corrections and game over', () => {
           for (const sel of ['.key', '.segbtn', '[data-act=drop]']) {
             for (const b of await page.locator(`#app ${sel}`).all()) expect((await b.boundingBox()).height, sel).toBeGreaterThanOrEqual(44 - 0.5);
           }
-          // Save is pinned: it is on screen and the list is complete at the top of the page, whatever the keypad needs
+          // Save is pinned: it is on screen with the chip at the top of the page, and the mat scrolls under the bar
           await page.evaluate(() => scrollTo(0, 0));
           await onScreen(page, '.bar [data-act=commit]');
           await barAtBottom(page);
-          await onScreen(page, '.board');
+          await onScreen(page, '#app .scorechip');
           expect(await noSideScroll(page)).toBe(true);
           expect((await page.locator('.bar [data-act=commit]').boundingBox()).height).toBeGreaterThanOrEqual(44);
+          await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+          await onScreen(page, '.bar [data-act=commit]');
+          await barAtBottom(page);
+          const bar = await page.locator('#app > .bar').boundingBox();
+          for (const sel of ['.floor [data-act=drop]', '.keymat .key[data-act=back]']) {
+            const b = await page.locator(sel).boundingBox();
+            expect(b.y + b.height, sel).toBeLessThanOrEqual(bar.y + 0.5);   // reachable above the bar
+          }
         }
         await page.click('[data-act=commit]');
       }
     });
   }
 
-  test('the real-dice screen: entry and keypad on the leather, rolls used for the starter only, Undo above the bar', async ({ page }) => {
+  test('the real-dice screen: the C4 frame, entry and keypad on the mat, rolls used for the starter only, Undo above the bar', async ({ page }) => {
     await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
-    await expect(page.locator('.rnd')).toHaveText('Round 1 · Anna sets the limit (max 3)');
+    await expect(page.locator('#app > .chiprow .scorechip .sc-p')).toHaveText(['Anna 0', 'Ben 0', 'Cleo 0']);
+    await expect(page.locator('.scorechip .sc-p.now')).toHaveText('Anna 0');
+    await expect(page.locator('.keyturn .turnhead.c4 .eyebrow')).toHaveText('Round 1 · Starts the round · up to 3 rolls');
+    await expect(page.locator('.keyturn .turnhead.c4 h2.who')).toHaveText('Anna');
     expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(true);
-    await expect(page.locator('.tray.table .tlabel').first()).toHaveText('Pips left on the table');
-    await expect(page.locator('.tray.table .pad .key')).toHaveCount(12);
+    await expect(page.locator('.keyturn > .mat.keymat .entry-top .tlabel')).toHaveText(['Pips left on the table', '0–36']);
+    await expect(page.locator('.mat.keymat .pad .key')).toHaveCount(12);
+    for (const sel of ['.rollpick', '.floor', '.hintrow']) await expect(page.locator(`.mat.keymat > ${sel}`)).toHaveCount(1);
+    for (const b of await page.locator('.mat.keymat .key').all()) expect((await b.boundingBox()).height).toBeGreaterThanOrEqual(44 - 0.5);
+    // Save in the C4 footer: leather-deep with a 28 px top radius
+    expect(await page.evaluate(() => getComputedStyle(document.querySelector('#app > .bar.c4save')).borderTopLeftRadius)).toBe('28px');
     await expect(page.locator('.floor')).toContainText('Dice on the floor');
     await expect(page.locator('[data-act=undo]')).toHaveCount(0);
     const save = page.locator('.bar [data-act=commit]');
@@ -1464,7 +1502,8 @@ test.describe('the real-dice turn, corrections and game over', () => {
     await expect(save).toHaveText('Save · Anna +12');
     await save.click();
     await expect(page.locator('[data-act=rolls]')).toHaveCount(0);       // only the starter chooses the rolls
-    await expect(page.locator('.turnhead .rolls')).toHaveText('Up to 2 rolls');
+    await expect(page.locator('.turnhead .eyebrow')).toHaveText('Round 1 · Up to 2 rolls');
+    await expect(page.locator('.scorechip .sc-p')).toHaveText(['Anna 12', 'Ben 0', 'Cleo 0']);
     // three players fit on a 390×844 phone: without scrolling, Undo is on screen above the bar
     expect(await page.evaluate(() => scrollY)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
@@ -1486,6 +1525,7 @@ test.describe('the real-dice turn, corrections and game over', () => {
   test('every line of the real-dice list is a real 44 px tap target, also with six players', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await startLocal(page, { names: six, mode: 'score' });
+    await openScores(page);                                             // the list opens from the chip, over the mat
     await expect(page.locator('.board')).toHaveClass(/\btall\b/);
     // hit-test each row at its centre and 21 px above and below it: it must be that row that answers
     const bad = await page.evaluate(() => {
@@ -1510,11 +1550,39 @@ test.describe('the real-dice turn, corrections and game over', () => {
     await expect(page.locator('#edit-h')).toHaveText('Maximilian Long');
   });
 
+  test('a correction starts from a line in the chip\'s list and comes back to the turn', async ({ page }) => {
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
+    await enterScore(page, 10, 1);
+    await page.click('#app .scorechip');
+    const line = page.locator('#app > .chiprow .scores-pop .board .pl.editable[data-id="0"]');
+    await expect(line).toHaveAttribute('aria-label', "Correct Anna's scores");
+    await line.click();
+    // corrections stay on paper, with the slim header and the full list
+    await expect(page.locator('#edit-h')).toHaveText('Anna');
+    expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(false);
+    await expect(page.locator('#app .scorechip')).toHaveCount(0);
+    await expect(page.locator('.rnd')).toHaveText('Round 1 · 1 roll max');
+    await expect(page.locator('#app > .board .pl')).toHaveCount(3);
+    await page.fill('#edit-1', '4');
+    await page.click('[data-act=esave]');
+    await expect(page.locator('.keyturn h2.who')).toHaveText('Ben');
+    await expect(page.locator('.scorechip')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.locator('.scorechip .sc-p')).toHaveText(['Anna 4', 'Ben 0', 'Cleo 0']);
+    expect((await saved(page)).game.players[0].score).toBe(4);
+    // a keyboard user: Enter on a line opens it too
+    await openScores(page);
+    await page.locator('.scores-pop .pl[data-id="0"]').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#edit-h')).toHaveText('Anna');
+    await page.click('[data-act=ecancel]');
+    await expect(page.locator('.bar [data-act=commit]')).toBeVisible();
+  });
+
   test('corrections: Save changes and Cancel are pinned to the bottom, also on a short phone', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 667 });
     await startLocal(page, { names: six, mode: 'score' });
     await enterScore(page, 10, 1);
-    await page.click('.board .pl[data-id="0"]');
+    await editLine(page, 0);
     expect(await page.evaluate(() => document.documentElement.classList.contains('felt'))).toBe(false);   // corrections stay on paper
     const save = page.locator('.bar [data-act=esave]'), cancel = page.locator('.bar [data-act=ecancel]');
     await expect(save).toBeDisabled();
@@ -1526,8 +1594,9 @@ test.describe('the real-dice turn, corrections and game over', () => {
     await expect(save).toBeEnabled();
     expect((await save.boundingBox()).height).toBeGreaterThanOrEqual(44);
     await save.click();
-    await expect(page.locator('.board .pl[data-id="0"] .num')).toHaveText('14');
-    await page.click('.board .pl[data-id="0"]');
+    await expect(page.locator('.scorechip .sc-p').first()).toHaveText('Anna 14');   // back on the turn, the list closed
+    await expect(page.locator('.scorechip')).toHaveAttribute('aria-expanded', 'false');
+    await editLine(page, 0);
     await cancel.click();
     await expect(page.locator('.bar [data-act=commit]')).toBeVisible();
   });
@@ -1769,7 +1838,7 @@ test.describe("Who's playing", () => {
     await expect(page.locator('#name-1')).toHaveValue('Ben');
     await expect(page.locator('[data-act=play]')).toContainText('Real dice');
     await page.click('[data-act=start]');
-    await expect(page.locator('.board')).toBeVisible();
+    await expect(page.locator('.scorechip')).toBeVisible();
     await openMenu(page);
     await page.click('[data-act=new]'); await page.click('[data-act=newyes]');
     await expect(page.locator('#name-0')).toHaveValue('Anna');
@@ -1782,7 +1851,7 @@ test.describe("Who's playing", () => {
     s = must(s, { type: 'score', pts: 10, rolls: 1 });
     await page.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(s));
     await page.goto('/');
-    await expect(page.locator('.board')).toBeVisible();
+    await expect(page.locator('.scorechip .sc-p')).toHaveText(['Anna 10', 'Ben 0']);
     await expect(page.locator('.bar [data-act=commit]')).toBeVisible();
     await expect(page.locator('[data-act=play].play')).toHaveCount(0);
   });

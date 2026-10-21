@@ -64,6 +64,7 @@ export async function startLocal(page, { names = ['Anna', 'Ben'], mode = 'dice',
 
 // scoreboard: type a score and (for the starter) the rolls used, then save
 export async function enterScore(page, pts, rolls) {
+  await closeScores(page);                                            // a tap on the mat would only close the open list
   await page.click('[data-act=clear]');
   for (const ch of String(pts)) await page.click(`[data-act=key][data-id="${ch}"]`);
   if (rolls) await page.click(`[data-act=rolls][data-id="${rolls}"]`);
@@ -149,6 +150,20 @@ export async function openScores(page) {
   if ((await chip.getAttribute('aria-expanded')) !== 'true') await chip.click();
   await expect(chip).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('#app .scores-pop .board')).toBeVisible();
+}
+// close the score list opened from the chip (Escape), when it is open
+export async function closeScores(page) {
+  const chip = page.locator('#app .scorechip');
+  if (!(await chip.count()) || (await chip.getAttribute('aria-expanded')) !== 'true') return;
+  await page.keyboard.press('Escape');
+  await expect(chip).toHaveAttribute('aria-expanded', 'false');
+}
+// real dice: open corrections for player i from their line in the score list (on the turn screen the list
+// opens from the chip first; game over shows it on the page)
+export async function editLine(page, i) {
+  if (await page.locator('#app .scorechip').count()) await openScores(page);
+  await page.click(`#app .board .pl[data-act=edit][data-id="${i}"]`);
+  await expect(page.locator('#edit-h')).toBeVisible();
 }
 // the points a stop would book right now, as the bar's Stop or End button shows them
 export const stopPts = page => page.locator('#app > .bar :is([data-act=stop], [data-act=end]) small');

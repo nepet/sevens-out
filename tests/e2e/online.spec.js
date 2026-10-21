@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores } from './helpers.js';
+import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 
@@ -215,7 +215,12 @@ test.describe('real dice, scores here', () => {
     // Ben goes offline: the host gets the keypad and Save for him
     await expect(B.page.locator('#app > .bar [data-act=commit]')).toBeVisible();
     await B.ctx.close();
+    await expect(A.page.locator('#app .scorechip .sc-dot')).toBeVisible();
+    await openScores(A.page);
     await expect(A.page.locator('.pl-away')).toHaveText('Offline');
+    await closeScores(A.page);
+    await expect(A.page.locator('.keyturn h2.who')).toContainText('Ben');
+    await expect(A.page.locator('.mat.keymat .hint')).toHaveText('Ben is offline. As the host you can enter the score for them.');
     await expect(A.page.locator('.pad')).toBeVisible();
     await expect(A.page.locator('#app > .bar .waiting')).toHaveCount(0);
     await A.page.click('[data-act=key][data-id="5"]');
@@ -252,12 +257,19 @@ test.describe('real dice, scores here', () => {
     await A.page.click('[data-act=ostart]');
     await expect(B.page.locator('.waiting')).toContainText('Anna to enter their score');
     await expect(B.page.locator('.pad')).toHaveCount(0);
+    // the watcher: the chip, the eyebrow and Anna's name, the floor row and the hint row on the mat, the note in the bar
+    await expect(B.page.locator('#app > .bar.c4save .waiting')).toBeVisible();
+    await expect(B.page.locator('#app > .bar [data-act]')).toHaveCount(0);
+    await expect(B.page.locator('.keyturn h2.who')).toContainText('Anna');
+    await expect(B.page.locator('.mat.keymat .floor [data-act=drop]')).toBeVisible();
+    await expect(B.page.locator('.mat.keymat .hintrow')).toHaveCount(1);
+    await expect(B.page.locator('#app .scorechip .sc-p')).toHaveText(['Anna 0', 'Ben 0']);
 
     for (const ch of '12') await A.page.click(`[data-act=key][data-id="${ch}"]`);
     await A.page.click('[data-act=rolls][data-id="2"]');
     await A.page.click('[data-act=commit]');
     await expect(B.page.locator('.pad')).toBeVisible();
-    await expect(B.page.locator('.board .pl').first()).toContainText('12');
+    await expect(B.page.locator('#app .scorechip .sc-p').first()).toHaveText('Anna 12');
 
     // anyone at the table can report a dropped die; the third one hits whoever is playing (Ben)
     await A.page.click('[data-act=drop]');
@@ -268,10 +280,10 @@ test.describe('real dice, scores here', () => {
     await A.page.click('.doom-ok'); await B.page.click('.doom-ok');
 
     // corrections from either phone update both
-    await B.page.click('.pl[data-act=edit][data-id="0"]');
+    await editLine(B.page, 0);
     await B.page.fill('#edit-1', '7');
     await B.page.click('[data-act=esave]');
-    await expect(A.page.locator('.board .pl').first().locator('.num')).toHaveText('7');
+    await expect(A.page.locator('#app .scorechip .sc-p').first()).toHaveText('Anna 7');
     await A.ctx.close(); await B.ctx.close();
   });
 });
@@ -291,6 +303,7 @@ test('every phone plays the race, and a phone that reloads during it just shows 
   await expect(A.page.locator('.race-round')).toHaveText('Round 2');
 
   await B.page.reload();                                          // while Anna's phone still plays the race
+  await openScores(B.page);
   await expect(B.page.locator('.board .bhead')).toContainText('Round 2 · Ben starts');
   await expect(B.page.locator('.race')).toHaveCount(0);
   expect(await B.page.evaluate(() => window.SevensDebug.busy)).toBe(false);
@@ -340,7 +353,7 @@ test('a correction open on another phone stays open when the round ends', async 
   await enterScore(B.page, 5, 1);
   await expect(A.page.locator('.pad')).toBeVisible();
   // Ben starts correcting Anna's round 1 while Anna enters the last score of round 2
-  await B.page.click('.pl[data-act=edit][data-id="0"]');
+  await editLine(B.page, 0);
   await B.page.fill('#edit-1', '12');
   await enterScore(A.page, 8);
   await expect(B.page.locator('.race')).toBeVisible();

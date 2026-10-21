@@ -127,13 +127,7 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 .eyebrow{font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;color:var(--brass-text);margin:0}
 .who{font:800 2.5rem/.95 var(--font-display);margin:2px 0 0;overflow-wrap:anywhere;text-wrap:balance}
 .sub{margin:0;color:var(--ink-soft);font-size:.9rem;max-width:46ch}
-.rolls{display:flex;align-items:center;gap:8px;flex:none}
-.rolls small{font-size:.86rem;font-weight:600;font-variant-numeric:tabular-nums}
 
-/* tray */
-.tray{position:relative;border-radius:20px;padding:16px 18px 20px;background:radial-gradient(120% 90% at 50% 15%,var(--leather),var(--leather-deep));box-shadow:inset 0 3px 14px var(--shade);color:var(--on-leather)}
-.tray::before{content:"";position:absolute;inset:7px;border:1.5px dashed var(--stitch);border-radius:14px;opacity:.5;pointer-events:none}
-.tray-top{position:relative;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
 .tlabel{font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;font-weight:700;opacity:.85}
 .dice{position:relative;display:grid;grid-template-columns:repeat(3,var(--die));justify-content:center;gap:14px 18px;padding-block:14px 4px}
 
@@ -163,7 +157,7 @@ button.die:active{transform:translateY(2px)}
 button.pair{border:1.5px solid var(--brass);min-height:44px}
 .empty{margin:0;font-size:.86rem;color:var(--ink-soft)}
 
-/* the dice turn on the leather (viewPlay(), html.felt): the page takes the table's colours, and inside #app the tokens
+/* the turn screens on the leather (viewPlay(), viewScore(), html.felt): the page takes the table's colours, and inside #app the tokens
    are remapped to ink on leather, so everything drawn with them (the list, buttons, chips) follows in every look */
 html.felt,html.felt body{background:var(--leather)}
 html:root[data-look="vegas"].felt,html:root[data-look="vegas"].felt body{background-color:var(--leather-deep)}
@@ -174,48 +168,38 @@ html.felt .race-badge{background:var(--leather-deep)}
   html.felt :is(#app,.race-card){--ink-soft:var(--on-leather);--line:var(--leather);--card:var(--leather-deep)}
 }
 html.felt #app{gap:10px}
-/* the table takes the room the screen has left: it grows on a tall phone and shrinks first on a short one
-   (the dice follow the screen's height too) */
-.felt-turn{flex:1 0 auto;gap:8px;--die:clamp(2.75rem,min(17vw,7.8vh),4.5rem)}
-.felt-turn .turnhead{flex-wrap:nowrap;align-items:flex-end}
-.felt-turn .who{font-size:2.3rem;min-width:0}
-html:root[data-look="vegas"] .felt-turn .who{font-size:1.7rem}
+/* a turn screen takes the room the screen has left, so its mat fills the free height */
+.felt-turn{flex:1 0 auto}
 .felt-turn .hint{text-align:center}
-.tray.table{flex:1 0 auto;display:flex;flex-direction:column;justify-content:space-between;padding:12px 14px 10px}
-.table .tray-top{justify-content:flex-end}
-.table .btn{border-color:currentColor;color:inherit}
-.table .empty{color:inherit;opacity:.7}
-/* the real-dice turn (viewScore()): the entry and the keypad sit on the table, the rolls used and the floor row under it */
-.felt-turn .tray.table .tray-top{justify-content:space-between}
-.felt-turn .entry-top{align-items:center}
+/* the real-dice turn (viewScore()): the mat holds the entry row, the keypad, the starter's rolls used, the dice on
+   the floor and the hint row with Undo, centred in the free height; on a short phone the page scrolls under the bar */
+.keyturn{gap:0}
+.mat.keymat{display:flex;flex-direction:column;justify-content:center;gap:8px;margin-inline:0;min-height:0;padding-block:10px 12px}
+.mat.keymat.watch{justify-content:flex-end}
+.entry-top{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .entry-top .tlabels{display:flex;flex-direction:column;gap:4px;min-width:0}
-/* the entry sits in the table's top row, like the dice turn's total, so the keypad fits with three players on 390×844 */
-.felt-turn .entry-top .entry{flex:none;min-width:3ch;font-size:3rem;padding:0;text-align:right}
-html:root[data-look="vegas"] .felt-turn .entry-top .entry{font-size:2.5rem}
-.felt-turn .pad{gap:6px}
-.felt-turn .key{min-height:46px}
+/* the entry sits in the mat's top row, so the keypad fits with three players on 390×844 */
+.entry-top .entry{flex:none;min-width:3ch;font-size:3rem;padding:0;text-align:right}
+html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
+.keymat .pad{gap:6px}
+.keymat .key{min-height:46px}
 .rollpick{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .rollpick .seg{flex:0 1 13rem;min-width:9rem}
 .rollpick .segbtn{min-height:44px}
-.hintrow{display:flex;align-items:center;justify-content:space-between;gap:4px 12px;min-height:1.45em}
-.hintrow .hint{flex:1 1 auto;text-align:left;min-width:0}
+/* the hint row keeps its room even when empty, so the keypad above it never moves when a hint or Undo shows up */
+.hintrow{display:flex;align-items:center;justify-content:center;gap:4px 12px;min-height:44px}
+.hintrow .hint{flex:0 1 auto;min-width:0}
+.hintrow:has(.link) .hint{flex:1 1 auto;text-align:left}
 .hintrow .link{flex:none;min-height:44px;padding-block:0}
-.hintrow.end{justify-content:center}
-/* nothing to say and nothing to undo: the row takes no room, so three players fit on a 390×844 phone */
-.hintrow:not(:has(.link)):has(.hint:empty){display:none}
-.bar .btn.save{min-height:54px}
-.keyturn{gap:6px}
-.keyturn .tray.table{flex:0 0 auto}
+.bar.c4save .btn.save{min-height:56px;border-radius:18px}
 .bar .row>.cancel{flex:2 1 0;min-width:0}
-/* a short phone (375×667): tighter spacing, so the table and the hint stay above the bar where they can */
+/* a short phone (375×667): tighter spacing, so the keypad and Save stay on screen where they can */
 @media (max-height:700px){
   html.felt #app{padding-top:8px;gap:8px}
-  .felt-turn{gap:6px;--die:clamp(2.75rem,min(17vw,6.6vh),4.5rem)}
-  .felt-turn .who{font-size:1.9rem}
-  .tray.table{padding:8px 12px}
-  .felt-turn .entry-top .entry{font-size:2.6rem}
-  html:root[data-look="vegas"] .felt-turn .entry-top .entry{font-size:2.2rem}
-  .felt-turn .key{min-height:44px}
+  .mat.keymat{gap:6px;padding-block:6px 8px}
+  .entry-top .entry{font-size:2.6rem}
+  html:root[data-look="vegas"] .entry-top .entry{font-size:2.2rem}
+  .keymat .key{min-height:44px}
   .bar .btn.two,.bar .waiting{min-height:52px}
 }
 
@@ -273,7 +257,9 @@ html:root[data-look="vegas"] .felt-turn .turnhead.c4 .who{font-size:2rem}
 .mat-foot>*{pointer-events:auto}
 .mat .hint{text-align:center;font-size:15px}
 .mat .btn.small{min-height:44px;border-color:currentColor;color:inherit}
-.bar.c4bar{display:grid;grid-template-columns:minmax(0,1fr) 104px minmax(0,1fr);align-items:center;gap:12px;padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));border-top:0;border-radius:28px 28px 0 0;background:var(--leather-deep)}
+/* the C4 footer: leather-deep, 28 px top radius; the dice turn's three cells, or real dice's Save */
+.bar:is(.c4bar,.c4save){padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));border-top:0;border-radius:28px 28px 0 0;background:var(--leather-deep)}
+.bar.c4bar{display:grid;grid-template-columns:minmax(0,1fr) 104px minmax(0,1fr);align-items:center;gap:12px}
 .bar.c4bar.wait .waiting{grid-column:1 / span 2;min-height:64px}
 .c4left{min-width:0}
 .barnote{margin:0;text-align:center;font-size:14px;font-weight:600;line-height:1.25;opacity:.85}
@@ -775,8 +761,6 @@ html:root[data-look="vegas"] .race-round{font-size:clamp(2.2rem,11.5vw,3.2rem);l
   html:root[data-look="vegas"] .race-round{text-shadow:0 0 8px var(--brass)}
 }
 /* reel window */
-html:root[data-look="vegas"] .tray{color:var(--reel-ink);background:linear-gradient(180deg,var(--reel-edge) 0%,var(--reel-mid) 18%,var(--reel) 50%,var(--reel-mid) 82%,var(--reel-edge) 100%);box-shadow:inset 0 0 0 4px var(--chrome),inset 0 0 0 7px var(--brass),inset 0 10px 14px rgba(0,0,0,.3),inset 0 -10px 14px rgba(0,0,0,.3),0 0 30px rgba(255,197,49,.22)}
-html:root[data-look="vegas"] .tray::before{inset:0;border:0;border-radius:20px;opacity:1;background:linear-gradient(90deg,rgba(0,0,0,.2),transparent 9%,transparent 91%,rgba(0,0,0,.2))}
 html:root[data-look="vegas"] .entry{color:var(--led);text-shadow:0 0 8px rgba(255,42,61,.35)}
 html:root[data-look="vegas"] .entry{font-size:4rem}
 html:root[data-look="vegas"] .die.gone{border-color:var(--reel-edge)}
@@ -1298,7 +1282,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function celebrate(name){
     fx.banner('Sevens out!', `${name} cleared all six dice`);
     playSound();
-    if (!reduceMotion) fx.burst(document.querySelector('#app .mat, #app .tray')); // from the dice mat (the real-dice table elsewhere)
+    if (!reduceMotion) fx.burst(document.querySelector('#app .mat')); // from the mat of either turn screen
   }
 
   // ---------- a missed 7: every phone at the table gets to laugh ----------
@@ -2035,11 +2019,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   const waiting = (who, what) => `<p class="waiting"><span class="pulse" aria-hidden="true"></span>Waiting for ${esc(who)} to ${what}.</p>`;
 
-  // the real-dice turn: slim header, score list, the player's line, the leather table with the entry and the keypad,
-  // the starter's rolls used, the dice on the floor, and "Save · Name +N" pinned to the bottom
+  // the real-dice turn in the C4 frame: the chip header (a line of its list opens corrections), the eyebrow and the
+  // big name, the mat with the entry and the keypad, the starter's rolls used, the dice on the floor and the hint row
+  // with Undo, and "Save · Name +N" in the C4 bar. A phone that may not enter gets the floor row, the hint and the
+  // waiting note, no keypad
   function viewScore(){
     const g = state.game, p = current(g), isStarter = g.pos === 0, act = canAct();
-    const sub = isStarter ? `Starts the round · up to ${plural(MAX_ROLLS, 'roll')}` : `Up to ${plural(g.mark, 'roll')}`;
+    const eyebrow = `Round ${g.round} · ${isStarter ? `Starts the round · up to ${plural(MAX_ROLLS, 'roll')}` : `Up to ${plural(g.mark, 'roll')}`}`;
     const val = ui.entry === '' ? null : +ui.entry;
     const keys = [1,2,3,4,5,6,7,8,9].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
       + `<button class="key fn" data-act="clear">Clear</button><button class="key" data-act="key" data-id="0">0</button><button class="key fn" data-act="back" aria-label="Delete last digit">⌫</button>`;
@@ -2054,24 +2040,23 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the score for them.`;
     const foot = `<div class="hintrow"><p class="hint" aria-live="polite">${esc(hint)}</p>${undoLink(g)}</div>`;
     const entry = act ? `
-        <div class="tray table">
-          <div class="tray-top entry-top"><span class="tlabels"><span class="tlabel">Pips left on the table</span><span class="tlabel">0–36</span></span>
+          <div class="entry-top"><span class="tlabels"><span class="tlabel">Pips left on the table</span><span class="tlabel">0–36</span></span>
             <div class="entry" aria-live="polite">${val === null ? '<span class="ph">–</span>' : val}</div></div>
           <div class="pad">${keys}</div>
-        </div>
-        ${rollPick}
-        ${floorRow(g)}
-        ${foot}`
-      : `${floorRow(g)}${foot}`;
+          ${rollPick}`
+      : '';
     const actions = act ? `<button class="btn primary save" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>` : waiting(pname(p), 'enter their score');
-    return header(g) + board(g, p) + `
+    return chipHeader(g, p) + `
       <section class="turn felt-turn keyturn" aria-label="${esc(pname(p))}'s turn">
-        <div class="turnhead"><h2 class="who">${nameOf(p)}</h2><p class="rolls"><small>${sub}</small></p></div>
-        ${entry}
-      </section>` + bar(actions, { leather:true });
+        ${turnHead(g, p, eyebrow)}
+        <div class="mat keymat${act ? '' : ' watch'}">${entry}
+          ${floorRow(g)}
+          ${foot}
+        </div>
+      </section>` + `<div class="bar leather c4save">${actions}</div>`;
   }
 
-  // the C4 header of the dice turn: the menu button and the score chip (every name and total in one line; a tap opens
+  // the C4 header of the turn screens (dice and real dice): the menu button and the score chip (every name and total in one line; a tap opens
   // the full score list under it, over the mat), and online the room's state while it isn't connected
   function chipHeader(g, cur){
     const short = g.players.length >= 4 ? ' short' : ''; // fitChip() shortens them too when the full names don't fit
@@ -2187,7 +2172,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         <h1 class="verdict"><span>${esc(pname(L))}</span> loses</h1>
         <p class="sub">${esc(why)}</p>
         ${winner}
-      </section>` + board(g, -1) + shotsSummary(g) + (undo ? `<div class="hintrow end">${undo}</div>` : '') + bar(again);
+      </section>` + board(g, -1) + shotsSummary(g) + (undo ? `<div class="hintrow">${undo}</div>` : '') + bar(again);
   }
 
   // the signed-in player's line: "You", or "This is me" on the other lines (it swaps in the player name)
