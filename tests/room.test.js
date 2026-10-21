@@ -57,13 +57,34 @@ test('joining a room that does not exist, or creating one that does, is refused'
   assert.equal(last(d, 'error').code, 'room_taken');
 });
 
-test('duplicate names get a number, and a room holds six', async () => {
-  const { room, connect } = await lobbyOf2();
+test('duplicate names get a number, and a room holds twelve', async () => {
+  const { room, connect, a } = await lobbyOf2();
   const names = [];
-  for (let i = 0; i < 5; i++) { const c = connect(); await send(room, c, { t: 'hello', name: 'Ben' }); names.push(c); }
-  const seats = last(names[3], 'room').room.seats.map(s => s.name);
-  assert.deepEqual(seats, ['Anna', 'Ben', 'Ben 2', 'Ben 3', 'Ben 4', 'Ben 5']);
-  assert.equal(last(names[4], 'error').code, 'room_full');
+  for (let i = 0; i < 11; i++) { const c = connect(); await send(room, c, { t: 'hello', name: 'Ben' }); names.push(c); }
+  const seats = last(names[9], 'room').room.seats.map(s => s.name);
+  assert.deepEqual(seats, ['Anna', 'Ben', ...Array.from({ length: 10 }, (_, i) => `Ben ${i + 2}`)]);
+  assert.equal(last(names[10], 'error').code, 'room_full');
+  assert.ok(!names[10].open, 'the 13th is sent away');
+  // the last seat can be chosen to start, and twelve can play
+  await send(room, a, { t: 'lobby', op: 'settings', starter: 11 });
+  await send(room, a, { t: 'lobby', op: 'start' });
+  const msg = last(names[9], 'room');
+  assert.equal(msg.room.phase, 'game');
+  assert.equal(msg.state.game.players.length, 12);
+  assert.equal(msg.state.game.starter, 11);
+  assert.equal(msg.state.game.seats[11], last(names[9], 'welcome').seat);
+});
+
+test('a random starter can be any of twelve seats', async () => {
+  const seen = new Set();
+  for (let k = 0; k < 120 && seen.size < 12; k++) {
+    const { room, connect, a } = await lobbyOf2();
+    for (let i = 0; i < 10; i++) await send(room, connect(), { t: 'hello', name: `P${i}` });
+    await send(room, a, { t: 'lobby', op: 'settings', starter: 'random' });
+    await send(room, a, { t: 'lobby', op: 'start' });
+    seen.add(last(a, 'room').state.game.starter);
+  }
+  assert.equal(seen.size, 12);
 });
 
 test('only the host starts, and the server rolls the dice for the player whose turn it is', async () => {

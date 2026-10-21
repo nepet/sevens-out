@@ -17,7 +17,7 @@
 import { summarize } from './stats.js';
 
 export const CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
-export const MAX_SEATS = 6;
+export const MAX_SEATS = 12;
 export const MAX_MESSAGE = 4096;
 export const ROOM_TTL_MS = 14 * 24 * 60 * 60 * 1000; // rooms are deleted after two weeks without activity
 
@@ -234,7 +234,7 @@ export class Room {
         if (d.seats.length < 2) return this.error(conn, 'players', 'You need at least 2 players.');
         const n = d.seats.length;
         let starter = d.settings.starter;
-        if (starter === 'random') { const b = new Uint8Array(1); crypto.getRandomValues(b); starter = b[0] % n; }
+        if (starter === 'random') { const b = new Uint8Array(1); do crypto.getRandomValues(b); while (b[0] >= 256 - (256 % n)); starter = b[0] % n; } // no modulo bias
         if (!(starter >= 0 && starter < n)) starter = 0;
         const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, mode: d.settings.mode, pairing: d.settings.pairing });
         if (r.error) return this.error(conn, r.error, 'Could not start.');

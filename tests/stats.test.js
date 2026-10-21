@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../engine.js';
-import { summarize, sheetOf, nameKey, GAME_ID_RE, checkReport } from '../server/core/stats.js';
+import { summarize, sheetOf, nameKey, GAME_ID_RE, checkReport, MAX_REPORT_BYTES } from '../server/core/stats.js';
 import { diceGame, scoreGame, must } from './games.js';
 
 const E = globalThis.SevensEngine;
@@ -99,6 +99,28 @@ test('every real game is accepted, and the server works out the same result', ()
                        summarize(s, { id: ID, source: 'phone', status: 'over' }).turns);
     }
   }
+});
+
+test('a game of 12 players is accepted, 13 is refused', () => {
+  for (const s of [diceGame(5, 12), scoreGame(5, 12), diceGame(8, 12)]) {
+    const r = checkReport(reportOf(s), E, NOW);
+    assert.ok(r.ok, `${s.game.mode}: ${r.error}`);
+    assert.equal(r.state.game.players.length, 12);
+    assert.equal(r.state.game.loser, s.game.loser);
+    const rep = reportOf(s);
+    rep.sheet.players.push('P13');
+    assert.equal(checkReport(rep, E, NOW).error, 'players');
+  }
+});
+
+test('a long, low-scoring game of 12 fits in one report', () => {
+  // 3 points a turn, everyone: 34 rounds of 12 turns
+  let s = must(E.blank(), { type: 'start', names: Array.from({ length: 12 }, (_, i) => `Player number ${i + 1}`), starter: 0, mode: 'score' });
+  while (s.phase !== 'over') s = must(s, { type: 'score', pts: 3, rolls: s.game.pos === 0 ? 3 : undefined });
+  assert.ok(s.game.rounds.length >= 34);
+  const rep = { ...reportOf(s), owner: 11 };
+  assert.ok(JSON.stringify(rep).length < MAX_REPORT_BYTES, `${JSON.stringify(rep).length} bytes`);
+  assert.ok(checkReport(rep, E, NOW).ok);
 });
 
 test('a dice game ended early in the middle of a round is accepted', () => {

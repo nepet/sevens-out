@@ -12,7 +12,7 @@
 (function (root) {
   'use strict';
 
-  const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = 6, MAX_PIPS = 36, HISTORY = 40;
+  const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = 12, MAX_PIPS = 36, HISTORY = 40;
 
   const clone = o => JSON.parse(JSON.stringify(o));
   const orderFrom = (s, n) => Array.from({ length: n }, (_, k) => (s + k) % n);

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="description" content="Sevens Out: a dice game for 2 to 6 players. Set aside pairs that make 7; once someone reaches 101, the highest score loses.">
+<meta name="description" content="Sevens Out: a dice game for 2 to 12 players. Set aside pairs that make 7; once someone reaches 101, the highest score loses.">
 <!-- Online play: the room server. Empty = online play hidden; "same-origin" = this host; or wss://… -->
 <meta name="sevens-out-server" content="wss://sevens-out.pet-v-ne.workers.dev">
 <meta name="theme-color" content="#ECEEF1" media="(prefers-color-scheme: light)">
@@ -76,9 +76,14 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 /* score list: one line per player in this round's playing order (sorted by total at game over);
    the race between rounds (.race-card) draws the same lines */
 :is(.board,.race-card){--rowh:36px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:5px 8px 6px;display:flex;flex-direction:column;gap:2px}
-/* 5 or 6 players: denser rows, so the whole list stays on screen */
+/* 5 or 6 players: denser rows, so the whole list stays on screen (7 to 12: .denser below) */
 :is(.board,.race-card).dense{--rowh:30px}
-/* lines you can tap (real dice, seated): a real 44 px row, also with 5 or 6 players */
+/* 7 to 12 players: 26 px rows, so twelve lines fit over the mat */
+:is(.board,.race-card).denser{--rowh:26px;gap:1px}
+:is(.board,.race-card).denser .lines{gap:1px}
+:is(.board,.race-card).denser .nm{font-size:.85rem}
+:is(.board,.race-card).denser .num{font-size:1.05rem}
+/* lines you can tap (real dice, seated): a real 44 px row, whatever the number of players */
 :is(.board,.race-card).tall{--rowh:44px}
 .bhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;min-height:18px;font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;font-weight:700;color:var(--ink-soft)}
 .bhead>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -217,14 +222,20 @@ html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
 .scorechip.tiny .sc-p b{font-size:14px}
 .scorechip.tiny .sc-chev{display:none}
 .scorechip.mini .sc-mid,.scorechip.mini .sc-rest{display:none}
+/* from 7 players: the current player, the leader and "+N more"; a long name ends in "…" */
+.scorechip.crowd .sc-p{flex:0 1 auto;min-width:0;display:flex;align-items:baseline;gap:.3em}
+.sc-n{min-width:1.5em;max-width:9em;overflow:hidden;text-overflow:ellipsis}
+.sc-p b{flex:none}
+.sc-more{flex:none;font-weight:500;opacity:.8}
 .scorechip[aria-expanded="true"] .sc-chev{transform:rotate(180deg)}
 .sc-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .sc-dot.warn{background:var(--danger)}
 html:root[data-look="vegas"] .sc-p b{font-size:14px}
 html:root[data-look="vegas"] .scorechip.tight .sc-p b{font-size:12px}
 html:root[data-look="vegas"] .scorechip.tiny .sc-p b{font-size:10px}
-.scores-pop{position:absolute;z-index:15;top:calc(100% + 8px);left:0;right:0}
-html.felt .scores-pop .board{background:var(--leather-deep);box-shadow:0 14px 30px var(--shade)}
+.scores-pop{position:absolute;z-index:15;top:calc(100% + 8px);left:0;right:0;overflow-y:auto;overscroll-behavior:contain;border-radius:14px}
+html.felt .scores-pop{box-shadow:0 14px 30px var(--shade)}
+html.felt .scores-pop .board{background:var(--leather-deep)}
 html.felt .race-card.solid{background:var(--leather-deep)}
 .roomrow{display:flex;justify-content:flex-end;margin-top:-4px}
 .turnhead.c4{display:flex;flex-direction:column;align-items:center;gap:0;padding-top:10px;text-align:center}
@@ -579,6 +590,11 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .race-card.grow .nm{font-size:1.05rem}
 .race-card.grow .trk{height:12px}
 .race-card.grow .num{font-size:1.65rem}
+.race-card.grow.denser .num{font-size:1.4rem}
+/* from 7 players the grown lines share the screen, tappable (44 px) ones too: every line stays on screen */
+.race-card.grow.crowd{--rowh:var(--row)}
+@media (max-width:359px){.race-card.grow .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 2.6rem 2.6rem}}
+.race-card.grow.denser .nm{font-size:.95rem}
 .race-card.grow .dl{font-size:1.15rem}
 .race-card.grow .bfoot{opacity:0}
 .race-badge{position:absolute;left:12px;right:12px;bottom:12px;width:fit-content;max-width:calc(100% - 24px);margin:0 auto;display:flex;flex-wrap:wrap;justify-content:center;align-items:baseline;gap:2px 8px;padding:7px 14px;border:1.5px solid var(--brass);border-radius:18px;background:var(--card);font-size:.88rem;font-weight:600;line-height:1.25;text-align:center;overflow-wrap:anywhere;opacity:0;scale:.6;transition:opacity .2s,scale .45s cubic-bezier(.2,1.6,.4,1)}
@@ -778,7 +794,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 <script src="engine.js"></script>
 <script>
 (() => {
-  const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = 6, KEY = 'sevens-out-v1';
+  const MAX_ROLLS = 3, LIMIT = 101, DICE = 6, MAX_PLAYERS = 12, KEY = 'sevens-out-v1';
+  const CHIP_ALL = 6; // up to this many players the score chip shows every name and total; more: the current player, the leader and "+N more" 
   const LAYOUT = {1:[4],2:[2,6],3:[2,4,6],4:[0,2,6,8],5:[0,2,4,6,8],6:[0,2,3,5,6,8]};
   const reduceMotion = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
   const $app = document.getElementById('app');
@@ -1716,7 +1733,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       // back to home (over a saved one-phone game too), with the code still in the code row
       ui.screen = 'home'; ui.joinCode = m.code === 'kicked' ? '' : code; ui.online = {};
       ui.hint = m.code === 'no_room' ? `There's no room with the code ${code}. Check the code and try again.`
-        : m.code === 'room_full' ? `Room ${code} is full. A room holds up to 6 players.`
+        : m.code === 'room_full' ? `Room ${code} is full. A room holds up to 12 players.`
         : 'The host removed you from the room.';
       return;
     }
@@ -1912,8 +1929,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return `<span class="chip">Room <b>${esc(net.code)}</b>${st}</span>`;
   }
 
-  // the list's row size: real 44 px rows when the lines are tappable (real dice), 30 px with 5–6 players
-  const listClass = g => isScore(g) && seated() ? 'tall' : g.players.length >= 5 ? 'dense' : '';
+  // the list's row size: real 44 px rows when the lines are tappable (real dice), 30 px with 5–6 players, 26 px from 7
+  const listClass = g => isScore(g) && seated() ? 'tall' : g.players.length > 6 ? 'denser' : g.players.length >= 5 ? 'dense' : '';
   // the score list: one line per player. During play (and corrections) the lines follow this round's
   // playing order with `cur` highlighted; at game over they are sorted by total, highest first.
   function board(g, cur){
@@ -2055,12 +2072,18 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the C4 header of the turn screens (dice and real dice): the menu button and the score chip (every name and total in one line; a tap opens
   // the full score list under it, over the mat), and online the room's state while it isn't connected
   function chipHeader(g, cur){
-    const short = g.players.length >= 4 ? ' short' : ''; // fitChip() shortens them too when the full names don't fit
-    const parts = g.order.map(i => {
+    const crowd = g.players.length > CHIP_ALL;
+    const short = crowd ? ' crowd' : g.players.length >= 4 ? ' short' : ''; // fitChip() shortens them too when the full names don't fit
+    // from 7 players: the current player, the leader (when that is someone else) and "+N more"; the names may end in "…"
+    const lead = crowd ? g.order.find(i => g.players[i].score === Math.max(...g.players.map(p => p.score))) : null;
+    const some = crowd ? (g.players[cur].score === g.players[lead].score ? [cur] : [cur, lead]) : null;
+    const parts = crowd ? some.map(i => `<span class="sc-p${i === cur ? ' now' : ''}"><span class="sc-n">${esc(g.players[i].name)}</span> <b>${g.players[i].score}</b></span>`).join('')
+        + `<span class="sc-more">+${g.players.length - some.length} more</span>`
+      : g.order.map(i => {
       // shortened, the rest of the name hides: to 3 letters (.sc-rest), on the narrowest chip to 1 (.sc-mid too)
       const nm = [...g.players[i].name], mid = nm.slice(1, 3).join(''), rest = nm.slice(3).join('');
       return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm[0] || '')}${mid ? `<span class="sc-mid">${esc(mid)}</span>` : ''}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''} <b>${g.players[i].score}</b></span>`;
-    }).join('');
+      }).join('');
     const label = `Scores: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
     const dot = online() ? `<i class="sc-dot${net.status === 'open' ? '' : ' warn'}" aria-hidden="true"></i>` : '';
     const open = !!ui.scoresOpen;
@@ -2078,12 +2101,22 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
   // in two steps (the second drops the chevron), then the names shorten to their first letter (six 3-digit totals on
   // a narrow phone); the aria-label keeps the full names
+  // From 7 players the chip names only two of them, and a name that doesn't fit ends in "…": the chip tightens while one is cut.
   function fitChip(){
+    fitScores();
     const c = $app.querySelector('.scorechip'); if (!c) return;
-    const many = state.game && state.game.players.length >= 4;
-    c.classList.toggle('short', many); c.classList.remove('tight', 'tiny', 'mini');
-    const over = () => c.scrollWidth > c.clientWidth + 0.5;
-    for (const step of ['short', 'tight', 'tiny', 'mini']) if (over()) c.classList.add(step);
+    const n = state.game ? state.game.players.length : 0, crowd = n > CHIP_ALL;
+    c.classList.toggle('short', n >= 4 && !crowd); c.classList.remove('tight', 'tiny', 'mini');
+    const over = crowd ? () => c.scrollWidth > c.clientWidth + 0.5 || [...c.querySelectorAll('.sc-n')].some(el => el.scrollWidth > el.clientWidth + 0.5)
+      : () => c.scrollWidth > c.clientWidth + 0.5;
+    for (const step of crowd ? ['tight', 'tiny'] : ['short', 'tight', 'tiny', 'mini']) if (over()) c.classList.add(step);
+  }
+  // the score list over the mat ends where the mat (or the pinned bar) does, and scrolls inside itself when it is longer
+  function fitScores(){
+    const pop = $app.querySelector('.scores-pop'); if (!pop) return;
+    const mat = $app.querySelector('.mat'), bar = $app.querySelector(':scope > .bar'), top = pop.getBoundingClientRect().top;
+    const end = Math.min(mat ? mat.getBoundingClientRect().bottom : innerHeight, bar ? bar.getBoundingClientRect().top : innerHeight, innerHeight);
+    pop.style.maxHeight = `${Math.max(160, Math.floor(end - top - 8))}px`;
   }
   addEventListener('resize', fitChip);
   // Escape or a tap on the mat closes the score list; the focus goes back to the chip
@@ -2749,6 +2782,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the race grows out of the score list, so a list scrolled away (real-dice players scroll down to Save)
   // comes back into view first; resolves when the scroll has ended
   function listInView(){
+    const pop = $app.querySelector('.scores-pop'); if (pop) pop.scrollTop = 0; // the race starts from the list's first line
     const list = $app.querySelector('.board, .scorechip'); if (!list) return;
     const r = list.getBoundingClientRect(), { minTop, maxBottom } = edges();
     if (r.top >= minTop && r.bottom <= maxBottom) return;
@@ -2793,7 +2827,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         // a centred card only when there is neither (the developer menu on setup)
         const list = $app.querySelector('.board'), chip = !list && $app.querySelector('.scorechip');
         const from = list ? list.getBoundingClientRect() : chip ? chip.getBoundingClientRect() : null;
-        const cls = list ? ['dense', 'tall'].filter(c => list.classList.contains(c)).join(' ') : chip ? listClass(g) : '';
+        const cls = list ? ['dense', 'denser', 'tall'].filter(c => list.classList.contains(c)).join(' ') : chip ? listClass(g) : '';
         const box = $app.getBoundingClientRect(), { minTop, maxBottom } = edges();
         const best = recap.best && BADGE[recap.best.kind] ? BADGE[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
         const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = WHY[recap.reason.kind](recap.reason.score);
@@ -2803,7 +2837,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         el.className = 'race';
         // from the chip or the list over the mat, the card is solid like that list (it passes over the menu button and the dice)
         const solid = chip || list && list.closest('.scores-pop');
-        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
+        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${recap.order.length > CHIP_ALL ? ' crowd' : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
             <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
             <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
             ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
@@ -2818,7 +2852,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         // from the chip, only the chip's own box shows at first; growing opens the card down and out to the list's width
         if (chip) card.style.clipPath = `inset(0 0 calc(100% - ${from.height}px) 0 round ${from.height / 2}px)`;
         // grown, the lines share the screen's height less about 120 px for the heading and the badge: 34 to 54 px each
-        card.style.setProperty('--row', `${Math.max(34, Math.min(54, Math.floor((maxBottom - minTop - 120) / lines.length) - 3))}px`);
+        // (from 7 players down to 26 px, so twelve lines still fit a small phone)
+        card.style.setProperty('--row', `${Math.max(lines.length > 6 ? 26 : 34, Math.min(54, Math.floor((maxBottom - minTop - 120) / lines.length) - 3))}px`);
         document.body.appendChild(el);
         if (badge) card.style.setProperty('--room', `${badge.offsetHeight + 26}px`);
         // measure the grown card on a copy, so it can grow in place and still fit on the screen
@@ -3185,8 +3220,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       if (online()) return;
       state = blank(); resetUi(); ui.screen = null; html = viewHome();
     }
+    const popAt = ($app.querySelector('.scores-pop') || {}).scrollTop || 0; // an open score list keeps its scroll over a redraw
     $app.innerHTML = html;
     fitChip();
+    if (popAt){ const pop = $app.querySelector('.scores-pop'); if (pop) pop.scrollTop = popAt; }
     placeDice();
     if (!$app.querySelector('.scorechip')) ui.scoresOpen = false; // the score list belongs to the turn screens
     $app.classList.toggle('has-bar', !!$app.querySelector(':scope > :is(.bar,.felt-home)'));

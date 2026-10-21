@@ -12,7 +12,7 @@
  */
 
 export const GAME_ID_RE = /^[0-9a-f]{16}$/;
-export const MAX_REPORT_BYTES = 16 * 1024;
+export const MAX_REPORT_BYTES = 32 * 1024; // room for a long, low-scoring game of 12
 
 export const nameKey = name => String(name).replace(/\s+/g, ' ').trim().toLowerCase();
 

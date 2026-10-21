@@ -238,7 +238,7 @@ test('report: preflight, wrong origin, wrong method, size, bad input', async () 
   assert.match(pre.headers.get('access-control-allow-methods'), /POST/);
   assert.equal((await worker.fetch(post(reportBody(diceGame(3)), { Origin: 'https://evil.example' }), env)).status, 403);
   assert.equal((await worker.fetch(new Request('https://x/report', { headers: { Origin: ORIGIN } }), env)).status, 405);
-  assert.equal((await worker.fetch(post('x'.repeat(17 * 1024)), env)).status, 413);
+  assert.equal((await worker.fetch(post('x'.repeat(33 * 1024)), env)).status, 413);
   assert.equal((await worker.fetch(post('not json'), env)).status, 400);
   const refused = await worker.fetch(post(JSON.stringify({ id: 'nope' })), env);
   assert.equal(refused.status, 400);

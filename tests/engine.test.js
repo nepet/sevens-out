@@ -49,7 +49,7 @@ function checkSheet(g) {
 
 test('random dice games follow every rule, with the 7s found by hand or by the app', () => {
   for (let seed = 1; seed <= 60; seed++) {
-    const rng = seeded(seed), n = 2 + (seed % 5), pairing = seed % 2 ? 'manual' : 'auto';
+    const rng = seeded(seed), n = 2 + (seed % 11), pairing = seed % 2 ? 'manual' : 'auto';
     let s = start(n, seed % n, 'dice', pairing);
     let guard = 0;
     while (s.phase !== 'over' && guard++ < 5000) {
@@ -158,6 +158,18 @@ test('a game saved before the 7s could be found by hand keeps setting them aside
   assert.equal(must(r.state, { type: 'stop' }).state.game.players[0].score, 6);
 });
 
+test('a game takes 2 to 12 players', () => {
+  const names = n => Array.from({ length: n }, (_, i) => `P${i + 1}`);
+  assert.equal(E.MAX_PLAYERS, 12);
+  for (const mode of ['dice', 'score']) {
+    assert.equal(E.apply(E.blank(), { type: 'start', names: names(1), starter: 0, mode }).error, 'players');
+    const r = must(E.blank(), { type: 'start', names: names(12), starter: 11, mode });
+    assert.equal(r.state.game.players.length, 12);
+    assert.equal(E.current(r.state.game), 11);
+    assert.equal(E.apply(E.blank(), { type: 'start', names: names(13), starter: 0, mode }).error, 'players');
+  }
+});
+
 test('the input state is never mutated and bad actions are refused', () => {
   const s = start(3), before = JSON.stringify(s);
   E.apply(s, { type: 'roll' });
@@ -172,7 +184,7 @@ const score = (s, pts, rolls) => must(s, { type: 'score', pts, rolls }).state;
 
 test('random scoreboard games follow every rule', () => {
   for (let seed = 1; seed <= 40; seed++) {
-    const rng = seeded(seed * 7), n = 2 + (seed % 5);
+    const rng = seeded(seed * 7), n = 2 + (seed % 11);
     let s = start(n, 0, 'score'), guard = 0;
     while (s.phase !== 'over' && guard++ < 3000) {
       const pts = (rng() - 1) * 5 + (rng() - 1); // 0..30

@@ -2002,3 +2002,140 @@ test("Who's playing: the focus moves to the heading after Next", async ({ page }
   await toPlayers(page);
   await expect(page.locator('#players-h')).toBeFocused();
 });
+
+test.describe('twelve players', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const twelve = ['Anna', 'Ben', 'Cleo', 'Maximilian Long', 'Eve', 'Fay', 'Gus', 'Hildegard Wide', 'Ivy', 'Jo', 'Kai', 'Lou'];
+  const inside = (a, b) => a.x >= b.x - 0.5 && a.y >= b.y - 0.5 && a.x + a.width <= b.x + b.width + 0.5 && a.y + a.height <= b.y + b.height + 0.5;
+  const barAtBottom = async page => {
+    const [box, h] = [await page.locator('#app > .bar').boundingBox(), await page.evaluate(() => innerHeight)];
+    expect(Math.abs(box.y + box.height - h)).toBeLessThanOrEqual(1);
+  };
+  // from 7 players the chip shows the current player, the leader (when that's someone else) and "+N more", on one line
+  const crowdChip = async (page, g) => {
+    const chip = page.locator('#app .scorechip'), cur = g.order[g.pos];
+    const top = Math.max(...g.players.map(p => p.score)), lead = g.order.find(i => g.players[i].score === top);
+    const shown = g.players[cur].score === top ? [cur] : [cur, lead];
+    await expect(chip.locator('.sc-p')).toHaveText(shown.map(i => `${g.players[i].name} ${g.players[i].score}`));
+    await expect(chip.locator('.sc-p.now')).toHaveText(`${g.players[cur].name} ${g.players[cur].score}`);
+    await expect(chip.locator('.sc-more')).toHaveText(`+${12 - shown.length} more`);
+    await expect(chip).toHaveAttribute('aria-label', `Scores: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`);
+    const box = await chip.boundingBox();
+    expect(box.height).toBeCloseTo(44, 0);
+    expect(await chip.evaluate(el => el.scrollWidth <= el.clientWidth + 0.5), 'nothing overflows the chip').toBe(true);
+    for (const sel of ['.sc-p', '.sc-p b', '.sc-more']) {
+      for (const el of await chip.locator(sel).all()) expect(inside(await el.boundingBox(), box), `${sel} inside the chip`).toBe(true);
+    }
+    expect(new Set(await chip.locator(':is(.sc-p, .sc-more)').evaluateAll(ps => ps.map(p => Math.round(p.getBoundingClientRect().top + p.getBoundingClientRect().height / 2)))).size, 'one line').toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  };
+  // the full list opens from the chip; every line can be scrolled into view inside it, above the bar
+  const allLines = async page => {
+    await openScores(page);
+    const pop = page.locator('#app .scores-pop');
+    await expect(pop.locator('.board.denser, .board.tall')).toHaveCount(1);
+    await expect(pop.locator('li.pl')).toHaveCount(12);
+    const bar = await page.locator('#app > .bar').boundingBox();
+    for (const k of [0, 11]) {
+      const li = pop.locator('li.pl').nth(k);
+      await li.scrollIntoViewIfNeeded();
+      const [b, p] = [await li.boundingBox(), await pop.boundingBox()];
+      expect(inside(b, p), `line ${k} inside the list`).toBe(true);
+      expect(b.y + b.height, `line ${k} above the bar`).toBeLessThanOrEqual(bar.y + 0.5);
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  };
+
+  for (const vp of [{ width: 375, height: 667 }, { width: 320, height: 568 }]) {
+    test(`dice in the app at ${vp.width}×${vp.height}: the chip on one line with "+N more", the list, a round and the race`, async ({ page, context }) => {
+      await page.setViewportSize(vp);
+      await fixDice(context, Array(12 * 6).fill(6));                     // six 6s every turn: no 7s, 36 on the table
+      await startLocal(page, { names: twelve });
+      await page.evaluate(() => document.fonts.ready);
+      await crowdChip(page, (await saved(page)).game);
+      await allLines(page);
+      await page.keyboard.press('Escape');
+      await barAtBottom(page);
+      // a round of twelve: Anna sets the limit at one roll, everyone else ends after one roll
+      for (let k = 0; k < 12; k++) {
+        await page.click('.bar [data-act=roll]');
+        await idle(page);
+        if (k === 0) { await page.click('.bar [data-act=stop]'); await page.click('.bar [data-act=stop]'); }
+        else await page.click('.bar [data-act=end]');
+        if (k < 11) {
+          await idle(page);
+          if (k === 0 || k === 10) await crowdChip(page, (await saved(page)).game);  // Ben with Anna leading; Lou level with everyone
+        }
+      }
+      await expect(page.locator('.race .race-card li.pl')).toHaveCount(12);
+      // the grown race card shows all twelve lines on the screen
+      const h = await page.evaluate(() => innerHeight);
+      await expect.poll(async () => { const b = await page.locator('.race .race-card').boundingBox(); return b.y >= 0 && b.y + b.height <= h + 0.5; }).toBe(true);
+      await skipRace(page);
+      const g = (await saved(page)).game;
+      expect(g.round).toBe(2);
+      expect(g.players.every(p => p.score === 36)).toBe(true);
+      await crowdChip(page, g);
+      await barAtBottom(page);
+    });
+  }
+
+  test('real dice with twelve: Save stays pinned, the tappable list scrolls, a correction from the list', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await startLocal(page, { names: twelve, mode: 'score' });
+    await crowdChip(page, (await saved(page)).game);
+    await allLines(page);
+    for (const li of await page.locator('#app .scores-pop li.pl').all()) expect((await li.boundingBox()).height).toBeGreaterThanOrEqual(44 - 0.5);
+    await page.keyboard.press('Escape');
+    for (let k = 0; k < 3; k++) await enterScore(page, 5 + k, k === 0 ? 2 : undefined);
+    await page.evaluate(() => scrollTo(0, 0));
+    const bar = await page.locator('#app > .bar [data-act=commit]').boundingBox();
+    expect(bar.y + bar.height).toBeLessThanOrEqual(667 + 0.5);
+    await barAtBottom(page);
+    // Cleo's line in the list opens corrections
+    await editLine(page, 2);
+    await page.click('[data-act=estep][data-id="1"][data-d="1"]');
+    await page.click('[data-act=esave]');
+    await expect(page.locator('#edit-h')).toHaveCount(0);
+    expect((await saved(page)).game.players[2].score).toBe(8);
+    await barAtBottom(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+
+  test("Who's playing: Add player up to twelve, then no Add button; Start stays pinned", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await page.goto('/');
+    await toPlayers(page);
+    for (let i = 2; i < 12; i++) await page.click('[data-act=add]');
+    await expect(page.locator('.pcard .prow')).toHaveCount(12);
+    await expect(page.locator('[data-act=add]')).toHaveCount(0);
+    await expect(page.locator('#name-11')).toBeVisible();
+    await page.check('#starter-11');
+    await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+    const [box, h] = [await page.locator('#app > .bar [data-act=start]').boundingBox(), await page.evaluate(() => innerHeight)];
+    expect(box.y + box.height).toBeLessThanOrEqual(h + 0.5);
+    expect(await noSideScroll(page)).toBe(true);
+    await page.click('[data-act=start]');
+    const g = (await saved(page)).game;
+    expect(g.players).toHaveLength(12);
+    expect(g.starter).toBe(11);
+  });
+
+  test('game over with twelve: the list sorted by total, Play again pinned', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    const E = globalThis.SevensEngine;
+    let s = must(E.blank(), { type: 'start', names: twelve, starter: 0, mode: 'dice', pairing: 'manual' });
+    while (s.phase !== 'over') { s = must(s, { type: 'roll' }, { rng: () => 3 }); s = must(s, { type: 'stop' }); }
+    await page.addInitScript(x => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', x); } catch (e) {} }, JSON.stringify(s));
+    await page.goto('/');
+    const lines = page.locator('#app .board li.pl');
+    await expect(lines).toHaveCount(12);
+    const totals = (await page.locator('#app .board li.pl .num').allTextContents()).map(Number);
+    expect(totals).toEqual([...totals].sort((a, b) => b - a));
+    await expect(page.locator('#app .board')).toHaveClass(/\bdenser\b/);
+    await expect(page.locator('#app .board li.pl.lost')).toHaveAttribute('data-id', String(s.game.loser));
+    const [box, h] = [await page.locator('#app > .bar [data-act=again]').boundingBox(), await page.evaluate(() => innerHeight)];
+    expect(box.y + box.height).toBeLessThanOrEqual(h + 0.5);
+    expect(await noSideScroll(page)).toBe(true);
+  });
+});

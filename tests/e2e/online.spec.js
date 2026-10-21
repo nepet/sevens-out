@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine } from './helpers.js';
+import { SERVER, url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine } from './helpers.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 
@@ -733,4 +733,59 @@ test('lobby on a small phone: Start stays on screen with six players', async ({ 
   expect(await noSideScroll(A.page)).toBe(true);
   for (const o of others) await o.ctx.close();
   await A.ctx.close();
+});
+
+// eleven guests join over plain WebSockets from one page (same origin as the page, so the Worker's origin check passes),
+// the host's phone shows twelve seats, a 13th phone is told the room is full, and twelve can start
+test('a room holds twelve: the lobby lists them, the 13th phone is turned away, Start · 12 players', async ({ browser }) => {
+  const small = { viewport: { width: 375, height: 667 }, deviceScaleFactor: 2, reducedMotion: 'reduce' };
+  const A = await host(browser, 'Anna', small);
+  const botCtx = await browser.newContext();
+  const bots = await botCtx.newPage();
+  await bots.goto(url('/'));
+  const base = SERVER || (await bots.evaluate(() => location.origin.replace(/^http/, 'ws')));
+  const names = ['Ben', 'Cleo', 'Dev', 'Eli', 'Fay', 'Gus', 'Hildegard Wide', 'Ivy', 'Jo', 'Kai', 'Lou'];
+  await bots.evaluate(async ([base, code, names]) => {
+    window.bots = [];
+    for (const name of names) {
+      await new Promise((ok, fail) => {
+        const ws = new WebSocket(`${base}/room/${code}`);
+        ws.onopen = () => ws.send(JSON.stringify({ t: 'hello', name }));
+        ws.onmessage = e => { const m = JSON.parse(e.data); if (m.t === 'welcome') ok(); if (m.t === 'error') fail(new Error(m.code)); };
+        ws.onerror = () => fail(new Error('socket'));
+        window.bots.push(ws);
+      });
+    }
+  }, [base, A.code, names]);
+  await expect(A.page.locator('.seat')).toHaveCount(12);
+  await expect(A.page.locator('#seats-h')).toHaveText('Players · 12 of 12');
+  await expect(A.page.locator('#app > .bar [data-act=ostart]')).toHaveText('Start · 12 players');
+  await expect(A.page.locator('#app > .bar [data-act=ostart]')).toBeInViewport();
+  expect(await noSideScroll(A.page)).toBe(true);
+  // the last seat can be picked to start
+  await A.page.click('[data-act=ostarter][data-id="11"]');
+  await expect(A.page.locator('[data-act=ostarter][data-id="11"]')).toHaveAttribute('aria-pressed', 'true');
+
+  // a 13th phone: the room is full, and the hint says how many fit
+  const ctx = await browser.newContext(phone);
+  const page = await ctx.newPage();
+  await page.goto(url(`/?join=${A.code}`));
+  await page.fill('.sheet-layer #oname', 'Max');
+  await page.click('.sheet-layer [data-act=ojoin]');
+  await expect(page.locator('#app')).toContainText(`Room ${A.code} is full. A room holds up to 12 players.`);
+  await expect(page.locator('.roomcode')).toHaveCount(0);
+  await expect(A.page.locator('.seat')).toHaveCount(12);
+
+  await A.page.click('[data-act=ostart]');
+  await expect.poll(async () => ((await live(A.page)).game || {}).players?.length).toBe(12);
+  const g = (await live(A.page)).game;
+  expect(g.starter).toBe(11);
+  await expect(A.page.locator('#app .scorechip .sc-more')).toHaveText('+11 more');
+  await expect(A.page.locator('#app .scorechip .sc-p.now')).toHaveText('Lou 0');
+  await expect(A.page.locator('#app > .bar .waiting')).toContainText('Waiting for Lou');
+  await openScores(A.page);
+  await expect(A.page.locator('#app .scores-pop li.pl')).toHaveCount(12);
+  expect(await noSideScroll(A.page)).toBe(true);
+  await bots.evaluate(() => window.bots.forEach(ws => ws.close()));
+  await ctx.close(); await botCtx.close(); await A.ctx.close();
 });
