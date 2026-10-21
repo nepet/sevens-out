@@ -176,21 +176,26 @@ export const stopPts = page => page.locator('#app > .bar :is([data-act=stop], [d
 // ----- a fake room server (online play without the real one) -----
 // page.routeWebSocket answers the page's hello with welcome, the chat log (only when `log` is given: null or left out
 // is an old server that doesn't speak chat) and the room; push(m) sends any message to the page, close() drops the socket
-// (the page reconnects, and the next hello gets the same answers), hellos() counts the hellos. Set it up before goto
-export async function fakeRoom(page, { room, state = null, seat, log }) {
+// (the page reconnects, and the next hello gets the same answers), hellos() counts the hellos, sent() lists the page's
+// other messages ({t:'chat', text}, …), and set(o) changes the answers to the next hellos (o: any of room, state, seat,
+// viewer, log). viewer: a spectator's own id in welcome (seat null). Set it up before goto
+export async function fakeRoom(page, opts) {
+  const o = { state: null, ...opts };
   let sock = null, hellos = 0;
+  const sent = [];
   await page.routeWebSocket(/\/room\//, ws => {
     sock = ws;
     ws.onMessage(raw => {
       let m; try { m = JSON.parse(raw); } catch (e) { return; }
-      if (m.t !== 'hello') return;
+      if (m.t !== 'hello') { sent.push(m); return; }
       hellos++;
-      ws.send(JSON.stringify({ t: 'welcome', seat, token: 't' }));
-      if (log != null) ws.send(JSON.stringify({ t: 'chat', log }));
-      ws.send(JSON.stringify({ t: 'room', rev: 1, room, state, events: [] }));
+      ws.send(JSON.stringify({ t: 'welcome', seat: o.seat, token: 't', ...(o.viewer ? { viewer: o.viewer } : {}) }));
+      if (o.log != null) ws.send(JSON.stringify({ t: 'chat', log: o.log }));
+      ws.send(JSON.stringify({ t: 'room', rev: 1, room: o.room, state: o.state, events: [] }));
     });
   });
-  return { push: m => { if (sock) sock.send(JSON.stringify(m)); }, close: () => { if (sock) sock.close(); }, hellos: () => hellos };
+  return { push: m => { if (sock) sock.send(JSON.stringify(m)); }, close: () => { if (sock) sock.close(); }, hellos: () => hellos,
+    sent: () => sent, set: x => Object.assign(o, x) };
 }
 
 // the chip's content fits inside it on one line (nothing cut off, nothing wrapped)

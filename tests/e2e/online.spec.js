@@ -809,6 +809,15 @@ test('a room holds twelve: the lobby lists them, the 13th phone is turned away, 
   await ctx.close(); await botCtx.close(); await A.ctx.close();
 });
 
+// the hand-made rooms (fakeRoom): Anna is seat s1 on this phone, Ben s2, …
+const E = globalThis.SevensEngine;
+const seatsOf = names => names.map((name, i) => ({ id: `s${i + 1}`, name, connected: true, user: null }));
+const roomOf = (names, phase = 'game') => ({ code: 'ABCDE', phase, host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: seatsOf(names) });
+const msg = (id, text, name = 'Ben', from = 's2') => ({ id, at: Date.now(), from, seat: from, name, user: null, text });
+const play = (s, action) => { const r = E.apply(s, action, { rng: () => 3 }); if (r.error) throw new Error(`${action.type}: ${r.error}`); return r; };
+const begin = (names, mode = 'dice') => play(E.blank(), { type: 'start', names, seats: names.map((_, i) => `s${i + 1}`), starter: 0, mode, pairing: 'manual' }).state;
+const inRoom = page => page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Anna', server: '', seen: 0 })));
+
 // ----- table talk: the chat button in the header, and the chat sheet -----
 test.describe('chat', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -1087,7 +1096,6 @@ test.describe('chat', () => {
 test.describe('chat ticker', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
   const rm = { reducedMotion: 'reduce' };
-  const E = globalThis.SevensEngine;
   const chatBtn = page => page.locator('#app header [data-act=chat]');
   async function openChat(page) {
     await chatBtn(page).click();
@@ -1109,13 +1117,6 @@ test.describe('chat ticker', () => {
   });
   const ticks = page => page.evaluate(() => window.ticks);
   const shown = async page => (await ticks(page)).filter(x => x.text).map(x => x.text);
-  // the hand-made rooms (fakeRoom): Anna is seat s1 on this phone, Ben s2, …
-  const seatsOf = names => names.map((name, i) => ({ id: `s${i + 1}`, name, connected: true, user: null }));
-  const roomOf = (names, phase = 'game') => ({ code: 'ABCDE', phase, host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: seatsOf(names) });
-  const msg = (id, text, name = 'Ben', from = 's2') => ({ id, at: Date.now(), from, seat: from, name, user: null, text });
-  const play = (s, action) => { const r = E.apply(s, action, { rng: () => 3 }); if (r.error) throw new Error(`${action.type}: ${r.error}`); return r; };
-  const begin = names => play(E.blank(), { type: 'start', names, seats: names.map((_, i) => `s${i + 1}`), starter: 0, mode: 'dice', pairing: 'manual' }).state;
-  const inRoom = page => page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Anna', server: '', seen: 0 })));
   async function started(browser) {
     const A = await host(browser, 'Anna', rm);
     const B = await join(browser, A.code, 'Ben', rm);
@@ -1224,6 +1225,85 @@ test.describe('chat ticker', () => {
     expect(tb.y + tb.height <= mat.y || tb.y >= mat.y + mat.h || tb.x + tb.width <= mat.x || tb.x >= mat.x + mat.w).toBe(true);
     expect(await t.evaluate(el => el.scrollHeight <= el.clientHeight + 1 && el.scrollWidth > el.clientWidth)).toBe(true); // one line, cut with an ellipsis
     expect(await noSideScroll(page)).toBe(true);
+  });
+
+  // the ticker lies over the eyebrow, which keeps its own box (one line or two), so nothing under it moves
+  const boxesOf = (page, sels) => page.evaluate(sels => sels.map(sel => {
+    const r = document.querySelector('#app ' + sel).getBoundingClientRect(); return [sel, r.x, r.y, r.width, r.height];
+  }), sels);
+  const lines = el => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+  async function overEyebrow(page) {
+    const eb = page.locator('#app .turnhead .eyebrow'), t = page.locator('#app .turnhead .ticker');
+    await expect(eb).toHaveCount(1);                               // the eyebrow stays for screen readers, only unseen
+    expect(await eb.evaluate(el => getComputedStyle(el).opacity)).toBe('0');
+    const [e, tb, who] = [await eb.boundingBox(), await t.boundingBox(), await page.locator('#app .turnhead .who').boundingBox()];
+    expect(tb.y).toBeGreaterThanOrEqual(e.y - 0.5);
+    expect(tb.y + tb.height).toBeLessThanOrEqual(e.y + e.height + 0.5);
+    expect(tb.y + tb.height, 'clear of the name').toBeLessThanOrEqual(who.y + 0.5);
+    expect(await t.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  }
+
+  test('the ticker never moves the real-dice keypad, with the eyebrow on two lines at 320 px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 667 });
+    const names = ['Anna', 'Ben'];
+    const fake = await fakeRoom(page, { room: { ...roomOf(names), settings: { mode: 'score', pairing: 'manual', starter: 0 } }, state: begin(names, 'score'), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await page.evaluate(() => document.fonts.ready);
+    const eb = page.locator('#app .turnhead .eyebrow');
+    await expect(eb).toHaveText('Round 1 · Starts the round · up to 3 rolls');
+    expect(await eb.evaluate(lines)).toBe(2);
+    const sels = ['.pad', '.entry', '.turnhead .who', '.keymat'];
+    const before = await boxesOf(page, sels);
+    fake.push({ t: 'chat', msg: msg(1, 'So close! '.repeat(14)) });
+    await expect(page.locator('#app .turnhead .ticker')).toBeVisible();
+    expect(await boxesOf(page, sels)).toEqual(before);
+    await overEyebrow(page);
+    await expect(page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
+    expect(await boxesOf(page, sels)).toEqual(before);
+    await expect(eb).toHaveCSS('opacity', '1');
+  });
+
+  // (at 375 px no 16-letter name wraps it with the page's fonts; 320 px does, as the system fallback font does wider)
+  test('the ticker over a two-line eyebrow on the dice turn ("… sets the limit") never moves the mat', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 667 });
+    const names = ['Wilhelmina Wolff', 'Ben'];
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await page.evaluate(() => document.fonts.ready);
+    const eb = page.locator('#app .turnhead .eyebrow');
+    await expect(eb).toHaveText('Round 1 · Wilhelmina Wolff sets the limit');
+    expect(await eb.evaluate(lines)).toBe(2);
+    const sels = ['.mat', '.turnhead .who', '.bar .rollbtn'];
+    const before = await boxesOf(page, sels);
+    fake.push({ t: 'chat', msg: msg(1, 'Nice roll!') });
+    await expect(page.locator('#app .turnhead .ticker')).toHaveText('Ben · Nice roll!');
+    expect(await boxesOf(page, sels)).toEqual(before);
+    await overEyebrow(page);
+    await expect(page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
+    expect(await boxesOf(page, sels)).toEqual(before);
+  });
+
+  test('a message ticks once, even when a quick reconnect replays it', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('.roomcode')).toHaveText('ABCDE');
+    // every line the ticker reads out (#chat-live is set once per turn on the ticker, the same text again included)
+    await page.evaluate(() => { window.said = 0; new MutationObserver(() => window.said++).observe(document.getElementById('chat-live'), { childList: true, characterData: true, subtree: true }); });
+    const m = msg(1, 'hey');
+    fake.push({ t: 'chat', msg: m });
+    await expect(page.locator('#app .ticker')).toHaveText('Ben · hey');
+    fake.set({ log: [m] });
+    fake.close();                                                  // the socket drops and comes back within 5 s: the log replays it
+    await expect.poll(() => fake.hellos()).toBe(2);
+    await expect.poll(async () => (await net(page)).status).toBe('open');
+    await expect(page.locator('#app .ticker')).toHaveCount(0, { timeout: 4000 });
+    await page.waitForTimeout(500);
+    await expect(page.locator('#app .ticker')).toHaveCount(0);
+    expect(await page.evaluate(() => window.said)).toBe(1);
+    await expect(page.locator('#app [data-act=chat]')).toHaveAttribute('aria-label', 'Chat, 1 new');
   });
 
   test('the ticker on paper screens sits under the header (lobby and game over)', async ({ browser }) => {
@@ -1361,5 +1441,106 @@ test.describe('chat ticker', () => {
     const ctx = await browser.newContext({ ...phone, reducedMotion: 'no-preference' });
     expect(await fakeAt(await ctx.newPage(), 1)).toBe('ticker');
     await ctx.close();
+  });
+});
+
+// chat fixes that need exact messages from the room: a stand-in room (fakeRoom)
+test.describe('chat on a stand-in room', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const chatBtn = page => page.locator('#app header [data-act=chat]');
+  async function openChat(page) {
+    await chatBtn(page).click();
+    await expect(page.locator('#sheet-h')).toHaveText('Chat');
+  }
+
+  test('Send keeps the text field focused, so the phone keyboard stays up', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben'], 'lobby'), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await openChat(page);
+    await page.click('#chattext');
+    await page.keyboard.type('hello');
+    await page.click('[data-act=csend]');
+    await expect(page.locator('#chattext')).toHaveValue('');
+    expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('chattext');
+    await expect.poll(() => fake.sent().filter(m => m.t === 'chat').map(m => m.text)).toEqual(['hello']);
+  });
+
+  test('a late "too fast" with the chat closed leaves the game alone: the dice keep tumbling, the hint stays', async ({ browser }) => {
+    const ctx = await browser.newContext({ ...phone, reducedMotion: 'no-preference' }), page = await ctx.newPage();
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben']), state: begin(['Anna', 'Ben']), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    const hint = page.locator('#app .mat-foot .hint'), roll = page.locator('#app > .bar .rollbtn');
+    await expect(roll).toHaveAttribute('data-act', 'roll');
+    await roll.click();                                            // the stand-in never answers: the dice tumble on
+    await expect(roll).toBeDisabled();
+    const said = await hint.innerText();
+    fake.push({ t: 'error', code: 'rate', message: 'Slow down a little.' });
+    fake.push({ t: 'chat', msg: msg(1, 'after') });                // in order: once this one shows, the error was handled
+    await expect(chatBtn(page)).toHaveAttribute('aria-label', 'Chat, 1 new');
+    await expect(roll).toBeDisabled();
+    await expect(hint).toHaveText(said);
+    await expect(page.locator('#app')).not.toContainText('Slow down a little.');
+    await ctx.close();
+  });
+
+  test('a chat send refused as not_seated (sent before the welcome) answers in the chat, keeps the draft, and never on the game', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben']), state: begin(['Anna', 'Ben']), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    const said = await page.locator('#app .mat-foot .hint').innerText();
+    await openChat(page);
+    await page.fill('#chattext', 'good luck');
+    await page.press('#chattext', 'Enter');
+    await expect.poll(() => fake.sent().filter(m => m.t === 'chat').length).toBe(1);
+    fake.push({ t: 'error', code: 'not_seated', message: 'Join the room first.' });
+    await expect(page.locator('.sheet-foot .hint')).toHaveText('Not in the room yet. Send it again in a moment.');
+    await expect(page.locator('#chattext')).toHaveValue('good luck');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#app .mat-foot .hint')).toHaveText(said);
+    await expect(page.locator('#app')).not.toContainText("You're watching this game");
+    // a game move refused the same way still says so on the game
+    fake.push({ t: 'error', code: 'not_seated', message: 'Join the room first.' });
+    await expect(page.locator('#app .mat-foot .hint')).toHaveText("You're watching this game, so you can't play.");
+  });
+
+  test('right-to-left names and text stay in their place: the name and the text are isolated in the log and the ticker', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben']), state: begin(['Anna', 'Ben']), seat: 's1', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('#app > .bar [data-act=roll]')).toBeVisible();
+    fake.push({ t: 'chat', msg: { ...msg(1, 'שלום 123'), name: 'דנה', from: 'w1', seat: null } });
+    const t = page.locator('#app .turnhead .ticker');
+    await expect(t.locator('bdi')).toHaveText(['דנה', 'שלום 123']);
+    await openChat(page);
+    const line = page.locator('.chat-log li').last();
+    await expect(line.locator('.chat-name bdi, bdi.chat-name')).toHaveText('דנה');
+    await expect(line.locator('.chat-text bdi, bdi.chat-text')).toHaveText('שלום 123');
+  });
+
+  test('a spectator who reconnects under a new viewer id doesn\'t count their own messages', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(['Anna', 'Ben']), state: begin(['Anna', 'Ben']), seat: null, viewer: 'w1', log: [] });
+    await page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Dan', server: '', seen: 0 })));
+    await page.goto(url('/'));
+    await expect(page.locator('#app .scorechip')).toBeVisible();
+    await page.evaluate(() => { window.ticked = 0; new MutationObserver(() => { if (document.querySelector('#app .ticker')) window.ticked++; }).observe(document.body, { childList: true, subtree: true }); });
+    await openChat(page);
+    await page.fill('#chattext', 'go Anna');
+    await page.press('#chattext', 'Enter');
+    await expect.poll(() => fake.sent().filter(m => m.t === 'chat').length).toBe(1);
+    await page.keyboard.press('Escape');                           // closed before its echo, which the dropped socket loses
+    await expect(page.locator('.sheet-layer')).toBeHidden();
+    fake.set({ viewer: 'w2', log: [{ id: 1, at: Date.now(), from: 'w1', seat: null, name: 'Dan', user: null, text: 'go Anna' }] });
+    fake.close();
+    await expect.poll(() => fake.hellos()).toBe(2);
+    await expect.poll(async () => (await page.evaluate(() => window.SevensDebug.chat)).log.length).toBe(1);
+    await expect(chatBtn(page)).toHaveAttribute('aria-label', 'Chat');
+    expect((await page.evaluate(() => window.SevensDebug.chat)).unread).toBe(0);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => window.ticked)).toBe(0);
+    await openChat(page);
+    await expect(page.locator('.chat-log li').last().locator('.you')).toHaveText('you');
   });
 });

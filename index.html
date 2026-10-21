@@ -490,12 +490,17 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .chat-send .text-in{flex:1 1 auto;min-width:0;height:52px}
 .chat-send .btn{flex:none;min-height:52px;padding-inline:20px}
 @supports not (color:color-mix(in srgb,red 50%,blue)){.chat-msg.mine{background:var(--card)}}
-/* the ticker (tickerHtml()): another phone's message as one line for TICKER_MS. On the turns it takes the eyebrow's box
-   (same height, cut with an ellipsis), so nothing under it moves; on paper it hangs just under the slim header, over the
-   content and never taking a tap. The inline negative animation-delay lets a redraw carry on with the fade */
+/* the ticker (tickerHtml()): another phone's message as one line for TICKER_MS. On the turns it lies over the eyebrow
+   (.eyeslot.ticking: the eyebrow stays at opacity 0, so its box keeps its own height, one line or two, and screen readers
+   keep it; the ticker is one line centred in that box, cut with an ellipsis), so nothing under it moves; on paper it hangs
+   just under the slim header, over the content and never taking a tap. The inline negative animation-delay lets a redraw
+   carry on with the fade */
 .ticker{margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink);animation:ticker 3s linear both}
 .ticker b{color:var(--brass-text);font-weight:700}
-.turnhead.c4 .eyebrow.ticker{width:100%;height:1.45em;line-height:1.45;text-transform:none;letter-spacing:0;font-weight:500}
+.turnhead.c4 .eyeslot{position:relative;align-self:stretch}
+.eyeslot.ticking > .eyebrow{opacity:0}
+.eyeslot > .ticker{position:absolute;left:0;right:0;top:50%;height:1.45em;margin-top:-.725em;font-size:13px;line-height:1.45;font-weight:500;pointer-events:none}
+@media (max-width:389px){.eyeslot > .ticker{font-size:12.5px}}
 .top.slim{position:relative}
 .ticker.under{position:absolute;z-index:14;top:100%;left:0;right:0;margin-top:4px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:0 8px 20px var(--shade);font-size:.9rem;line-height:1.3;pointer-events:none}
 @keyframes ticker{0%{opacity:0;transform:translateY(-4px)}6.67%,90%{opacity:1;transform:none}100%{opacity:0;transform:none}}
@@ -1536,7 +1541,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
-  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null, ticker:{ queue:[], cur:null, held:false } });
+  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null, ticker:{ queue:[], cur:null, held:false, last:0 } });
 
   // ---------- online play: one WebSocket per phone to the room server ----------
   const ONLINE_KEY = 'sevens-out-online';
@@ -1547,7 +1552,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // stay too; seen = the last message id this phone has seen, kept in sevens-out-online). viewer: a spectator's own id
   const net = { ws:null, want:false, code:null, token:null, seat:null, name:'', server:'', room:null, status:'off', tries:0, timer:null, creating:false, rev:0, inGame:false, session:0,
     chat:{ log:[], unread:0, ready:false, seen:null }, viewer:null };
-  const noChat = (seen = null) => ({ log:[], unread:0, ready:false, seen });
+  // mine: this phone's ids in the room (its seat, each spectator viewer id it was given), so its own messages stay its own
+  // after a reconnect under a new viewer id; pending: the messages sent and not yet echoed or refused ({text, typed})
+  const noChat = (seen = null) => ({ log:[], unread:0, ready:false, seen, mine:new Set(), pending:[] });
   const online = () => !!net.code;
 
   // where the room server lives: ?server=… beats <meta name="sevens-out-server">; "same-origin" = this host
@@ -1859,6 +1866,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function netConnect(){
     clearTimeout(net.timer);
+    net.chat.pending = []; // a refusal on the new socket never belongs to a message sent on the old one
     if (net.ws){ try { net.ws.onclose = null; net.ws.close(); } catch (e) {} net.ws = null; }
     net.status = 'connecting'; render();
     let ws;
@@ -1875,7 +1883,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     ws.onmessage = e => { if (net.ws !== ws) return; let m; try { m = JSON.parse(e.data); } catch (err) { return; } onNet(m); };
     ws.onclose = () => {
       if (net.ws !== ws) return;
-      net.ws = null; net.status = 'closed';
+      net.ws = null; net.status = 'closed'; net.chat.pending = [];
       if (net.want) scheduleReconnect();
       render();
     };
@@ -1915,6 +1923,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           if (set.mode || set.pairing) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
         }
         net.seat = m.seat || null; net.viewer = m.viewer || null; if (m.token) net.token = m.token; net.creating = false; net.createWith = null; saveOnline();
+        if (net.seat) net.chat.mine.add(net.seat);
+        if (net.viewer) net.chat.mine.add(net.viewer);
         // hello carried a session and the server saw a guest: the session has ended, so this phone signs out quietly
         if (m.user === null && net.helloSession && account && account.token === net.helloSession) setAccount(null);
         net.helloSession = null;
@@ -1931,9 +1941,18 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     players: 'You need at least 2 players.', phase: 'That move isn\'t possible right now.', no_rolls: 'No rolls left.',
     rate: 'Slow down a little.', bad_message: 'The server didn\'t understand that.'
   };
+  const CHAT_ERRORS = { rate:'Slow down a little.', not_seated:'Not in the room yet. Send it again in a moment.', bad_message:'Messages are 1 to 140 characters.' };
   function onNetError(m){
-    // too fast or refused while the chat is open: the chat's own hint, not a room error
-    if (ui.sheet === 'chat' && (m.code === 'rate' || m.code === 'bad_message')){ ui.chatHint = NET_ERRORS[m.code]; return; }
+    // a refused chat message answers in the chat's own hint, never as a room error or on the game: rate only ever comes
+    // from the chat; not_seated and bad_message do while a sent message waits for its echo (a send between a reconnect's
+    // open and its welcome gets not_seated). A refused typed line comes back into the field
+    const chatErr = m.code === 'rate' || (net.chat.pending.length && (m.code === 'not_seated' || m.code === 'bad_message'));
+    if (chatErr){
+      const p = net.chat.pending.shift();
+      ui.chatHint = CHAT_ERRORS[m.code];
+      if (p && p.typed && !ui.chatDraft) ui.chatDraft = p.text;
+      return;
+    }
     ui.rolling = false; stopTumble();
     if (m.code === 'room_taken' && net.creating){ net.code = newCode(); netConnect(); return; }
     if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked'){
@@ -1973,7 +1992,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the quick reactions: ordinary messages, one tap each in the chat sheet
   const REACTIONS = ['😂', '🔥', '😬', '👏', '💀', '🎲', 'Nice roll!', 'Haha', 'Ouch!', 'Come on!', 'So close', 'Too easy'];
   const CHAT_KEEP = 50; // the server keeps the last 50 too
-  const chatMine = msg => msg.from === (net.seat || net.viewer);
+  const chatMine = msg => msg.from === (net.seat || net.viewer) || net.chat.mine.has(msg.from);
   // {log}: right after welcome, the room's recent messages (replaces the list, so a reconnect never shows one twice);
   // others' messages past `seen` are new to this phone. A phone that never saw this room starts at zero.
   // {msg}: one new message, to every phone (the sender's own too)
@@ -1985,6 +2004,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       else c.log.filter(x => x.id > c.seen && !chatMine(x)).forEach(x => chatArrived(x, { replay:true }));
       c.ready = true; saveOnline();
     } else if (m.msg && !c.log.some(x => x.id === m.msg.id)){
+      if (chatMine(m.msg)) c.pending.shift(); // its echo: no longer waiting
       c.log = [...c.log, m.msg].slice(-CHAT_KEEP);
       chatArrived(m.msg, { replay:false });
     }
@@ -1997,7 +2017,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (ui.sheet === 'chat'){ c.seen = Math.max(c.seen || 0, msg.id); c.unread = 0; }
     else if (!chatMine(msg)){
       c.unread++;
-      if (!replay || Date.now() - msg.at <= TICKER_FRESH_MS){
+      // once per message: a reconnect's replay never ticks again what was already queued
+      if ((!replay || Date.now() - msg.at <= TICKER_FRESH_MS) && msg.id > ui.ticker.last){
+        ui.ticker.last = msg.id;
         ui.ticker.queue = [...ui.ticker.queue, { msg, got:Date.now() }].slice(-TICKER_QUEUE);
         tickNext();
       }
@@ -2013,10 +2035,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   // the ticker: others' messages one at a time, oldest first, TICKER_MS each; a backlog keeps the newest TICKER_QUEUE.
   // It holds during the race between rounds (held), and afterwards shows only what is younger than TICKER_FRESH_MS.
-  // ui.ticker = {queue:[{msg, got}], cur:{msg, start}|null, held}; tickNext() is called again when the race ends
+  // ui.ticker = {queue:[{msg, got}], cur:{msg, start}|null, held, last}; last: the highest message id queued, so a message
+  // ticks once; tickNext() is called again when the race ends
   const TICKER_MS = 3000, TICKER_FRESH_MS = 5000, TICKER_QUEUE = 3;
   let tickTimer = 0;
-  function tickerReset(){ clearTimeout(tickTimer); ui.ticker = { queue:[], cur:null, held:false }; }
+  function tickerReset(){ clearTimeout(tickTimer); ui.ticker = { queue:[], cur:null, held:false, last:0 }; }
   function tickNext(){
     const tk = ui.ticker;
     if (ui.race){ tk.held = true; return; }
@@ -2030,18 +2053,20 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     render();
     tickTimer = setTimeout(() => { tk.cur = null; tickNext(); if (!tk.cur) render(); }, TICKER_MS);
   }
-  // the line itself, for the screen's slot (cls: 'eyebrow' in the turn head, 'under' below a slim header); nothing during
-  // the race. aria-hidden: #chat-live has said it. The negative delay carries the fade on through redraws
+  // the line itself, for the screen's slot (cls: 'over' the eyebrow in the turn head, 'under' below a slim header); nothing
+  // during the race. aria-hidden: #chat-live has said it. The negative delay carries the fade on through redraws.
+  // The name and the text are each isolated (<bdi>), so right-to-left text can't reorder "Name · text"
   function tickerHtml(cls){
     const cur = ui.ticker.cur;
     if (!cur || ui.race || !online()) return '';
-    return `<p class="${cls} ticker" aria-hidden="true" style="animation-delay:-${Date.now() - cur.start}ms"><b>${esc(cur.msg.name)}</b> · ${esc(cur.msg.text)}</p>`;
+    return `<p class="${cls} ticker" aria-hidden="true" style="animation-delay:-${Date.now() - cur.start}ms"><b><bdi>${esc(cur.msg.name)}</bdi></b> · <bdi>${esc(cur.msg.text)}</bdi></p>`;
   }
-  function chatSend(text){
+  function chatSend(text, typed = false){
     text = String(text || '').trim();
     if (!text){ ui.chatHint = 'Type something first.'; return false; }
     if (!(net.ws && net.ws.readyState === 1)){ ui.chatHint = 'Not connected right now. Reconnecting…'; wake(); return false; }
     net.ws.send(JSON.stringify({ t:'chat', text }));
+    net.chat.pending.push({ text, typed });
     ui.chatHint = null;
     return true;
   }
@@ -2400,9 +2425,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       ${online() && net.status !== 'open' ? `<div class="roomrow">${netChip()}</div>` : ''}`;
   }
   // under the chip, centred: the eyebrow ("Round 4 · Roll 1 of 2"), the big name, and the 101 alert when it applies.
-  // The chat ticker takes the eyebrow's place for its 3 s: the same box, so the name and the mat never move
+  // The chat ticker lies over the eyebrow for its 3 s: the eyebrow keeps its box (one line or two) and only turns
+  // invisible, so the name, the mat and the keypad never move and screen readers still have it
   function turnHead(g, cur, eyebrow){
-    return `<div class="turnhead c4">${tickerHtml('eyebrow') || `<p class="eyebrow">${eyebrow}</p>`}<h2 class="who">${nameOf(cur)}</h2>
+    const tk = tickerHtml('over');
+    return `<div class="turnhead c4"><div class="eyeslot${tk ? ' ticking' : ''}"><p class="eyebrow">${eyebrow}</p>${tk}</div><h2 class="who">${nameOf(cur)}</h2>
         ${g.ending ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}</div>`;
   }
   // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
@@ -2891,10 +2918,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const reacts = REACTIONS.map((r, i) => `<button class="reactbtn${i < 6 ? ' emoji' : ''}" data-act="creact" data-id="${i}">${esc(r)}</button>`).join('');
     const items = net.chat.log.map(m => {
       const mine = chatMine(m);
-      return `<li class="chat-msg${mine ? ' mine' : ''}" data-id="${esc(m.id)}"><b class="chat-name">${esc(m.name)}</b>`
+      return `<li class="chat-msg${mine ? ' mine' : ''}" data-id="${esc(m.id)}"><b class="chat-name"><bdi>${esc(m.name)}</bdi></b>`
         + (mine ? ' <small class="you">you</small>' : m.user ? ' ' + tagHtml(m.user) : '')
         + (m.seat == null ? ' <small class="watching">watching</small>' : '')
-        + ` <span class="chat-text">${esc(m.text)}</span></li>`;
+        + ` <span class="chat-text"><bdi>${esc(m.text)}</bdi></span></li>`;
     }).join('');
     return `<div class="chat-react" role="group" aria-label="Quick reactions">${reacts}</div>`
       + (items ? `<ol class="chat-log">${items}</ol>` : '<p class="chat-empty">Nothing said yet. Say something.</p>')
@@ -3389,7 +3416,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       // ----- table talk: the chat sheet stays open after sending, so several reactions can go in a row -----
       case 'chat': chatRead(); openSheet('chat', ['chat']); return;
       case 'creact': if (REACTIONS[id]) chatSend(REACTIONS[id]); break;
-      case 'csend': if (chatSend(ui.chatDraft)) ui.chatDraft = ''; break;
+      case 'csend': if (chatSend(ui.chatDraft, true)) ui.chatDraft = ''; if (sendFromField) focusNext = 'chattext'; sendFromField = false; break;
       case 'scores': ui.scoresOpen = !ui.scoresOpen; break; // the score chip opens and closes the full list
       // ----- home: the Play sheet, the Settings sheet, your player -----
       case 'home':
@@ -3718,6 +3745,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         flushReports();
       });
   }
+
+  // Send keeps the chat's text field focused, so the phone keyboard stays up: the press never takes the focus, and should
+  // a browser move it anyway, the send gives it back (sendFromField: the field had it when Send was pressed)
+  let sendFromField = false;
+  document.addEventListener('pointerdown', e => {
+    sendFromField = !!(e.target.closest && e.target.closest('[data-act=csend]')) && !!document.activeElement && document.activeElement.id === 'chattext';
+  }, true);
+  document.addEventListener('mousedown', e => { if (e.target.closest && e.target.closest('[data-act=csend]') && sendFromField) e.preventDefault(); }, true);
 
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-act]');
