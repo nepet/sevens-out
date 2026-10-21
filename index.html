@@ -2702,7 +2702,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const L = matSpots(g, displayTurn(g.turn), w, h), since = Date.now() - ui.rollStart;
     layer.style.setProperty('--die', `${L.die}px`);
     layer.style.height = L.h === h ? '' : `${L.h}px`;
-    [...layer.querySelectorAll('.die[data-id]')].forEach((el, k) => {
+    // a redraw makes the dice anew, untilted, and measuring the mat has already styled them: without this the tilt
+    // would swing in from 0° (the dice's transform transition) on every tap
+    const dice = [...layer.querySelectorAll('.die[data-id]')];
+    dice.forEach(el => { el.style.transition = 'none'; });
+    dice.forEach((el, k) => {
       const s = L.pos[el.dataset.id]; if (!s) return;
       el.style.left = `${(s.x * 100).toFixed(2)}%`; el.style.top = `${(s.y * 100).toFixed(2)}%`;
       el.style.setProperty('--rot', `${s.rot}deg`);
@@ -2712,6 +2716,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         el.style.animationDelay = `${THROW_STAGGER * k - since}ms`;
       }
     });
+    // once they lie on their spots, the press and the lift of a pair about to fly out animate again
+    if (dice.length){ void layer.offsetWidth; dice.forEach(el => { el.style.transition = ''; }); }
   }
   addEventListener('resize', placeDice);
 

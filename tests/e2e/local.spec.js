@@ -1374,6 +1374,25 @@ test.describe('the dice thrown on the mat', () => {
     for (const l of landed) { expect(l.tumble).toBe(false); expect(l.anims).toBe(0); }
   });
 
+  test('a tap redraws the dice on their spots without swinging their tilt in from 0°', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 2, 3, 3]);
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await startLocal(page, { names: ['Anna', 'Ben'] });
+    await page.click('.bar [data-act=roll]');
+    await idle(page);
+    // the tap and the check in one task: every die the redraw puts on the mat is checked before a frame goes by
+    const tap = id => page.evaluate(id => {
+      document.querySelector(`.dice [data-act=die][data-id="${id}"]`).click();
+      return [...document.querySelectorAll('#app .mat .dice .die')].flatMap(el => el.getAnimations()
+        .filter(a => a.transitionProperty === 'transform').map(() => el.dataset.id));
+    }, id);
+    expect(await tap(2), 'a die selected').toEqual([]);
+    expect(await tap(2), 'the die put down').toEqual([]);
+    expect(await tap(0), 'the 1 selected').toEqual([]);
+    expect(await tap(2), 'not a 7: the nope shake').toEqual([]);
+    expect(await page.locator('.dice [data-id="2"]').evaluate(el => el.getAnimations().map(a => a.animationName))).toEqual(['nope-mat']);   // only the wrong die shakes
+  });
+
   test('taps on the score chip while the pairs fly out: every pair still flies from its spot on the mat into the rack', async ({ page, context }) => {
     await fixDice(context, [1, 6, 2, 5, 3, 3]);                         // two pairs come out on the first roll
     await page.emulateMedia({ reducedMotion: 'no-preference' });
