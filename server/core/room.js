@@ -13,8 +13,9 @@
  *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user
  * server/cloudflare/worker.js (Durable Object) and server/node/server.js (plain Node) are the two adapters.
  * The wire protocol is documented in CLAUDE.md.
- * Table talk: a seated phone sends {t:'chat', text}; everyone gets {t:'chat', msg:{id, at, from, seat, name, user, text}}, and a phone
- * that takes a seat gets {t:'chat', log:[msg..]} (the last CHAT_KEEP) right after welcome. Chat never changes rev.
+ * Table talk: a seated phone or a spectator sends {t:'chat', text}; everyone gets {t:'chat', msg:{id, at, from, seat, name, user, text}}
+ * (seat is null for a spectator), and every phone that says hello gets {t:'chat', log:[msg..]} (the last CHAT_KEEP) right after
+ * welcome. A spectator's welcome carries viewer, their own id. Chat never changes rev.
  */
 
 import { summarize } from './stats.js';
