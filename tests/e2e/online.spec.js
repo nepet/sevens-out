@@ -1,7 +1,8 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { SERVER, url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine } from './helpers.js';
+import { SERVER, url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine, fakeRoom } from './helpers.js';
+import '../../engine.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
 
@@ -233,7 +234,7 @@ test.describe('real dice, scores here', () => {
     // Ben goes offline: the host gets the keypad and Save for him
     await expect(B.page.locator('#app > .bar [data-act=commit]')).toBeVisible();
     await B.ctx.close();
-    await expect(A.page.locator('#app .scorechip .sc-dot')).toBeVisible();
+    await expect(A.page.locator('#app .chiprow [data-act=chat] .chat-dot')).toBeVisible(); // online, the connection dot sits on the chat button
     await openScores(A.page);
     await expect(A.page.locator('.pl-away')).toHaveText('Offline');
     await closeScores(A.page);
@@ -806,4 +807,225 @@ test('a room holds twelve: the lobby lists them, the 13th phone is turned away, 
   expect(await noSideScroll(A.page)).toBe(true);
   await bots.evaluate(() => window.bots.forEach(ws => ws.close()));
   await ctx.close(); await botCtx.close(); await A.ctx.close();
+});
+
+// ----- table talk: the chat button in the header, and the chat sheet -----
+test.describe('chat', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const rm = { reducedMotion: 'reduce' };
+  const chatBtn = page => page.locator('#app header [data-act=chat]');
+  const chatOf = page => page.evaluate(() => window.SevensDebug.chat);
+  async function openChat(page) {
+    await chatBtn(page).click();
+    await expect(page.locator('#sheet-h')).toHaveText('Chat');
+  }
+  // type a line in the open chat and press Enter
+  async function say(page, text) {
+    await page.fill('#chattext', text);
+    await page.press('#chattext', 'Enter');
+  }
+  // the chat log on this phone has n messages (they arrive over the socket)
+  const logHas = (page, n) => expect.poll(async () => (await chatOf(page)).log.length).toBe(n);
+
+  test('the chat button: hidden until the server speaks chat, then in the header of the lobby, both turns and game over', async ({ browser }) => {
+    const A = await host(browser, 'Anna', rm);
+    const B = await join(browser, A.code, 'Ben', rm);
+    // the lobby: the last thing in the slim header
+    for (const P of [A, B]) {
+      await expect(chatBtn(P.page)).toHaveAttribute('aria-label', 'Chat');
+      await expect(P.page.locator('#app header.top.slim > :last-child')).toHaveAttribute('data-act', 'chat');
+      await expect(P.page.locator('#app [data-act=chat] .chat-badge')).toHaveCount(0);
+      expect(await noSideScroll(P.page)).toBe(true);
+    }
+    // the dice turn: in the chip row, right of the score chip, and the online dot has moved from the chip onto it
+    const inChipRow = async P => {
+      const btn = P.page.locator('#app .chiprow > [data-act=chat]');
+      await expect(btn).toBeVisible();
+      const [chip, b] = [await P.page.locator('#app .scorechip').boundingBox(), await btn.boundingBox()];
+      expect(chip.x + chip.width).toBeLessThanOrEqual(b.x);
+      expect(b.width).toBeGreaterThanOrEqual(44); expect(b.height).toBeGreaterThanOrEqual(44);
+      await expect(P.page.locator('.scorechip .sc-dot')).toHaveCount(0);
+      await expect(btn.locator('.chat-dot')).toHaveCount(1);
+      expect(await noSideScroll(P.page)).toBe(true);
+    };
+    await A.page.click('[data-act=ostart]');
+    await expect(A.page.locator('[data-act=roll]')).toBeVisible();
+    for (const P of [A, B]) await inChipRow(P);
+    // game over (ended from the menu): the slim header again
+    await openMenu(A.page, 'dev');
+    await A.page.click('[data-act=endearly]'); await A.page.click('[data-act=endyes]');
+    for (const P of [A, B]) {
+      await expect(P.page.locator('.verdict')).toBeVisible();
+      await expect(P.page.locator('#app header.top.slim > :last-child')).toHaveAttribute('data-act', 'chat');
+      expect(await noSideScroll(P.page)).toBe(true);
+    }
+    // the real-dice turn
+    await A.page.click('#app > .bar [data-act=oreopen]');
+    await A.page.click('[data-act=omode][data-id="1"]');
+    await expect(B.page.locator('[data-act=omode][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    await A.page.click('[data-act=ostart]');
+    await expect(A.page.locator('#app > .bar [data-act=commit]')).toBeVisible();
+    for (const P of [A, B]) await inChipRow(P);
+    // typing in the chat never reaches the keypad
+    const entry = await A.page.locator('.entry').innerText();
+    await openChat(A.page);
+    await A.page.fill('#chattext', '12');
+    await A.page.keyboard.press('Backspace');
+    await A.page.keyboard.type('9');
+    await expect(A.page.locator('#chattext')).toHaveValue('19');
+    await A.page.keyboard.press('Escape');
+    await expect(A.page.locator('.sheet-layer')).toBeHidden();
+    await expect(A.page.locator('.entry')).toHaveText(entry);
+    await A.ctx.close(); await B.ctx.close();
+  });
+
+  test('a quick reaction and a typed line reach the other phone; the badge counts and clears', async ({ browser }) => {
+    const A = await host(browser, 'Anna', rm);
+    const B = await join(browser, A.code, 'Ben', rm);
+    await openChat(B.page);
+    await expect(B.page.locator('.chat-empty')).toHaveText('Nothing said yet. Say something.');
+    await expect(B.page.locator('[data-act=creact]')).toHaveCount(12);
+    for (const r of await B.page.locator('[data-act=creact]').all()) {
+      const box = await r.boundingBox();
+      expect(box.height).toBeGreaterThanOrEqual(44); expect(box.width).toBeGreaterThanOrEqual(44);
+    }
+    await B.page.click('[data-act=creact][data-id="1"]');
+    await expect(chatBtn(A.page)).toHaveAttribute('aria-label', 'Chat, 1 new');
+    await expect(A.page.locator('#app [data-act=chat] .chat-badge')).toHaveText('1');
+    await say(B.page, 'come on Anna');
+    await expect(chatBtn(A.page)).toHaveAttribute('aria-label', 'Chat, 2 new');
+    await expect(A.page.locator('#app [data-act=chat] .chat-badge')).toHaveText('2');
+
+    await openChat(A.page);
+    const lines = A.page.locator('.chat-log li');
+    await expect(lines).toHaveCount(2);
+    await expect(lines.first().locator('.chat-text')).toHaveText('🔥');
+    await expect(lines.last()).toContainText('Ben');
+    await expect(lines.last()).toContainText('come on Anna');
+    await expect(A.page.locator('#app [data-act=chat] .chat-badge')).toHaveCount(0);
+    await expect(chatBtn(A.page)).toHaveAttribute('aria-label', 'Chat');
+    expect((await chatOf(A.page)).unread).toBe(0);
+    await expect(A.page.locator('.chat-log .you')).toHaveCount(0);
+    // on Ben's phone his own lines say so; the sheet stayed open after both sends, and the field is empty again
+    await expect(B.page.locator('.sheet-layer')).toBeVisible();
+    await expect(B.page.locator('.chat-log li .you')).toHaveCount(2);
+    await expect(B.page.locator('#chattext')).toHaveValue('');
+    // a message while the chat is open counts as read
+    await say(B.page, 'again');
+    await expect(lines).toHaveCount(3);
+    expect((await chatOf(A.page)).unread).toBe(0);
+    await A.page.keyboard.press('Escape');
+    await expect(chatBtn(A.page)).toHaveAttribute('aria-label', 'Chat');
+    // an empty line isn't sent
+    await B.page.fill('#chattext', '   ');
+    await B.page.click('[data-act=csend]');
+    await expect(B.page.locator('.sheet-foot .hint')).toHaveText('Type something first.');
+    await A.ctx.close(); await B.ctx.close();
+  });
+
+  test('hostile text renders literally', async ({ browser }) => {
+    const A = await host(browser, 'Anna', rm);
+    const B = await join(browser, A.code, 'Ben', rm);
+    await openChat(B.page);
+    await say(B.page, '<b>x</b><img src=x>');
+    await logHas(A.page, 1);
+    await openChat(A.page);
+    const line = A.page.locator('.chat-log li').last();
+    expect(await line.innerText()).toContain('<b>x</b>');
+    await expect(line.locator('.chat-text b, .chat-text img, img')).toHaveCount(0);
+    await A.ctx.close(); await B.ctx.close();
+  });
+
+  test('rejoin keeps seen: a phone that comes back counts only what it missed', async ({ browser }) => {
+    const A = await host(browser, 'Anna', rm);
+    const B = await join(browser, A.code, 'Ben', rm);
+    await openChat(B.page);
+    await say(B.page, 'one'); await say(B.page, 'two');
+    await expect(chatBtn(A.page)).toHaveAttribute('aria-label', 'Chat, 2 new');
+    await openChat(A.page);
+    await A.page.keyboard.press('Escape');
+    await expect(chatBtn(A.page)).toHaveAttribute('aria-label', 'Chat');
+    await A.page.goto('about:blank');
+    await say(B.page, 'three');
+    await logHas(B.page, 3);
+    await A.page.goto(url('/'));                                   // rejoins from sevens-out-online
+    await expect(A.page.locator('.roomcode')).toHaveText(A.code);
+    await expect(chatBtn(A.page)).toHaveAttribute('aria-label', 'Chat, 1 new');
+    const c = await chatOf(A.page);
+    expect(c.log).toHaveLength(3);
+    expect(new Set(c.log.map(m => m.id)).size).toBe(3);
+    await A.ctx.close(); await B.ctx.close();
+  });
+
+  test('a newcomer starts at zero', async ({ browser }) => {
+    const A = await host(browser, 'Anna', rm);
+    const B = await join(browser, A.code, 'Ben', rm);
+    await openChat(B.page);
+    for (const t of ['one', 'two', 'three']) await say(B.page, t);
+    await logHas(A.page, 3);
+    const C = await join(browser, A.code, 'Cleo', rm);
+    await expect(chatBtn(C.page)).toHaveAttribute('aria-label', 'Chat');
+    await expect(C.page.locator('#app [data-act=chat] .chat-badge')).toHaveCount(0);
+    expect((await chatOf(C.page)).log.map(m => m.text)).toEqual(['one', 'two', 'three']);
+    await A.ctx.close(); await B.ctx.close(); await C.ctx.close();
+  });
+
+  test('a spectator chats', async ({ browser }) => {
+    const A = await host(browser, 'Anna', rm);
+    const B = await join(browser, A.code, 'Ben', rm);
+    await A.page.click('[data-act=ostart]');
+    await expect(A.page.locator('[data-act=roll]')).toBeVisible();
+    // Dan opens the invite during the game: he watches
+    const ctx = await browser.newContext({ ...phone, ...rm });
+    const C = { ctx, page: await ctx.newPage() };
+    await C.page.goto(url(`/?join=${A.code}`));
+    await C.page.fill('.sheet-layer #oname', 'Dan');
+    await C.page.click('.sheet-layer [data-act=ojoin]');
+    await expect(C.page.locator('#app .scorechip')).toBeVisible();
+    expect((await net(C.page)).seat).toBe(null);
+    await openChat(C.page);
+    await C.page.click('[data-act=creact][data-id="7"]');          // Haha
+    await logHas(A.page, 1);
+    await openChat(A.page);
+    const line = A.page.locator('.chat-log li').last();
+    await expect(line).toContainText(/Dan\s*watching/);
+    await expect(line.locator('.chat-text')).toHaveText('Haha');
+    await expect(line.locator('.you')).toHaveCount(0);
+    await expect(C.page.locator('.chat-log li').last().locator('.you')).toHaveText('you');
+    await A.ctx.close(); await B.ctx.close(); await C.ctx.close();
+  });
+
+  test('too fast: the ninth message in a row gets the hint, and the phone stays in the room', async ({ browser }) => {
+    const A = await host(browser, 'Anna', rm);
+    const B = await join(browser, A.code, 'Ben', rm);
+    await openChat(B.page);
+    for (let i = 0; i < 9; i++) await B.page.click('[data-act=creact][data-id="0"]');
+    await expect(B.page.locator('.sheet-foot .hint')).toHaveText('Slow down a little.');
+    await logHas(A.page, 8);
+    expect((await net(B.page)).code).toBe(A.code);
+    await B.page.keyboard.press('Escape');
+    await expect(B.page.locator('.roomcode')).toHaveText(A.code);
+    await expect(B.page.locator('.sheet-foot .hint')).toHaveCount(0);
+    await A.ctx.close(); await B.ctx.close();
+  });
+
+  test('an old server: no chat button, and the chip keeps its online dot', async ({ page }) => {
+    const E = globalThis.SevensEngine;
+    const seats = [{ id: 's1', name: 'Anna', connected: true, user: null }, { id: 's2', name: 'Ben', connected: true, user: null }];
+    const room = { code: 'ABCDE', phase: 'lobby', host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats };
+    const fake = await fakeRoom(page, { room, seat: 's1', log: null });
+    await page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Anna', server: '' })));
+    await page.goto(url('/'));
+    await expect(page.locator('.roomcode')).toHaveText('ABCDE');
+    await expect(page.locator('#app [data-act=chat]')).toHaveCount(0);
+    const state = E.apply(E.blank(), { type: 'start', names: ['Anna', 'Ben'], seats: ['s1', 's2'], starter: 0, mode: 'dice', pairing: 'manual' }).state;
+    fake.push({ t: 'room', rev: 2, room: { ...room, phase: 'game' }, state, events: [] });
+    await expect(page.locator('[data-act=roll]')).toBeVisible();
+    await expect(page.locator('#app [data-act=chat]')).toHaveCount(0);
+    await expect(page.locator('.scorechip .sc-dot')).toHaveCount(1);
+    // the same page, once a server speaks chat: the button, and the dot moves onto it
+    fake.push({ t: 'chat', log: [] });
+    await expect(page.locator('#app .chiprow > [data-act=chat]')).toBeVisible();
+    await expect(page.locator('.scorechip .sc-dot')).toHaveCount(0);
+  });
 });

@@ -167,3 +167,21 @@ export async function editLine(page, i) {
 }
 // the points a stop would book right now, as the bar's Stop or End button shows them
 export const stopPts = page => page.locator('#app > .bar :is([data-act=stop], [data-act=end]) small');
+
+// ----- a fake room server (online play without the real one) -----
+// page.routeWebSocket answers the page's hello with welcome, the chat log (only when `log` is given: null or left out
+// is an old server that doesn't speak chat) and the room; push(m) sends any message to the page. Set it up before goto
+export async function fakeRoom(page, { room, state = null, seat, log }) {
+  let sock = null;
+  await page.routeWebSocket(/\/room\//, ws => {
+    sock = ws;
+    ws.onMessage(raw => {
+      let m; try { m = JSON.parse(raw); } catch (e) { return; }
+      if (m.t !== 'hello') return;
+      ws.send(JSON.stringify({ t: 'welcome', seat, token: 't' }));
+      if (log != null) ws.send(JSON.stringify({ t: 'chat', log }));
+      ws.send(JSON.stringify({ t: 'room', rev: 1, room, state, events: [] }));
+    });
+  });
+  return { push: m => { if (sock) sock.send(JSON.stringify(m)); } };
+}

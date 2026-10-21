@@ -463,6 +463,29 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .sheet-foot .btn{min-height:56px}
 .sheet-foot .hint:empty{display:none}
 
+/* table talk: the chat button (chatButton(), the right end of every online header) with the unread badge and the connection dot,
+   and the chat sheet (chatBody()): quick reactions, the log, the text field and Send */
+.chatbtn{position:relative}
+.chiprow .scorechip{margin-left:auto}
+.chat-badge{position:absolute;top:-5px;right:-5px;min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--brass);color:var(--brass-ink);box-shadow:0 0 0 2px var(--paper);font:700 12px/20px var(--font-body);text-align:center;font-variant-numeric:tabular-nums}
+.chat-dot{position:absolute;right:6px;bottom:6px;width:9px;height:9px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 2px var(--paper)}
+.chat-dot.warn{background:var(--danger)}
+.chat-react{display:flex;flex-wrap:wrap;gap:8px;flex:none}
+.reactbtn{min-height:44px;min-width:44px;padding:0 14px;border-radius:22px;border:1.5px solid var(--line);background:var(--card);font-weight:600;font-size:.95rem}
+.reactbtn.emoji{padding:0 8px;font-size:1.35rem;line-height:1}
+.chat-log{list-style:none;margin:0;padding:0;flex:1 1 auto;min-height:7rem;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:6px}
+.chat-msg{flex:none;padding:7px 12px;border-radius:14px;background:var(--card);line-height:1.35;overflow-wrap:anywhere}
+.chat-msg.mine{background:color-mix(in srgb,var(--brass) 14%,var(--card))}
+.chat-name{font-weight:700;color:var(--ink)}
+.chat-msg .you{margin-left:2px}
+.chat-msg .watching{font-size:.78rem;color:var(--ink-soft)}
+.chat-text{margin-left:4px}
+.chat-empty{margin:0;padding:20px 0;text-align:center;color:var(--ink-soft)}
+.chat-send{display:flex;gap:8px}
+.chat-send .text-in{flex:1 1 auto;min-width:0;height:52px}
+.chat-send .btn{flex:none;min-height:52px;padding-inline:20px}
+@supports not (color:color-mix(in srgb,red 50%,blue)){.chat-msg.mine{background:var(--card)}}
+
 /* scoreboard mode */
 .pick{display:flex;flex-direction:column;gap:6px}
 .seg{display:flex;border:1.5px solid var(--ink);border-radius:12px;overflow:hidden}
@@ -1494,13 +1517,17 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
-  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false });
+  Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null });
 
   // ---------- online play: one WebSocket per phone to the room server ----------
   const ONLINE_KEY = 'sevens-out-online';
   const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
   // session: bumped when this phone leaves a room, so changes still queued from that room are dropped
-  const net = { ws:null, want:false, code:null, token:null, seat:null, name:'', server:'', room:null, status:'off', tries:0, timer:null, creating:false, rev:0, inGame:false, session:0 };
+  // chat: the room's table talk (log, unread = others' messages since the chat was last open, ready = this connection got the log,
+  // so the server speaks chat; seen = the last message id this phone has seen, kept in sevens-out-online). viewer: a spectator's own id
+  const net = { ws:null, want:false, code:null, token:null, seat:null, name:'', server:'', room:null, status:'off', tries:0, timer:null, creating:false, rev:0, inGame:false, session:0,
+    chat:{ log:[], unread:0, ready:false, seen:null }, viewer:null };
+  const noChat = (seen = null) => ({ log:[], unread:0, ready:false, seen });
   const online = () => !!net.code;
 
   // where the room server lives: ?server=… beats <meta name="sevens-out-server">; "same-origin" = this host
@@ -1802,18 +1829,19 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return u.toString();
   }
   function saveOnline(){
-    try { localStorage.setItem(ONLINE_KEY, JSON.stringify({ code:net.code, token:net.token, name:net.name, server:net.server })); } catch (e) {}
+    try { localStorage.setItem(ONLINE_KEY, JSON.stringify({ code:net.code, token:net.token, name:net.name, server:net.server, seen:net.chat.seen })); } catch (e) {}
   }
   function netStart(opts){
     Object.assign(net, { code: opts.create ? newCode() : opts.code, name: opts.name, creating: !!opts.create, createWith: opts.create ? opts.settings || null : null, token:null, seat:null,
-      room:null, want:true, server: serverBase(), rev:0, inGame:false, tries:0 });
-    resetUi(); ui.screen = null; ui.open = {}; ui.showLink = false;
+      room:null, want:true, server: serverBase(), rev:0, inGame:false, tries:0, chat:noChat(), viewer:null });
+    resetUi(); ui.screen = null; ui.open = {}; ui.showLink = false; ui.chatDraft = ''; ui.chatHint = null;
     netConnect();
   }
   function netConnect(){
     clearTimeout(net.timer);
     if (net.ws){ try { net.ws.onclose = null; net.ws.close(); } catch (e) {} net.ws = null; }
-    net.status = 'connecting'; render();
+    net.status = 'connecting'; net.chat.ready = false; // until this connection brings the log (an old server never does)
+    render();
     let ws;
     try { ws = new WebSocket(`${net.server}/room/${net.code}`); }
     catch (e){ net.status = 'closed'; scheduleReconnect(); return; }
@@ -1852,8 +1880,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (net.ws && net.ws.readyState === 1){ try { net.ws.send(JSON.stringify({ t:'lobby', op:'leave' })); } catch (e) {} }
     net.want = false; clearTimeout(net.timer);
     if (net.ws){ const w = net.ws; net.ws = null; try { w.onclose = null; setTimeout(() => w.close(), 50); } catch (e) {} }
-    Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false });
-    net.session++;
+    Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false, chat:noChat(), viewer:null });
+    net.session++; ui.chatDraft = ''; ui.chatHint = null;
     try { localStorage.removeItem(ONLINE_KEY); } catch (e) {}
     state = load() || blank(); resetUi(); ui.open = {}; ui.showLink = false;
   }
@@ -1867,12 +1895,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           if (w.pairing !== 'manual') set.pairing = w.pairing;
           if (set.mode || set.pairing) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
         }
-        net.seat = m.seat || null; if (m.token) net.token = m.token; net.creating = false; net.createWith = null; saveOnline();
+        net.seat = m.seat || null; net.viewer = m.viewer || null; if (m.token) net.token = m.token; net.creating = false; net.createWith = null; saveOnline();
         // hello carried a session and the server saw a guest: the session has ended, so this phone signs out quietly
         if (m.user === null && net.helloSession && account && account.token === net.helloSession) setAccount(null);
         net.helloSession = null;
         break;
       case 'room': receiveRoom(m); return;
+      case 'chat': receiveChat(m); break;
       case 'error': onNetError(m); break;
       default: return;
     }
@@ -1884,6 +1913,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     rate: 'Slow down a little.', bad_message: 'The server didn\'t understand that.'
   };
   function onNetError(m){
+    // too fast or refused while the chat is open: the chat's own hint, not a room error
+    if (ui.sheet === 'chat' && (m.code === 'rate' || m.code === 'bad_message')){ ui.chatHint = NET_ERRORS[m.code]; return; }
     ui.rolling = false; stopTumble();
     if (m.code === 'room_taken' && net.creating){ net.code = newCode(); netConnect(); return; }
     if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked'){
@@ -1918,6 +1949,48 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         net.room = m.room; net.rev = m.rev; net.inGame = false; ui.rolling = false; stopTumble(); render(); };
       if (pending) enqueue(toLobby); else toLobby();
     }
+  }
+  // ----- table talk -----
+  // the quick reactions: ordinary messages, one tap each in the chat sheet
+  const REACTIONS = ['😂', '🔥', '😬', '👏', '💀', '🎲', 'Nice roll!', 'Haha', 'Ouch!', 'Come on!', 'So close', 'Too easy'];
+  const CHAT_KEEP = 50; // the server keeps the last 50 too
+  const chatMine = msg => msg.from === (net.seat || net.viewer);
+  // {log}: right after welcome, the room's recent messages (replaces the list, so a reconnect never shows one twice);
+  // others' messages past `seen` are new to this phone. A phone that never saw this room starts at zero.
+  // {msg}: one new message, to every phone (the sender's own too)
+  function receiveChat(m){
+    const c = net.chat;
+    if (Array.isArray(m.log)){
+      c.log = m.log.slice(-CHAT_KEEP); c.unread = 0;
+      if (c.seen === null) c.seen = c.log.reduce((a, x) => Math.max(a, x.id), 0);
+      else c.log.filter(x => x.id > c.seen && !chatMine(x)).forEach(x => chatArrived(x, { replay:true }));
+      c.ready = true; saveOnline();
+    } else if (m.msg && !c.log.some(x => x.id === m.msg.id)){
+      c.log = [...c.log, m.msg].slice(-CHAT_KEEP);
+      chatArrived(m.msg, { replay:false });
+    }
+  }
+  // a message this phone hasn't seen: read at once while the chat is open, otherwise one more on the badge (unless it's this phone's own).
+  // replay: it came with the log after a (re)connect rather than live
+  function chatArrived(msg, { replay = false } = {}){
+    const c = net.chat;
+    if (ui.sheet === 'chat'){ c.seen = Math.max(c.seen || 0, msg.id); c.unread = 0; }
+    else if (!chatMine(msg)) c.unread++;
+    saveOnline();
+  }
+  // opening the chat reads everything in it
+  function chatRead(){
+    const c = net.chat, last = c.log.length ? c.log[c.log.length - 1].id : 0;
+    c.seen = Math.max(c.seen || 0, last); c.unread = 0;
+    saveOnline();
+  }
+  function chatSend(text){
+    text = String(text || '').trim();
+    if (!text){ ui.chatHint = 'Type something first.'; return false; }
+    if (!(net.ws && net.ws.readyState === 1)){ ui.chatHint = 'Not connected right now. Reconnecting…'; wake(); return false; }
+    net.ws.send(JSON.stringify({ t:'chat', text }));
+    ui.chatHint = null;
+    return true;
   }
   const seatInfo = id => net.room && net.room.seats.find(s => s.id === id);
   const seatOnline = id => !!(seatInfo(id) && seatInfo(id).connected);
@@ -2093,12 +2166,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 
   // ---------- views ----------
   const nameOf = i => esc(pname(i)) + (isMe(i) ? ' <small class="you">you</small>' : '');
-  // the slim header of the play screens: the menu button, the round and its roll limit, the room online,
-  // and the 101 alert as one line
+  // the slim header of the play screens: the menu button, the round and its roll limit, the room chip online, the chat button
+  // at the right end, and the 101 alert as one line. With the chat button the room chip shows only while not connected
+  // (as in the lobby): the button's dot shows the connection
   function header(g){
     const lim = state.phase === 'over' ? 'Game over'
       : g.mark != null ? `${plural(g.mark, 'roll')} max` : `${esc(pname(g.starter))} sets the limit (max ${MAX_ROLLS})`;
-    return `<header class="top slim"><div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${netChip()}</header>
+    return `<header class="top slim"><div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}`;
   }
   function netChip(){
@@ -2263,10 +2337,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm[0] || '')}${mid ? `<span class="sc-mid">${esc(mid)}</span>` : ''}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''} <b>${g.players[i].score}</b></span>`;
       }).join('');
     const label = `Scores: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
-    const dot = online() ? `<i class="sc-dot${net.status === 'open' ? '' : ' warn'}" aria-hidden="true"></i>` : '';
+    // online the connection dot sits on the chat button; an old server without chat keeps it in the chip
+    const dot = online() && !net.chat.ready ? `<i class="sc-dot${net.status === 'open' ? '' : ' warn'}" aria-hidden="true"></i>` : '';
     const open = !!ui.scoresOpen;
     return `<header class="top chiprow">${menuButton()}
-        <button class="scorechip${short}" data-act="scores" aria-expanded="${open}"${open ? ' aria-controls="scores"' : ''} aria-label="${esc(label)}">${dot}${parts}<svg class="sc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="scorechip${short}" data-act="scores" aria-expanded="${open}"${open ? ' aria-controls="scores"' : ''} aria-label="${esc(label)}">${dot}${parts}<svg class="sc-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>${chatButton()}
         ${open ? `<div class="scores-pop" id="scores">${board(g, cur)}</div>` : ''}
       </header>
       ${online() && net.status !== 'open' ? `<div class="roomrow">${netChip()}</div>` : ''}`;
@@ -2566,7 +2641,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const n = seats.length;
     const main = !host ? waiting(hostName(), 'start')
       : `<button class="btn primary" data-act="ostart"${n < 2 ? ' disabled' : ''}>${n < 2 ? 'Waiting for one more player' : `Start · ${n} players`}</button>`;
-    return `<header class="top slim"><div class="top-l">${menuButton()}<h1 class="h2" id="lobby-h">Room</h1></div>${net.status === 'open' ? '' : netChip()}</header>
+    return `<header class="top slim"><div class="top-l">${menuButton()}<h1 class="h2" id="lobby-h">Room</h1></div>${net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       <section class="oncard roomhead" aria-labelledby="room-h">
         <p class="eyebrow" id="room-h">Room code</p>
         <p class="roomcode">${esc(net.code)}</p>
@@ -2656,6 +2731,17 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const ICON_RANDOM = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4l16 16M20 4l-5 5M4 20l5-5M15 20h5v-5M9 4H4v5"/></svg>';
   const ICON_BACK = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
   const menuButton = () => `<button class="menubtn" data-act="menu" aria-label="Game menu" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'menu'}">${ICON_MENU}</button>`;
+  const ICON_CHAT = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z"/></svg>';
+  // the chat button, at the right end of every online header once the server speaks chat: the unread badge (9+ above 9)
+  // and the connection dot (red while the room isn't connected)
+  function chatButton(){
+    if (!online() || !net.chat.ready) return '';
+    const n = net.chat.unread, on = net.status === 'open';
+    const label = 'Chat' + (n ? `, ${n} new` : '') + (on ? '' : ', reconnecting');
+    return `<button class="menubtn chatbtn" data-act="chat" aria-label="${label}" aria-haspopup="dialog" aria-expanded="${ui.sheet === 'chat'}">${ICON_CHAT}`
+      + (n ? `<span class="chat-badge" aria-hidden="true">${n > 9 ? '9+' : n}</span>` : '')
+      + `<i class="chat-dot${on ? '' : ' warn'}" aria-hidden="true"></i></button>`;
+  }
 
   // Sheets by kind: { title, ok() (may it show on this screen?), body() (html, rebuilt on every render) }.
   // openSheet(kind, from) shows one; `from` is the opener's [data-act, data-id], which gets the focus back on close.
@@ -2664,7 +2750,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     menu:{ title:'Game menu', ok:() => online() ? !!net.room : state.phase !== 'setup' && !ui.screen && !!state.game, body:menuBody },
     play:{ title:'New game', ok:() => !online() && state.phase === 'setup' && ['home', 'players'].includes(homeScreen()), body:playBody },
     settings:{ title:'Settings', ok:onHome, body:settingsBody },
-    join:{ title:() => `Join room ${ui.joinCode}`, ok:() => onHome() && CODE_RE.test(ui.joinCode || ''), body:joinBody }
+    join:{ title:() => `Join room ${ui.joinCode}`, ok:() => onHome() && CODE_RE.test(ui.joinCode || ''), body:joinBody },
+    chat:{ title:'Chat', ok:() => online() && !!net.room && net.chat.ready, body:chatBody }
   };
   let focusNext = null; // an element id to focus after the next render
   let sheetReturn = null; // the opener to focus after the next render
@@ -2678,7 +2765,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function closeSheet({ redraw = true } = {}){
     if (!ui.sheet) return;
     if (ui.sheet === 'join' || ui.sheet === 'play') ui.hint = null; // its hint ("Enter your name first…") doesn't linger on the screen under it
-    sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null; ui.shakeNote = null;
+    sheetReturn = ui.sheetFrom; ui.sheet = null; ui.sheetFrom = null; ui.shakeNote = null; ui.chatHint = null;
     if (redraw) render();
   }
   // called by render(): shows, refreshes or hides the sheet; keeps its scroll position and the focused control
@@ -2696,11 +2783,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const typing = f && body.contains(f) && f.tagName === 'INPUT' && f.id ? f.id : null;
     const fold = f && body.contains(f) && f.tagName === 'SUMMARY' && f.parentElement.dataset.fold ? f.parentElement.dataset.fold : null;
     const top = body.scrollTop, title = $sheet.querySelector('#sheet-h');
+    // the chat log stays at the bottom while the reader is there (a new message scrolls into view); just opened, it starts there
+    const log = body.querySelector('.chat-log'), logTop = log ? log.scrollTop : 0;
+    const logEnd = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 8;
     const t = typeof def.title === 'function' ? def.title() : def.title;
     if (title.textContent !== t) title.textContent = t;
     body.innerHTML = def.body();
     $sheet.hidden = false;
     body.scrollTop = top;
+    const newLog = body.querySelector('.chat-log'); if (newLog) newLog.scrollTop = logEnd ? newLog.scrollHeight : logTop;
     if (typing){ const el = document.getElementById(typing); if (el){ el.focus({ preventScroll:true }); try { el.setSelectionRange(el.value.length, el.value.length); } catch (e) {} } }
     else if (fold){
       const el = body.querySelector(`details[data-fold="${fold}"] > summary`);
@@ -2722,6 +2813,23 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return `<label class="fld" for="oname"><span class="h3">Your name</span>
         <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="go"></label>
       <div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.hint || '')}</p><button class="btn primary" data-act="ojoin">Join</button></div>`;
+  }
+  // the chat sheet: the quick reactions, the log (newest at the bottom; `you` for this phone, the #tag of signed-in players,
+  // "watching" for spectators), and the text field with Send pinned at the bottom. Every string from the wire goes through esc()
+  function chatBody(){
+    const reacts = REACTIONS.map((r, i) => `<button class="reactbtn${i < 6 ? ' emoji' : ''}" data-act="creact" data-id="${i}">${esc(r)}</button>`).join('');
+    const items = net.chat.log.map(m => {
+      const mine = chatMine(m);
+      return `<li class="chat-msg${mine ? ' mine' : ''}" data-id="${esc(m.id)}"><b class="chat-name">${esc(m.name)}</b>`
+        + (mine ? ' <small class="you">you</small>' : m.user ? ' ' + tagHtml(m.user) : '')
+        + (m.seat == null ? ' <small class="watching">watching</small>' : '')
+        + ` <span class="chat-text">${esc(m.text)}</span></li>`;
+    }).join('');
+    return `<div class="chat-react" role="group" aria-label="Quick reactions">${reacts}</div>`
+      + (items ? `<ol class="chat-log">${items}</ol>` : '<p class="chat-empty">Nothing said yet. Say something.</p>')
+      + `<div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.chatHint || '')}</p>
+        <div class="chat-send"><input type="text" id="chattext" class="text-in" aria-label="Message" placeholder="Say something" value="${esc(ui.chatDraft || '')}" maxlength="140" enterkeyhint="send" autocomplete="off">
+        <button class="btn primary" data-act="csend">Send</button></div></div>`;
   }
   // the game menu: score sheet, how to play, settings, new game or leave room, developer
   function menuBody(){
@@ -3159,8 +3267,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function handle(a, id, el){
     if (ACCOUNT_ACTS.includes(a) && ui.account.busy) return; // a passkey prompt or a request is running
     const g = state.game;
-    // while pairs are flying out or the race between rounds plays, only settings and the developer buttons respond
-    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose', 'scores'].includes(a)) return;
+    // while pairs are flying out or the race between rounds plays, only settings, the chat and the developer buttons respond
+    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose', 'scores', 'chat', 'creact', 'csend'].includes(a)) return;
     if (a === 'sheetclose'){ closeSheet(); return; }
     // these leave the game menu: the screen changes, or there is something to watch
     if (['newyes', 'oleaveyes', 'endyes', 'devconfetti', 'devdoom', 'devmiss', 'devround'].includes(a)) closeSheet({ redraw:a === 'devround' });
@@ -3207,6 +3315,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         break;
       }
       case 'menu': openSheet('menu', ['menu', null]); return;
+      // ----- table talk: the chat sheet stays open after sending, so several reactions can go in a row -----
+      case 'chat': chatRead(); openSheet('chat', ['chat']); return;
+      case 'creact': if (REACTIONS[id]) chatSend(REACTIONS[id]); break;
+      case 'csend': if (chatSend(ui.chatDraft)) ui.chatDraft = ''; break;
       case 'scores': ui.scoresOpen = !ui.scoresOpen; break; // the score chip opens and closes the full list
       // ----- home: the Play sheet, the Settings sheet, your player -----
       case 'home':
@@ -3560,6 +3672,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (el.dataset.online === 'name') ui.online.name = el.value;
     if (el.dataset.account === 'name') ui.account.name = el.value;
     if (el.dataset.account === 'rename') ui.account.renameVal = el.value;
+    if (el.id === 'chattext') ui.chatDraft = el.value;
   };
   $app.addEventListener('input', onInput);
   $sheet.addEventListener('input', onInput);
@@ -3575,6 +3688,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       handle(e.target.dataset.online === 'code' || ui.sheet === 'join' ? 'ojoin' : 'ocreate', null);
       return;
     }
+    if (e.key === 'Enter' && e.target.id === 'chattext'){ if (!e.isComposing){ e.preventDefault(); handle('csend', null); } return; }
     if (e.key === 'Enter' && tag === 'INPUT' && e.target.dataset && e.target.dataset.account){
       e.preventDefault(); handle(e.target.dataset.account === 'rename' ? 'arenamesave' : 'acreate', null); return;
     }
@@ -3604,7 +3718,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     try { saved = JSON.parse(localStorage.getItem(ONLINE_KEY) || 'null'); } catch (e) {}
     if (saved && saved.code && saved.token && (saved.server || serverBase()) && (!join || join === saved.code)){
       // rejoin the room this phone was in
-      Object.assign(net, { code:saved.code, token:saved.token, name:saved.name || '', server:saved.server || serverBase(), want:true });
+      Object.assign(net, { code:saved.code, token:saved.token, name:saved.name || '', server:saved.server || serverBase(), want:true, chat:noChat(saved.seen ?? null) });
       netConnect();
       return;
     }
@@ -3621,7 +3735,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     get sounds(){ return sound.played; }, // the table sounds played so far ("roll:pub", …), newest last; nothing while the sound is off
     layout:layoutDice, // layoutDice(n, w, h, die, rng, opts): the dice's random spots on the mat (pure; tests seed rng)
     dieSize:matDie,    // matDie(w, h, bottom): the die size the page uses for a mat of w × h
-    get account(){ return { available:accountsAvailable(), signedIn:!!account, id:account ? account.id : null, name:account ? account.name : null }; }
+    get account(){ return { available:accountsAvailable(), signedIn:!!account, id:account ? account.id : null, name:account ? account.name : null }; },
+    get chat(){ return { ready:net.chat.ready, unread:net.chat.unread, log:E.clone(net.chat.log) }; }
   });
   try { window.claude?.hot?.snapshot?.(() => ({ state })); } catch (e) {}
   if (window.claude?.hot?.ready) window.claude.hot.ready(start);
