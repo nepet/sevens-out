@@ -13,6 +13,7 @@
     "db:schema": "wrangler d1 execute sevens-out-stats --remote -c server/cloudflare/wrangler.jsonc --file server/d1/schema.sql",
     "db:accounts": "wrangler d1 execute sevens-out-stats --remote -c server/cloudflare/wrangler.jsonc --file server/d1/migrations/0001-accounts.sql --yes",
     "db:rooms": "wrangler d1 execute sevens-out-stats --remote -c server/cloudflare/wrangler.jsonc --file server/d1/migrations/0002-rooms.sql --yes",
+    "db:kinds": "wrangler d1 execute sevens-out-stats --remote -c server/cloudflare/wrangler.jsonc --file server/d1/migrations/0003-kinds.sql --yes",
     "test:e2e": "playwright test",
     "test:admin": "node tests/e2e/d1-setup.mjs && playwright test -c playwright.admin.config.js",
     "test:worker": "node tests/e2e/d1-setup.mjs && TARGET=worker playwright test tests/e2e/online.spec.js tests/e2e/players.spec.js tests/e2e/account.spec.js tests/e2e/fortytwo.spec.js tests/e2e/schocken.spec.js",

@@ -426,7 +426,8 @@ export class Room {
       id: d.rid, code: d.code, created_at: d.created, active_at: d.updated,
       closed_at: closed ? this.now() : null, close_reason: closed,
       phase: !g ? 'lobby' : st.phase === 'over' ? 'over' : 'playing',
-      mode: g ? g.mode : d.settings.mode, pairing: g ? (g.pairing || 'auto') : d.settings.pairing, round: g ? g.round : null,
+      kind: g ? (g.kind || 'sevens') : (d.settings.kind || 'sevens'), mode: g ? g.mode : d.settings.mode,
+      pairing: g ? (g.kind ? null : g.pairing || 'auto') : d.settings.pairing, round: g ? g.round : null,
       seats: d.seats.length, connected: on.size, watching, signed_in: d.seats.filter(s => s.user).length,
       host: host ? host.name : null, names: JSON.stringify(d.seats.map(s => s.name)), game_id: g && d.stats ? d.stats.id : null,
       first_start_at: t.firstStart || null, games_started: t.games || 0, games_finished: t.finished || 0,
@@ -454,7 +455,6 @@ export class Room {
   statsRecord(status) {
     const d = this.data;
     if (!this.stats || !d || !d.stats || !d.state || !d.state.game) return null;
-    if (d.state.game.kind) return null; // the statistics are Sevens Out's for now: 42/18 and Schocken games aren't recorded
     try {
       const seats = d.state.game.seats || [];
       return summarize(d.state, {

@@ -595,6 +595,7 @@ test('sessions: the room keeps its row and timeline up to date through a game', 
   assert.deepEqual([sessions.row().phase, sessions.row().seats, sessions.row().connected, sessions.row().host, JSON.parse(sessions.row().names)],
     ['lobby', 2, 2, 'Anna', ['Anna', 'Ben']]);
   assert.equal(sessions.row().mode, 'score');
+  assert.equal(sessions.row().kind, 'sevens');
 
   await send(room, a, { t: 'lobby', op: 'start' });
   const started = sessions.events.at(-1);
@@ -726,7 +727,7 @@ test('sessions: a room saved before the admin page\'s rooms gets its id on its f
   assert.equal(r.stored().rid, sessions.row().id, 'kept with the next save');
 });
 
-test('42/18: the host picks the game, keep and unkeep are the player\'s moves, and the stats skip it', async () => {
+test('42/18: the host picks the game, keep and unkeep are the player\'s moves, and the stats record it as 42/18', async () => {
   const stats = recorder();
   const { room, a, b } = await lobbyOf2({ stats });
   assert.equal(last(a, 'room').room.settings.kind, 'sevens');
@@ -740,7 +741,7 @@ test('42/18: the host picks the game, keep and unkeep are the player\'s moves, a
   const g = last(b, 'room').state.game;
   assert.equal(g.kind, '4218');
   assert.equal(g.turn.dice.length, 5);
-  assert.equal(stats.records.length, 0, '42/18 games are not recorded');
+  assert.deepEqual(stats.records.map(r => [r.game.kind, r.game.status]), [['4218', 'playing']]);
   await send(room, a, { t: 'act', action: { type: 'roll' } });
   await send(room, b, { t: 'act', action: { type: 'keep', id: 0 } });
   assert.equal(last(b, 'error').code, 'not_your_turn');
@@ -755,7 +756,7 @@ test('42/18: the host picks the game, keep and unkeep are the player\'s moves, a
   assert.equal(msg.state.game.rounds[0].results[0].rolls, 1);
 });
 
-test('Schocken: the host picks it, flip and blind are the player\'s moves, a blind roll stays secret, and the stats skip it', async () => {
+test('Schocken: the host picks it, flip and blind are the player\'s moves, a blind roll stays secret, and the stats record it as Schocken', async () => {
   const stats = recorder();
   const { room, a, b } = await lobbyOf2({ stats });
   await send(room, a, { t: 'lobby', op: 'settings', kind: 'schocken' });
@@ -763,7 +764,7 @@ test('Schocken: the host picks it, flip and blind are the player\'s moves, a bli
   await send(room, a, { t: 'lobby', op: 'start' });
   let g = last(b, 'room').state.game;
   assert.deepEqual([g.kind, g.turn.dice.length, g.pot], ['schocken', 3, 13]);
-  assert.equal(stats.records.length, 0, 'Schocken games are not recorded');
+  assert.deepEqual(stats.records.map(r => [r.game.kind, r.game.status]), [['schocken', 'playing']]);
   await send(room, b, { t: 'act', action: { type: 'blind' } });
   assert.equal(last(b, 'error').code, 'not_your_turn');
   await send(room, a, { t: 'act', action: { type: 'flip' } });

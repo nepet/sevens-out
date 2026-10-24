@@ -2,22 +2,28 @@
  * Every statistics query for the admin page. Each function takes the database interface from
  * server/d1/db.js ({ all, batch }) and filters from parseFilters(); values are always bound parameters.
  * Only finished games (status 'over') count, except the abandoned-games tile.
+ * The game filter (kind) picks Sevens Out (the default), 42/18, Schocken or all of them; points mean something
+ * different in each game (see server/d1/schema.sql), so the facts about points need one game.
  */
 const DAY = 86_400_000, ABANDONED_AFTER = 14 * DAY;
 const PERIODS = { '7d': 7, '30d': 30, '12m': 365, all: null };
 export const PAGE_SIZE = 20;
+const KINDS = ['sevens', '4218', 'schocken'];
+// a turn with the game's top throw (players.sevens_outs counts the same): a Sevens Out, a 42/18, a Schock out
+const TOP = "(CASE g.kind WHEN '4218' THEN t.pts = 18 WHEN 'schocken' THEN t.pts = 13 ELSE t.pts = 0 END)";
 
 export function parseFilters(q, now = Date.now()) {
   const period = Object.hasOwn(PERIODS, q.get('period')) ? q.get('period') : '30d';
   const days = PERIODS[period];
   const source = ['online', 'phone'].includes(q.get('source')) ? q.get('source') : null;
   const mode = ['dice', 'score'].includes(q.get('mode')) ? q.get('mode') : null;
+  const kind = q.get('kind') === 'all' || KINDS.includes(q.get('kind')) ? q.get('kind') : 'sevens';
   const tzRaw = q.get('tz') || '';
   const tz = /^-?\d{1,3}$/.test(tzRaw) && Math.abs(+tzRaw) <= 840 ? +tzRaw : 0;
   // paging cursor "<finishedAt>_<id>", the `next` of the previous page of recentGames()
   const cursor = /^(\d{1,15})_([0-9a-f]{16})$/.exec(q.get('before') || '');
   const before = cursor ? { at: +cursor[1], id: cursor[2] } : null;
-  return { period, since: days ? now - days * DAY : 0, source, mode, tz, before, now };
+  return { period, since: days ? now - days * DAY : 0, source, mode, kind, tz, before, now };
 }
 
 // finished games matching the filters (alias g)
@@ -25,6 +31,7 @@ function finished(f, since = f.since) {
   const sql = ["g.status = 'over'", 'g.finished_at >= ?'], params = [since];
   if (f.source) { sql.push('g.source = ?'); params.push(f.source); }
   if (f.mode) { sql.push('g.mode = ?'); params.push(f.mode); }
+  if (f.kind !== 'all') { sql.push('g.kind = ?'); params.push(f.kind); }
   return { sql: sql.join(' AND '), params };
 }
 const one = async (db, sql, params) => (await db.all(sql, params))[0] || {};
@@ -41,7 +48,9 @@ export async function stats(db, f) {
   const bucketSql = bucket === 'day' ? `strftime('%Y-%m-%d', ${local})` : `date(${local}, 'weekday 0', '-6 days')`;
   const joinPlayers = 'FROM players p JOIN games g ON g.id = p.game_id';
   const joinTurns = 'FROM turns t JOIN games g ON g.id = t.game_id';
-  const [totals, players, series, abandoned, turnFacts, shots, limits, spread, biggest, longest, closest, board] = await Promise.all([
+  const single = f.kind !== 'all', sevens = f.kind === 'sevens', ft = f.kind === '4218';
+  const none = Promise.resolve([]), nothing = Promise.resolve({});
+  const [totals, players, series, abandoned, turnFacts, shots, limits, spread, biggest, longest, closest, board, rolls] = await Promise.all([
     one(db, `SELECT COUNT(*) AS games, AVG(g.player_count) AS avgPlayers, AVG(g.rounds) AS avgRounds,
              AVG(CASE WHEN g.started_at IS NOT NULL THEN (g.finished_at - g.started_at) / 60000.0 END) AS avgMinutes,
              COALESCE(SUM(g.early), 0) AS early
@@ -51,26 +60,33 @@ export async function stats(db, f) {
             FROM games g WHERE ${w.sql} GROUP BY bucket ORDER BY bucket`, [f.tz, ...w.params]),
     f.source === 'phone' ? { n: 0 } : one(db,
       `SELECT COUNT(*) AS n FROM games g WHERE g.source = 'online' AND g.started_at >= ?
-       AND (g.status = 'abandoned' OR (g.status = 'playing' AND g.started_at < ?))${f.mode ? ' AND g.mode = ?' : ''}`,
-      [f.since, f.now - ABANDONED_AFTER, ...(f.mode ? [f.mode] : [])]),
-    one(db, `SELECT COUNT(*) AS turns, COALESCE(SUM(t.pts = 0), 0) AS sevensOuts, AVG(t.pts) AS avgPoints ${joinTurns} WHERE ${w.sql}`, w.params),
+       AND (g.status = 'abandoned' OR (g.status = 'playing' AND g.started_at < ?))${f.mode ? ' AND g.mode = ?' : ''}${single ? ' AND g.kind = ?' : ''}`,
+      [f.since, f.now - ABANDONED_AFTER, ...(f.mode ? [f.mode] : []), ...(single ? [f.kind] : [])]),
+    // 42/18: the average is over throws with a 42 (no 42 counts 0 points, and is its own tile); points in all games together mean nothing
+    one(db, `SELECT COUNT(*) AS turns, COALESCE(SUM(${TOP}), 0) AS tops, COALESCE(SUM(t.pts = 0), 0) AS zeros,
+             AVG(${ft ? 'CASE WHEN t.pts > 0 THEN t.pts END' : 't.pts'}) AS avgPoints ${joinTurns} WHERE ${w.sql}`, w.params),
     one(db, `SELECT COALESCE(SUM(p.shots), 0) AS n ${joinPlayers} WHERE ${w.sql}`, w.params),
-    db.all(`SELECT t.rolls AS rolls, COUNT(*) AS n ${joinTurns} WHERE ${w.sql} AND t.starter = 1 AND t.rolls IS NOT NULL GROUP BY t.rolls`, w.params),
-    db.all(`SELECT t.pts AS pts, COUNT(*) AS n ${joinTurns} WHERE ${w.sql} GROUP BY t.pts ORDER BY t.pts`, w.params),
-    one(db, `SELECT t.pts AS pts, t.game_id AS gameId, p.name AS name ${joinTurns}
+    // the roll limits starters set (42/18 has none: mark is empty)
+    db.all(`SELECT t.mark AS rolls, COUNT(*) AS n ${joinTurns} WHERE ${w.sql} AND t.starter = 1 AND t.mark IS NOT NULL GROUP BY t.mark`, w.params),
+    single ? db.all(`SELECT t.pts AS pts, COUNT(*) AS n ${joinTurns} WHERE ${w.sql} GROUP BY t.pts ORDER BY t.pts`, w.params) : none,
+    sevens ? one(db, `SELECT t.pts AS pts, t.game_id AS gameId, p.name AS name ${joinTurns}
              JOIN players p ON p.game_id = t.game_id AND p.idx = t.idx
-             WHERE ${w.sql} ORDER BY t.pts DESC, g.finished_at DESC LIMIT 1`, w.params),
+             WHERE ${w.sql} ORDER BY t.pts DESC, g.finished_at DESC LIMIT 1`, w.params) : nothing,
     one(db, `SELECT g.rounds AS rounds, g.id AS gameId FROM games g WHERE ${w.sql} ORDER BY g.rounds DESC, g.finished_at DESC LIMIT 1`, w.params),
-    one(db, `SELECT g.margin AS margin, g.id AS gameId, g.loser AS loser FROM games g WHERE ${w.sql} AND g.early = 0
-             ORDER BY g.margin ASC, g.finished_at DESC LIMIT 1`, w.params),
+    sevens ? one(db, `SELECT g.margin AS margin, g.id AS gameId, g.loser AS loser FROM games g WHERE ${w.sql} AND g.early = 0
+             ORDER BY g.margin ASC, g.finished_at DESC LIMIT 1`, w.params) : nothing,
     db.all(`SELECT ${WHO} AS who, p.user_id AS userId, p.name AS name, COUNT(*) AS games, SUM(p.lost) AS losses,
-            SUM(p.sevens_outs) AS sevensOuts, SUM(p.shots) AS shots
-            ${joinPlayers} WHERE ${w.sql} GROUP BY who, p.name`, w.params)
+            SUM(p.sevens_outs) AS tops, SUM(p.shots) AS shots
+            ${joinPlayers} WHERE ${w.sql} GROUP BY who, p.name`, w.params),
+    // 42/18: how many rolls a throw took (everyone may roll up to 5 times)
+    ft ? db.all(`SELECT t.rolls AS rolls, COUNT(*) AS n ${joinTurns} WHERE ${w.sql} AND t.rolls IS NOT NULL GROUP BY t.rolls`, w.params) : none
   ]);
   const limitCounts = { 1: 0, 2: 0, 3: 0 };
   for (const l of limits) if (l.rolls in limitCounts) limitCounts[l.rolls] = l.n;
+  const rollCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const r of rolls) if (r.rolls in rollCounts) rollCounts[r.rolls] = r.n;
   return {
-    filters: { period: f.period, source: f.source, mode: f.mode },
+    filters: { period: f.period, source: f.source, mode: f.mode, kind: f.kind },
     bucket,
     activity: {
       games: totals.games || 0, abandoned: abandoned.n || 0, players: players.n || 0,
@@ -78,8 +94,8 @@ export async function stats(db, f) {
       series: series.map(s => ({ bucket: s.bucket, online: s.online, phone: s.phone }))
     },
     facts: {
-      turns: turnFacts.turns || 0, sevensOuts: turnFacts.sevensOuts || 0, avgPoints: orNull(turnFacts.avgPoints),
-      shots: shots.n || 0, early: totals.early || 0, limits: limitCounts,
+      turns: turnFacts.turns || 0, tops: turnFacts.tops || 0, zeros: turnFacts.zeros || 0, avgPoints: single ? orNull(turnFacts.avgPoints) : null,
+      shots: shots.n || 0, early: totals.early || 0, limits: limitCounts, rolls: ft ? rollCounts : null,
       spread: spread.map(s => ({ pts: s.pts, n: s.n })),
       records: { biggestTurn: record(biggest), longestGame: record(longest), closestFinish: record(closest) }
     },
@@ -91,21 +107,21 @@ export async function stats(db, f) {
 function leaderboard(rows) {
   const byKey = new Map();
   for (const r of rows) {
-    const e = byKey.get(r.who) || { tag: tagOf(r.userId), spellings: [], games: 0, losses: 0, sevensOuts: 0, shots: 0 };
+    const e = byKey.get(r.who) || { tag: tagOf(r.userId), spellings: [], games: 0, losses: 0, tops: 0, shots: 0 };
     e.spellings.push([r.name, r.games]);
-    e.games += r.games; e.losses += r.losses; e.sevensOuts += r.sevensOuts; e.shots += r.shots;
+    e.games += r.games; e.losses += r.losses; e.tops += r.tops; e.shots += r.shots;
     byKey.set(r.who, e);
   }
   return [...byKey.values()].map(e => ({
     name: e.spellings.sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))[0][0], tag: e.tag,
-    games: e.games, losses: e.losses, lossRate: e.losses / e.games, sevensOuts: e.sevensOuts, shots: e.shots
+    games: e.games, losses: e.losses, lossRate: e.losses / e.games, tops: e.tops, shots: e.shots
   })).sort((a, b) => b.games - a.games || (a.name < b.name ? -1 : 1) || ((a.tag || '') < (b.tag || '') ? -1 : 1));
 }
 
 export async function recentGames(db, f) {
   const w = finished(f, 0);
   const rows = await db.all(
-    `SELECT g.id AS id, g.source AS source, g.mode AS mode, g.finished_at AS finishedAt, g.loser AS loser, g.early AS early, g.rounds AS rounds
+    `SELECT g.id AS id, g.source AS source, g.kind AS kind, g.mode AS mode, g.finished_at AS finishedAt, g.loser AS loser, g.early AS early, g.rounds AS rounds
      FROM games g WHERE ${w.sql}${f.before ? ' AND (g.finished_at < ? OR (g.finished_at = ? AND g.id < ?))' : ''}
      ORDER BY g.finished_at DESC, g.id DESC LIMIT ?`,
     [...w.params, ...(f.before ? [f.before.at, f.before.at, f.before.id] : []), PAGE_SIZE + 1]);
@@ -115,7 +131,7 @@ export async function recentGames(db, f) {
     : [];
   return {
     games: games.map(g => ({
-      id: g.id, source: g.source, mode: g.mode, finishedAt: g.finishedAt, loser: g.loser, early: !!g.early, rounds: g.rounds,
+      id: g.id, source: g.source, kind: g.kind, mode: g.mode, finishedAt: g.finishedAt, loser: g.loser, early: !!g.early, rounds: g.rounds,
       players: players.filter(p => p.gameId === g.id).map(p => ({ idx: p.idx, name: p.name, tag: tagOf(p.userId), score: p.score, lost: !!p.lost }))
     })),
     next: rows.length > PAGE_SIZE ? `${games[games.length - 1].finishedAt}_${games[games.length - 1].id}` : null
@@ -125,12 +141,12 @@ export async function recentGames(db, f) {
 export async function gameDetail(db, id) {
   const [g] = await db.all('SELECT * FROM games WHERE id = ?', [id]);
   if (!g) return null;
-  const players = await db.all('SELECT idx, name, score, lost, sevens_outs AS sevensOuts, shots, user_id AS userId FROM players WHERE game_id = ? ORDER BY idx', [id]);
+  const players = await db.all('SELECT idx, name, score, lost, sevens_outs AS tops, shots, user_id AS userId FROM players WHERE game_id = ? ORDER BY idx', [id]);
   return {
-    id: g.id, source: g.source, mode: g.mode, status: g.status, roomCode: g.room_code, early: !!g.early,
+    id: g.id, source: g.source, kind: g.kind, mode: g.mode, status: g.status, roomCode: g.room_code, early: !!g.early,
     startedAt: g.started_at, finishedAt: g.finished_at, rounds: g.rounds, loser: g.loser,
     sheet: g.sheet ? JSON.parse(g.sheet) : null,
-    players: players.map(p => ({ idx: p.idx, name: p.name, tag: tagOf(p.userId), score: p.score, lost: !!p.lost, sevensOuts: p.sevensOuts, shots: p.shots }))
+    players: players.map(p => ({ idx: p.idx, name: p.name, tag: tagOf(p.userId), score: p.score, lost: !!p.lost, tops: p.tops, shots: p.shots }))
   };
 }
 
@@ -139,7 +155,7 @@ export const ROOMS_PAGE = 30, OPEN_MAX = 100;
 const ROOM_ID_RE = /^[0-9a-f]{16}$/;
 const roomOut = r => ({
   id: r.id, code: r.code, createdAt: r.created_at, activeAt: r.active_at, closedAt: r.closed_at, closeReason: r.close_reason,
-  phase: r.phase, mode: r.mode, pairing: r.pairing, round: r.round, seats: r.seats, connected: r.connected, watching: r.watching,
+  phase: r.phase, kind: r.kind, mode: r.mode, pairing: r.pairing, round: r.round, seats: r.seats, connected: r.connected, watching: r.watching,
   signedIn: r.signed_in, host: r.host, names: r.names ? JSON.parse(r.names) : [], gameId: r.game_id, firstStartAt: r.first_start_at,
   gamesStarted: r.games_started, gamesFinished: r.games_finished, connects: r.connects, rejoins: r.rejoins,
   spectators: r.spectators, chat: r.chat, peak: r.peak
@@ -206,22 +222,22 @@ export async function usage(db, f) {
     one(db, `SELECT (SELECT COUNT(*) FROM users) AS total, (SELECT COUNT(*) FROM users WHERE created_at >= ?) AS fresh,
              (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE last_used_at >= ?) AS active,
              (SELECT COUNT(*) FROM passkeys) AS passkeys, (SELECT COALESCE(SUM(synced), 0) FROM passkeys) AS synced`, [f.since, f.since]),
-    db.all(`SELECT t.starter AS starter, COUNT(*) AS n, AVG(t.pts) AS avg, SUM(t.pts = 0) AS zero ${'FROM turns t JOIN games g ON g.id = t.game_id'}
+    db.all(`SELECT t.starter AS starter, COUNT(*) AS n, AVG(t.pts) AS avg, SUM(${TOP}) AS tops ${'FROM turns t JOIN games g ON g.id = t.game_id'}
             WHERE ${w.sql} GROUP BY t.starter`, w.params),
-    // dice games: players after the starter who stopped before the round's limit, and what that scored
+    // Sevens Out dice games: players after the starter who stopped before the round's limit, and what that scored
     db.all(`SELECT t.rolls AS rolls, t.mark AS mark, COUNT(*) AS n, AVG(t.pts) AS avg FROM turns t JOIN games g ON g.id = t.game_id
-            WHERE ${w.sql} AND g.mode = 'dice' AND t.starter = 0 AND t.rolls IS NOT NULL AND t.mark IS NOT NULL GROUP BY t.rolls, t.mark`, w.params)
+            WHERE ${w.sql} AND g.kind = 'sevens' AND g.mode = 'dice' AND t.starter = 0 AND t.rolls IS NOT NULL AND t.mark IS NOT NULL GROUP BY t.rolls, t.mark`, w.params)
   ]);
   const grid = Array.from({ length: WEEKDAYS }, () => Array(HOURS).fill(0));
   for (const h of heat) if (h.dow >= 0 && h.dow < WEEKDAYS && h.hour >= 0 && h.hour < HOURS) grid[h.dow][h.hour] = h.n;
   const closed = { empty: 0, expired: 0, admin: 0, gone: 0 };
   for (const r of rows) if (r.reason in closed) closed[r.reason] = r.n;
-  const turnOf = s => { const t = turns.find(x => x.starter === s); return t ? { turns: t.n, avgPoints: t.avg, sevensOuts: t.zero } : { turns: 0, avgPoints: null, sevensOuts: 0 }; };
+  const turnOf = s => { const t = turns.find(x => x.starter === s); return t ? { turns: t.n, avgPoints: t.avg, tops: t.tops } : { turns: 0, avgPoints: null, tops: 0 }; };
   const early = stops.filter(s => s.rolls < s.mark), full = stops.filter(s => s.rolls >= s.mark);
   const sum = (xs, k) => xs.reduce((a, x) => a + x[k], 0);
   const avgOf = xs => (sum(xs, 'n') ? xs.reduce((a, x) => a + x.avg * x.n, 0) / sum(xs, 'n') : null);
   return {
-    filters: { period: f.period, source: f.source, mode: f.mode },
+    filters: { period: f.period, source: f.source, mode: f.mode, kind: f.kind },
     rooms: {
       created: funnel.created || 0, twoPlus: funnel.twoPlus || 0, started: funnel.started || 0, finished: funnel.finished || 0,
       watched: funnel.watched || 0, chatted: funnel.chatted || 0, signedIn: funnel.signedIn || 0, messages: funnel.messages || 0,
@@ -232,7 +248,7 @@ export async function usage(db, f) {
     sizes: sizes.map(s => ({ players: s.players, n: s.n })),
     people: { total: firsts.people || 0, fresh: firsts.fresh || 0, twoDays: days.twoDays || 0, fiveGames: days.fiveGames || 0 },
     accounts: { total: accounts.total || 0, fresh: accounts.fresh || 0, active: accounts.active || 0, passkeys: accounts.passkeys || 0, synced: accounts.synced || 0 },
-    turns: { starter: turnOf(1), others: turnOf(0) },
+    turns: f.kind === 'all' ? null : { starter: turnOf(1), others: turnOf(0) }, // points mean something else in each game
     stops: { early: sum(early, 'n'), full: sum(full, 'n'), earlyAvg: avgOf(early), fullAvg: avgOf(full) }
   };
 }

@@ -37,7 +37,8 @@ h1{font:800 1.9rem/1 var(--font-display);margin:4px 0 14px;letter-spacing:.01em}
 h1 span{color:var(--brass)}
 h2{font:700 1.35rem/1.1 var(--font-display);margin:0 0 12px}
 h3{font-size:.85rem;margin:0 0 8px;color:var(--ink-soft)}
-.filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:0 0 16px}
+.filters{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 16px}
+@media (max-width:560px){.filters{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .filters label{display:flex;flex-direction:column;gap:4px;font-size:.8rem;color:var(--ink-soft);font-weight:600;min-width:0}
 select,button,input{font:inherit;color:inherit}
 select{width:100%;padding:8px 6px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
@@ -114,6 +115,7 @@ dialog h3,#usage h3{margin-top:16px}
     <div class="tabs" role="tablist" aria-label="Rooms"><button role="tab" id="t-open" data-rooms="open" aria-selected="true">Open now</button><button role="tab" id="t-closed" data-rooms="closed" aria-selected="false">Closed</button></div>
     <div class="body"></div></section>
   <form class="filters" id="filters" onsubmit="return false">
+    <label>Game<select id="f-kind"><option value="">Sevens Out</option><option value="4218">42/18</option><option value="schocken">Schocken</option><option value="all">All games</option></select></label>
     <label>Period<select id="f-period"><option value="7d">7 days</option><option value="30d">30 days</option><option value="12m">12 months</option><option value="all">All time</option></select></label>
     <label>Where<select id="f-source"><option value="">Everywhere</option><option value="online">Online</option><option value="phone">One phone</option></select></label>
     <label>Mode<select id="f-mode"><option value="">Both modes</option><option value="dice">Dice in the app</option><option value="score">Real dice</option></select></label>
@@ -135,6 +137,11 @@ dialog h3,#usage h3{margin-top:16px}
   const when = ms => new Date(ms).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
   const SOURCE = { online: 'Online', phone: 'One phone' }, MODE = { dice: 'Dice in the app', score: 'Real dice' };
+  const KIND = { sevens: 'Sevens Out', '4218': '42/18', schocken: 'Schocken' };
+  // the game's top throw (players.sevens_outs), and what a turn's points are in each game
+  const TOPS = { sevens: 'Sevens Outs', '4218': '42/18s', schocken: 'Schock outs', all: 'Top throws' };
+  // a turn as the score sheet shows it: Sevens Out's points, 42/18's throw, Schocken's dice
+  const turnText = (kind, t) => kind === '4218' ? (t.pts ? `42+${t.pts}` : 'no 42') : kind === 'schocken' ? (t.dice ? t.dice.join('') + (t.blind ? ' b' : '') : 'blind') : String(t.pts);
   const NO_GAMES = '<p class="empty">No games yet in this period.</p>';
   const view = { stats: null, games: [], next: null, sort: { key: 'games', dir: -1 }, all: false, open: null, confirm: false, sheetError: null,
     usage: null, rooms: { tab: 'open', list: [], next: null, live: true, binding: true, idleConfirm: false, error: null }, room: null };
@@ -151,13 +158,15 @@ dialog h3,#usage h3{margin-top:16px}
     return {
       period: ['7d', '30d', '12m', 'all'].includes(q.get('period')) ? q.get('period') : '30d',
       source: ['online', 'phone'].includes(q.get('source')) ? q.get('source') : '',
-      mode: ['dice', 'score'].includes(q.get('mode')) ? q.get('mode') : ''
+      mode: ['dice', 'score'].includes(q.get('mode')) ? q.get('mode') : '',
+      kind: ['4218', 'schocken', 'all'].includes(q.get('kind')) ? q.get('kind') : '' // '' = Sevens Out
     };
   }
   function query(extra) {
     const f = filters(), q = new URLSearchParams({ period: f.period, tz: String(new Date().getTimezoneOffset()) });
     if (f.source) q.set('source', f.source);
     if (f.mode) q.set('mode', f.mode);
+    if (f.kind) q.set('kind', f.kind);
     for (const [k, v] of Object.entries(extra || {})) q.set(k, v);
     return q.toString();
   }
@@ -265,16 +274,22 @@ dialog h3,#usage h3{margin-top:16px}
     const max = Math.max(1, ...rows.map(r => r.n)), total = rows.reduce((a, r) => a + r.n, 0);
     return rows.map(r => `<div class="hb"><span>${esc(r.label)}</span><span class="track"><span style="width:${(r.n / max * 100).toFixed(1)}%"></span></span><span class="pct">${total ? Math.round(r.n / total * 100) : 0}%</span></div>`).join('');
   }
-  function spreadChart(spread) {
-    const counts = Array(37).fill(0);
-    for (const s of spread) if (s.pts >= 0 && s.pts <= 36) counts[s.pts] = s.n;
-    const W = 370, H = 100, base = H, max = Math.max(1, ...counts), bw = W / 37;
-    const bars = counts.map((n, p) => {
-      const h = base * n / max;
-      return `<rect class="${p === 0 ? 'c-online' : 'c-brass'}" x="${p * bw + 1}" y="${base - h}" width="${bw - 2}" height="${h}"><title>${p} points: ${plural(n, 'turn', 'turns')}</title></rect>`;
+  // points per turn: Sevens Out 0 to 36, 42/18 no 42 and 3 to 18, Schocken a throw's worth (1, 2, 3, Schock 2 to 6, Schock out);
+  // the game's top throw is drawn in the online colour
+  const SPREAD = {
+    sevens: { values: Array.from({ length: 37 }, (_, p) => p), top: 0, label: p => `${p} points`, axis: ['0', '18', '36'], title: 'Points per turn, 0 to 36' },
+    '4218': { values: [0, ...Array.from({ length: 16 }, (_, k) => k + 3)], top: 18, label: p => p ? `42 + ${p}` : 'No 42', axis: ['No 42', '42 + 10', '42/18'], title: 'Throws, no 42 to 42/18' },
+    schocken: { values: [1, 2, 3, 4, 5, 6, 13], top: 13, label: p => p === 13 ? 'Schock out' : `Worth ${plural(p, 'coaster', 'coasters')}`, axis: ['Worth 1', 'Schock 4', 'Schock out'], title: 'Throws by worth in coasters' }
+  };
+  function spreadChart(spread, kind) {
+    const sp = SPREAD[kind], counts = sp.values.map(v => (spread.find(s => s.pts === v) || { n: 0 }).n);
+    const W = 370, H = 100, base = H, max = Math.max(1, ...counts), bw = W / counts.length;
+    const bars = counts.map((n, k) => {
+      const h = base * n / max, p = sp.values[k];
+      return `<rect class="${p === sp.top ? 'c-online' : 'c-brass'}" x="${k * bw + 1}" y="${base - h}" width="${bw - 2}" height="${h}"><title>${esc(sp.label(p))}: ${plural(n, 'turn', 'turns')}</title></rect>`;
     }).join('');
-    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Points per turn, 0 to 36">${bars}
-</svg><p class="axis"><span>0</span><span>18</span><span>36</span></p></div>`;
+    return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${sp.title}">${bars}
+</svg><p class="axis">${sp.axis.map(a => `<span>${esc(a)}</span>`).join('')}</p></div>`;
   }
 
   // ---------- sections ----------
@@ -292,30 +307,39 @@ dialog h3,#usage h3{margin-top:16px}
       </div>${barChart(fill(a.series, s.bucket, s.filters.period), s.bucket)}`;
   }
   function renderFacts() {
-    const s = view.stats, f = s.facts, r = f.records;
+    const s = view.stats, f = s.facts, r = f.records, kind = s.filters.kind || 'sevens';
     if (!s.activity.games) { body('facts').innerHTML = NO_GAMES; return; }
     const records = [
       r.biggestTurn && `Biggest turn: <button class="link" data-game="${r.biggestTurn.gameId}">${r.biggestTurn.pts} points by ${esc(r.biggestTurn.name)}</button>`,
       r.longestGame && `Longest game: <button class="link" data-game="${r.longestGame.gameId}">${plural(r.longestGame.rounds, 'round', 'rounds')}</button>`,
       r.closestFinish && `Closest finish: <button class="link" data-game="${r.closestFinish.gameId}">${esc(r.closestFinish.loser)} lost ${r.closestFinish.margin ? `by ${plural(r.closestFinish.margin, 'point', 'points')}` : 'on a tie'}</button>`
     ].filter(Boolean);
+    const limits = `<div><h3>Roll limits starters choose</h3>${hbars([1, 2, 3].map(k => ({ label: plural(k, 'roll', 'rolls'), n: f.limits[k] })))}</div>`;
+    const tiles = {
+      sevens: () => `${tile('tops', num(f.tops), 'Sevens Outs')}${tile('avgPoints', num(f.avgPoints, 1), 'points per turn')}`,
+      '4218': () => `${tile('tops', num(f.tops), '42/18s thrown')}${tile('zeros', pct(f.zeros, f.turns), 'of throws had no 42')}${tile('avgPoints', num(f.avgPoints, 1), 'points of a 42')}`,
+      schocken: () => `${tile('tops', num(f.tops), 'Schock outs')}${tile('turns', num(f.turns), 'throws')}`,
+      all: () => `${tile('tops', num(f.tops), 'top throws')}${tile('turns', num(f.turns), 'turns')}`
+    }[kind]();
+    const charts = {
+      sevens: () => `${limits}<div><h3>Points per turn</h3>${spreadChart(f.spread, kind)}</div>`,
+      '4218': () => `<div><h3>Rolls per throw</h3>${hbars([1, 2, 3, 4, 5].map(k => ({ label: plural(k, 'roll', 'rolls'), n: f.rolls[k] })))}</div><div><h3>Throws</h3>${spreadChart(f.spread, kind)}</div>`,
+      schocken: () => `${limits}<div><h3>Throws by worth</h3>${spreadChart(f.spread, kind)}</div>`,
+      all: () => ''
+    }[kind]();
     body('facts').innerHTML = `<div class="tiles">
-        ${tile('sevensOuts', num(f.sevensOuts), 'Sevens Outs')}
-        ${tile('avgPoints', num(f.avgPoints, 1), 'points per turn')}
+        ${tiles}
         ${tile('shots', num(f.shots), 'rounds of shots')}
         ${tile('early', num(f.early), 'games ended early')}
       </div>
       <ul class="records">${records.map(x => `<li>${x}</li>`).join('')}</ul>
-      <div class="two">
-        <div><h3>Roll limits starters choose</h3>${hbars([1, 2, 3].map(k => ({ label: plural(k, 'roll', 'rolls'), n: f.limits[k] })))}</div>
-        <div><h3>Points per turn</h3>${spreadChart(f.spread)}</div>
-      </div>`;
+      ${charts ? `<div class="two">${charts}</div>` : `<p class="note">Top throws: Sevens Outs, 42/18s and Schock outs. Pick one game for its points.</p>`}`;
   }
   // a signed-in player's name carries their tag; guests are just a name
   const who = p => esc(p.name) + (p.tag ? ` <span class="tag">#${esc(p.tag)}</span>` : '');
-  const COLUMNS = [['name', 'Player'], ['games', 'Games'], ['losses', 'Losses'], ['lossRate', 'Loss rate'], ['sevensOuts', 'Sevens Outs'], ['shots', 'Shots paid']];
+  const columns = kind => [['name', 'Player'], ['games', 'Games'], ['losses', 'Losses'], ['lossRate', 'Loss rate'], ['tops', TOPS[kind]], ['shots', 'Shots paid']];
   function renderBoard() {
-    const everyone = view.stats.leaderboard;
+    const everyone = view.stats.leaderboard, COLUMNS = columns(view.stats.filters.kind || 'sevens');
     if (!everyone.length) { body('leaderboard').innerHTML = NO_GAMES; return; }
     const { key, dir } = view.sort;
     const rows = everyone.filter(p => view.all || p.games >= 3)
@@ -323,7 +347,7 @@ dialog h3,#usage h3{margin-top:16px}
     const hidden = everyone.length - rows.length;
     const table = rows.length ? `<div class="tablewrap"><table>
         <thead><tr>${COLUMNS.map(([k, l]) => `<th scope="col"${k === key ? ` aria-sort="${dir > 0 ? 'ascending' : 'descending'}"` : ''}><button data-sort="${k}">${l}</button></th>`).join('')}</tr></thead>
-        <tbody>${rows.map(p => `<tr><td>${who(p)}</td><td>${num(p.games)}</td><td>${num(p.losses)}</td><td>${num(p.lossRate * 100)}%</td><td>${num(p.sevensOuts)}</td><td>${num(p.shots)}</td></tr>`).join('')}</tbody>
+        <tbody>${rows.map(p => `<tr><td>${who(p)}</td><td>${num(p.games)}</td><td>${num(p.losses)}</td><td>${num(p.lossRate * 100)}%</td><td>${num(p.tops)}</td><td>${num(p.shots)}</td></tr>`).join('')}</tbody>
       </table></div>` : '<p class="empty">Nobody has played 3 games in this period yet.</p>';
     body('leaderboard').innerHTML = table +
       `<label class="switch"><input type="checkbox" id="show-all"${view.all ? ' checked' : ''}> Show everyone${hidden ? ` (${hidden} with fewer than 3 games hidden)` : ''}</label>`;
@@ -331,7 +355,7 @@ dialog h3,#usage h3{margin-top:16px}
   function renderGames() {
     if (!view.games.length) { body('games').innerHTML = '<p class="empty">No finished games yet.</p>'; return; }
     body('games').innerHTML = `<ul class="games">${view.games.map(g => `<li data-id="${g.id}"><button data-game="${g.id}">
-        <span class="meta">${esc(when(g.finishedAt))} · ${SOURCE[g.source]} · ${MODE[g.mode]}${g.early ? ' · ended early' : ''}</span>
+        <span class="meta">${esc(when(g.finishedAt))} · ${KIND[g.kind] || KIND.sevens} · ${SOURCE[g.source]} · ${MODE[g.mode]}${g.early ? ' · ended early' : ''}</span>
         <span class="who">${g.players.map(p => `<span${p.lost ? ' class="lost"' : ''}>${who(p)} ${p.score}</span>`).join(', ')}</span>
       </button></li>`).join('')}</ul>${view.next ? '<div class="row start"><button class="btn" data-more>Load more</button></div>' : ''}`;
   }
@@ -351,7 +375,7 @@ dialog h3,#usage h3{margin-top:16px}
     return `<div class="heat"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Games by weekday and hour, busiest: ${max}">${days}${cells}${hours}</svg></div>`;
   }
   function renderUsage() {
-    const u = view.usage, r = u.rooms, p = u.people, a = u.accounts, t = u.turns, st = u.stops;
+    const u = view.usage, r = u.rooms, p = u.people, a = u.accounts, t = u.turns, st = u.stops, kind = u.filters.kind || 'sevens';
     const games = u.sizes.reduce((x, s) => x + s.n, 0), online = u.filters.source !== 'phone';
     const roomsPart = online ? (r.created ? `<h3>Online rooms made in this period</h3><div class="tiles">
         ${tile('roomsCreated', num(r.created), 'rooms made')}
@@ -378,11 +402,11 @@ dialog h3,#usage h3{margin-top:16px}
       </div>
       <div class="two"><div><h3>When games are played</h3>${heatmap(u.when)}</div>
       <div><h3>Players per game</h3>${hbars(u.sizes.map(s => ({ label: plural(s.players, 'player', 'players'), n: s.n })))}</div></div>
-      <h3>Turns</h3><ul class="records">
-        <li>Starters score ${num(t.starter.avgPoints, 1)} points a turn on average, everyone else ${num(t.others.avgPoints, 1)}.</li>
-        <li>Sevens Out: ${pct(t.starter.sevensOuts, t.starter.turns)} of starters' turns, ${pct(t.others.sevensOuts, t.others.turns)} of the others'.</li>
+      ${t ? `<h3>Turns</h3><ul class="records">
+        <li>${{ '4218': 'Starters throw', schocken: "Starters' throws are worth" }[kind] || 'Starters score'} ${num(t.starter.avgPoints, 1)} ${kind === 'schocken' ? 'coasters' : 'points'} a turn on average, everyone else ${num(t.others.avgPoints, 1)}.</li>
+        <li>${TOPS[kind].slice(0, -1)}: ${pct(t.starter.tops, t.starter.turns)} of starters' turns, ${pct(t.others.tops, t.others.turns)} of the others'.</li>
         ${st.early + st.full ? `<li>In dice games, players after the starter stopped before the limit in ${pct(st.early, st.early + st.full)} of their turns (${num(st.earlyAvg, 1)} points on average, against ${num(st.fullAvg, 1)} using every roll).</li>` : ''}
-      </ul>` : `<h3>Players</h3>${NO_GAMES}`;
+      </ul>` : ''}` : `<h3>Players</h3>${NO_GAMES}`;
     const accountsPart = `<h3>Player accounts</h3><div class="tiles">
         ${tile('accounts', num(a.total), 'accounts in all')}
         ${tile('accountsNew', num(a.fresh), 'made in this period')}
@@ -406,7 +430,7 @@ dialog h3,#usage h3{margin-top:16px}
     if (!r.list.length) { body('rooms').innerHTML = err + `<p class="empty">${r.tab === 'open' ? 'No rooms are open right now.' : 'No closed rooms yet.'}</p>` + note; return; }
     const items = r.list.map(x => r.tab === 'open'
       ? `<li data-id="${x.id}"><button data-room="${x.id}">
-          <span class="top"><span><span class="code">${esc(x.code)}</span> · ${phaseText(x)} · ${MODE_SHORT[x.mode] || ''}</span>
+          <span class="top"><span><span class="code">${esc(x.code)}</span> · ${phaseText(x)} · ${KIND[x.kind] || KIND.sevens} · ${MODE_SHORT[x.mode] || ''}</span>
           <span><span class="dot${x.connected ? ' on' : ''}"></span>${x.connected} of ${x.seats} online${x.watching ? ` · ${x.watching} watching` : ''}${idle(x) ? ' <span class="badge idle">idle</span>' : ''}</span></span>
           <span class="meta">${esc(x.names.join(', '))} · active ${esc(ago(x.activeAt))} · open ${esc(dur(Date.now() - x.createdAt))}</span>
         </button></li>`
@@ -490,7 +514,7 @@ dialog h3,#usage h3{margin-top:16px}
     const r = view.room, v = r.live;
     const head = `<h2 id="sheet-title">Room ${esc(r.code)}</h2>
       <p class="meta">${r.closedAt ? `Closed ${esc(when(r.closedAt))}: ${esc(CLOSED[r.closeReason] || 'closed')}` : `${phaseText(r)} · active ${esc(ago(r.activeAt))}`}
-        · ${MODE_SHORT[r.mode] || ''} · made ${esc(when(r.createdAt))}${v ? ' · <strong>live</strong>' : ''}</p>`;
+        · ${KIND[r.kind] || KIND.sevens} · ${MODE_SHORT[r.mode] || ''} · made ${esc(when(r.createdAt))}${v ? ' · <strong>live</strong>' : ''}</p>`;
     const seats = v ? `<h3>Seats</h3><ul class="seats">${v.room.seats.map(s => `<li><span class="dot${s.connected ? ' on' : ''}"></span>${who({ name: s.name, tag: s.user ? s.user.slice(0, 4) : null })}${s.id === v.room.host ? ' <span class="badge">host</span>' : ''}</li>`).join('')}
         ${v.watching.map(w => `<li><span class="dot on"></span>${who({ name: w.name, tag: w.user ? w.user.slice(0, 4) : null })} <span class="badge">watching</span></li>`).join('')}</ul>` + liveGame(v)
       : r.liveError ? '<p class="note">The game Worker didn\'t answer, so there is no live look right now.</p>' : '';
@@ -531,21 +555,22 @@ dialog h3,#usage h3{margin-top:16px}
     catch (e) { dlg.innerHTML = `<p class="err">${esc(e.message)}</p><div class="row"><button class="btn" data-close>Close</button></div>`; }
   }
   function renderSheet() {
-    const g = view.open, sh = g.sheet;
+    const g = view.open, sh = g.sheet, kind = g.kind || 'sevens', coasters = kind !== 'sevens';
     const head = `<tr><th scope="col">Round</th>${sh.players.map((nm, i) => `<th scope="col"${g.players[i] && g.players[i].lost ? ' class="lost"' : ''}>${g.players[i] ? who({ name: nm, tag: g.players[i].tag }) : esc(nm)}</th>`).join('')}</tr>`;
+    // 42/18 and Schocken: the round's loser takes coasters (●); Schocken's rounds name their half
     const rows = sh.rounds.filter(rd => Object.keys(rd.results).length).map(rd =>
-      `<tr><th scope="row">${rd.no}${rd.mark ? ` <span class="meta">· limit ${rd.mark}</span>` : ''}</th>${sh.players.map((_, i) => {
+      `<tr><th scope="row">${rd.no}${rd.half ? ` <span class="meta">· ${rd.half === 3 ? 'final' : `half ${rd.half}`}</span>` : ''}${rd.mark ? ` <span class="meta">· limit ${rd.mark}</span>` : ''}</th>${sh.players.map((_, i) => {
         const t = rd.results[i];
-        return `<td>${t ? `${i === rd.starter ? '▸ ' : ''}${t.pts}` : ''}</td>`;
+        return `<td>${t ? `${i === rd.starter ? '▸ ' : ''}${esc(turnText(kind, t))}${rd.loser === i ? ' ●' : ''}` : ''}</td>`;
       }).join('')}</tr>`).join('');
-    const totals = `<tr><th scope="row">Total</th>${g.players.map(p => `<td><strong${p.lost ? ' class="lost"' : ''}>${p.score}</strong></td>`).join('')}</tr>`;
+    const totals = `<tr><th scope="row">${coasters ? 'Coasters' : 'Total'}</th>${g.players.map(p => `<td><strong${p.lost ? ' class="lost"' : ''}>${p.score}</strong></td>`).join('')}</tr>`;
     const actions = view.confirm
       ? `<div class="confirm"><p>Delete this game from the statistics? This can't be undone.</p><div class="row"><button class="btn" data-act="delete-no">Keep it</button><button class="btn danger" data-act="delete-yes">Delete</button></div></div>`
       : `<div class="row"><button class="btn" data-close>Close</button><button class="btn danger" data-act="delete">Delete game</button></div>`;
     $('sheet').innerHTML = `<h2 id="sheet-title">${esc(when(g.finishedAt))}</h2>
-      <p class="meta">${SOURCE[g.source]} · ${MODE[g.mode]}${g.roomCode ? ` · room ${esc(g.roomCode)}` : ''}${g.early ? ' · ended early' : ''} · ${esc(g.loser)} lost</p>
+      <p class="meta">${KIND[kind]} · ${SOURCE[g.source]} · ${MODE[g.mode]}${g.roomCode ? ` · room ${esc(g.roomCode)}` : ''}${g.early ? ' · ended early' : ''} · ${esc(g.loser)} lost</p>
       <div class="tablewrap"><table class="sheet"><thead>${head}</thead><tbody>${rows}${totals}</tbody></table></div>
-      <p class="meta">▸ started the round</p>
+      <p class="meta">▸ started the round${coasters ? ' · ● lost it' : ''}${kind === 'schocken' ? ' · b: blind' : ''}</p>
       ${view.sheetError ? `<p class="err">${esc(view.sheetError)}</p>` : ''}${actions}`;
   }
   async function deleteOpen() {
@@ -594,6 +619,7 @@ dialog h3,#usage h3{margin-top:16px}
     if ($('f-period').value !== '30d') q.set('period', $('f-period').value);
     if ($('f-source').value) q.set('source', $('f-source').value);
     if ($('f-mode').value) q.set('mode', $('f-mode').value);
+    if ($('f-kind').value) q.set('kind', $('f-kind').value);
     history.replaceState(null, '', q.toString() ? `?${q}` : location.pathname);
     loadStats(); loadUsage(); loadGames(false);
   });
@@ -604,7 +630,7 @@ dialog h3,#usage h3{margin-top:16px}
   }, LIST_EVERY);
 
   const f = filters();
-  $('f-period').value = f.period; $('f-source').value = f.source; $('f-mode').value = f.mode;
+  $('f-period').value = f.period; $('f-source').value = f.source; $('f-mode').value = f.mode; $('f-kind').value = f.kind;
   loadRooms(false); loadStats(); loadUsage(); loadGames(false);
 })();
 </script>

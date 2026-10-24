@@ -1,8 +1,8 @@
 # Admin page (statistics)
 
-A page only the owner can open, showing how Sevens Out is played: the online rooms (open now, live, and closed),
-activity over time, how the app is used, game facts and records, a leaderboard by player name, and the recent
-games with their score sheets.
+A page only the owner can open, showing how Sevens Out, 42/18 and Schocken are played: the online rooms (open now,
+live, and closed), activity over time, how the app is used, game facts and records, a leaderboard by player name,
+and the recent games with their score sheets.
 
 ## How it works
 
@@ -17,6 +17,12 @@ games with their score sheets.
   again; that includes one the server refuses as too large (413), not only one that breaks the rules.
   The server checks it against the rules (`server/core/stats.js`, `checkReport`, which also refuses
   player names that aren't strings) and stores it once per game.
+- **Games:** every game is recorded with its kind (`games.kind`: `sevens`, `4218`, `schocken`). The **Game** filter
+  shows Sevens Out by default, or 42/18, Schocken or all games together. Points mean something different in each game
+  (Sevens Out: pips; 42/18: the throw's points, 0 = no 42; Schocken: what the throw is worth in coasters), so the facts
+  about points (points per turn, the spread, the biggest turn, the closest finish) need one game. The "top throw" column
+  is a Sevens Out, a 42/18 or a Schock out. A score in 42/18 and Schocken is coasters (Schocken: in the last half played).
+  The rooms part of **Usage** counts every room, whatever its game; the open and closed rooms show each room's game.
 - **The page:** a separate Worker, `sevens-out-admin`, reads the same database. Cloudflare Access signs the
   owner in; the Worker checks the Access token (`server/admin/access.js`: a string `kid`, numeric `exp`
   and `nbf`) and the email itself as well.
@@ -44,7 +50,9 @@ games with their score sheets.
 
 1. Create the database and load the schema:
    `npx wrangler d1 create sevens-out-stats` (put the id in both `wrangler.jsonc` files), then `npm run db:schema`.
-   A database made before the rooms gets them once with `npm run db:rooms` (safe to run again).
+   A database made before the rooms gets them once with `npm run db:rooms` (safe to run again), and one made before
+   42/18 and Schocken were recorded gets `games.kind` and `rooms.kind` once with `npm run db:kinds` (a second run fails
+   with "duplicate column name" and changes nothing). Every game recorded before is Sevens Out.
 2. Deploy the game Worker (`npm run worker:deploy`) and the admin Worker (`npm run admin:deploy`).
 3. In the Cloudflare dashboard, open **Zero Trust** and finish the onboarding: pick a team name and the
    Free plan. (Cloudflare may ask for a payment method even on the Free plan.)
@@ -65,6 +73,14 @@ games with their score sheets.
    entrypoint it binds to exists.
 4. Push the page: phones in a closed room then go home with "Room ABCDE was closed." (an older page shows the server's
    message and then "There's no room with the code").
+
+## Adding 42/18 and Schocken to a live setup (once)
+
+1. `npm run db:kinds`: `games.kind` and `rooms.kind`. Do it first: a Worker that records 42/18 and Schocken writes the
+   column, and until it exists every stats write fails (and waits for a retry) and every room write fails quietly.
+2. `npm run worker:deploy`, then `npm run admin:deploy`.
+3. Push the page: it then sends finished one-phone 42/18 and Schocken games too. (An older Worker refuses those reports,
+   and the page drops them; that is why the Worker goes first.)
 
 ## Never put the game Worker behind Access
 

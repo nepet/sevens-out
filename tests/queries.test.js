@@ -7,7 +7,7 @@ import { fromD1 } from '../server/d1/db.js';
 import { writeRecord, writeRoom, markRoomGone } from '../server/d1/write.js';
 import { summarize } from '../server/core/stats.js';
 import { parseFilters, stats, recentGames, gameDetail, PAGE_SIZE, parseRoomFilters, roomList, roomDetail, usage, ROOMS_PAGE } from '../server/admin/queries.js';
-import { diceGame, scoreGame, quickGame } from './games.js';
+import { diceGame, scoreGame, quickGame, ftGame, skGame } from './games.js';
 
 const DAY = 86_400_000, NOW = Date.UTC(2026, 9, 19, 12);
 const q = (s, now = NOW) => parseFilters(new URLSearchParams(s), now);
@@ -21,7 +21,8 @@ async function put(db, state, { source = 'online', finishedAt, startedAt = finis
 
 test('filters: defaults and junk fall back to safe values', () => {
   const f = q('');
-  assert.deepEqual([f.period, f.source, f.mode, f.tz, f.before], ['30d', null, null, 0, null]);
+  assert.deepEqual([f.period, f.source, f.mode, f.kind, f.tz, f.before], ['30d', null, null, 'sevens', 0, null]);
+  assert.deepEqual(['4218', 'schocken', 'all', 'yahtzee'].map(k => q(`kind=${k}`).kind), ['4218', 'schocken', 'all', 'sevens']);
   assert.equal(f.since, NOW - 30 * DAY);
   const g = q('period=all&source=phone&mode=score&tz=-120&before=123_00000000000000ab');
   assert.deepEqual([g.period, g.since, g.source, g.mode, g.tz, g.before], ['all', 0, 'phone', 'score', -120, { at: 123, id: '00000000000000ab' }]);
@@ -50,7 +51,7 @@ test('activity, facts and abandoned games follow the filters', async () => {
   assert.equal(s.activity.avgRounds, (g1.game.rounds + g2.game.rounds) / 2);
   assert.equal(s.activity.avgMinutes, 30);
   assert.equal(s.facts.turns, turns.length);
-  assert.equal(s.facts.sevensOuts, turns.filter(t => t.pts === 0).length);
+  assert.equal(s.facts.tops, turns.filter(t => t.pts === 0).length);
   assert.ok(Math.abs(s.facts.avgPoints - turns.reduce((a, t) => a + t.pts, 0) / turns.length) < 1e-9);
   assert.equal(s.facts.shots, both.flatMap(r => r.players).reduce((a, p) => a + p.shots, 0));
   const starts = turns.filter(t => t.starter);
@@ -75,6 +76,52 @@ test('activity, facts and abandoned games follow the filters', async () => {
   assert.deepEqual(empty.leaderboard, []);
 });
 
+test('the game filter: Sevens Out by default, 42/18 and Schocken on their own, or all games', async () => {
+  const db = fromD1(fakeD1());
+  const sevens = await put(db, diceGame(21), { finishedAt: NOW - DAY });
+  const ft = [await put(db, ftGame(22, 4, 'dice'), { finishedAt: NOW - DAY }), await put(db, ftGame(23, 3, 'score'), { source: 'phone', finishedAt: NOW - DAY })];
+  const sk = await put(db, skGame(24, 3, 'dice'), { finishedAt: NOW - DAY });
+  await put(db, ftGame(25), { status: 'abandoned', startedAt: NOW - DAY, finishedAt: 0 });
+
+  const plain = await stats(db, q('period=30d'));
+  assert.equal(plain.filters.kind, 'sevens');
+  assert.deepEqual([plain.activity.games, plain.activity.abandoned, plain.facts.turns], [1, 0, sevens.turns.length]);
+  assert.equal(plain.facts.rolls, null);
+
+  const f = await stats(db, q('period=30d&kind=4218'));
+  const turns = ft.flatMap(r => r.turns);
+  assert.deepEqual([f.activity.games, f.activity.abandoned, f.facts.turns], [2, 1, turns.length]);
+  assert.equal(f.facts.tops, turns.filter(t => t.pts === 18).length, '42/18s');
+  assert.equal(f.facts.zeros, turns.filter(t => t.pts === 0).length, 'no 42');
+  const with42 = turns.filter(t => t.pts > 0);
+  assert.ok(Math.abs(f.facts.avgPoints - with42.reduce((a, t) => a + t.pts, 0) / with42.length) < 1e-9, 'the points of a 42');
+  for (const k of [1, 2, 3, 4, 5]) assert.equal(f.facts.rolls[k], turns.filter(t => t.rolls === k).length);
+  assert.equal(f.facts.limits[1] + f.facts.limits[2] + f.facts.limits[3], 0, '42/18 has no roll limit');
+  assert.deepEqual(f.facts.records.biggestTurn, null);
+  assert.deepEqual(f.facts.records.closestFinish, null);
+  assert.equal(f.leaderboard.reduce((a, p) => a + p.tops, 0), f.facts.tops);
+  assert.equal(f.leaderboard.reduce((a, p) => a + p.losses, 0), 2);
+
+  const s = await stats(db, q('period=30d&kind=schocken'));
+  assert.deepEqual([s.activity.games, s.facts.turns, s.facts.tops], [1, sk.turns.length, sk.turns.filter(t => t.pts === 13).length]);
+  assert.equal(s.facts.spread.reduce((a, b) => a + b.n, 0), sk.turns.length);
+  assert.equal([1, 2, 3].reduce((a, k) => a + s.facts.limits[k], 0), sk.game.rounds, 'every round has its limit');
+
+  const all = await stats(db, q('period=30d&kind=all'));
+  assert.deepEqual([all.activity.games, all.activity.abandoned], [4, 1]);
+  assert.equal(all.facts.tops, [sevens, ...ft, sk].reduce((a, r) => a + r.players.reduce((b, p) => b + p.sevens_outs, 0), 0), 'each game\'s own top throw');
+  assert.deepEqual([all.facts.avgPoints, all.facts.spread], [null, []], 'points mean something else in each game');
+  assert.equal(all.facts.records.longestGame.rounds, Math.max(sevens.game.rounds, ...ft.map(r => r.game.rounds), sk.game.rounds));
+
+  const list = await recentGames(db, q('kind=4218'));
+  assert.deepEqual(list.games.map(g => g.kind), ['4218', '4218']);
+  assert.equal((await gameDetail(db, sk.game.id)).kind, 'schocken');
+  assert.equal((await usage(db, q('period=30d&kind=all'))).turns, null);
+  const u = await usage(db, q('period=30d&kind=4218'));
+  assert.equal(u.turns.starter.turns + u.turns.others.turns, turns.length);
+  assert.deepEqual([u.stops.early, u.stops.full], [0, 0], 'stopping before the limit is Sevens Out\'s');
+});
+
 test('days and weeks are counted in the viewer\'s time zone', async () => {
   const db = fromD1(fakeD1());
   const late = Date.UTC(2026, 9, 14, 23, 30); // Wednesday 23:30 UTC = Thursday 01:30 in UTC+2
@@ -93,9 +140,9 @@ test('the leaderboard joins spellings of the same name', async () => {
   await put(db, quickGame(['Anna', 'Cleo']), { finishedAt: NOW - DAY });
   await put(db, quickGame(['ANNA   ', 'Ben'], 0), { finishedAt: NOW - DAY });
   const s = await stats(db, q('period=30d'));
-  assert.deepEqual(s.leaderboard[0], { name: 'Anna', tag: null, games: 3, losses: 3, lossRate: 1, sevensOuts: 0, shots: 0 });
+  assert.deepEqual(s.leaderboard[0], { name: 'Anna', tag: null, games: 3, losses: 3, lossRate: 1, tops: 0, shots: 0 });
   const ben = s.leaderboard.find(p => p.name === 'Ben');
-  assert.deepEqual([ben.games, ben.losses, ben.sevensOuts], [2, 0, 3]);
+  assert.deepEqual([ben.games, ben.losses, ben.tops], [2, 0, 3]);
 });
 
 test('signed-in players count by player ID: two Annas stay apart, one renamed player stays one', async () => {

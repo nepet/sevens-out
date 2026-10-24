@@ -53,3 +53,56 @@ export function quickGame(names, others = 5) {
   }
   return s;
 }
+
+// a finished 42/18 game: dice games keep the 4s and 2s first; real dice now and then throw a 42/18, so players go out
+// and some games end with one player left
+export function ftGame(seed, n = 2 + (seed % 5), mode = seed % 2 ? 'dice' : 'score') {
+  const rng = seeded(seed);
+  let s = must(E.blank(), { type: 'start', kind: E.FT, names: Array.from({ length: n }, (_, i) => `P${i + 1}`), starter: seed % n, mode });
+  while (s.phase !== 'over') {
+    if (mode === 'score') {
+      if (rng() === 6 && rng() === 6) s = must(s, { type: 'drop' });
+      const pts = rng() === 6 && rng() > 3 ? 18 : rng() === 1 ? 0 : 2 + rng() + rng();
+      s = must(s, { type: 'score', pts, rolls: rng() % 5 + 1 });
+      s.game.history = []; // no undo here, and the snapshots make every step slower
+      continue;
+    }
+    const t = s.game.turn;
+    if (t.rolls && (!E.canRoll(t) || E.ftPerfect(t) || rng() === 6)) { s = must(s, { type: 'stop' }); continue; }
+    if (t.rolls) {
+      const table = E.active(t).sort((a, b) => [4, 2].includes(b.value) - [4, 2].includes(a.value));
+      for (const d of table.slice(0, Math.min(table.length, 1 + (rng() % 3)))) s = must(s, { type: 'keep', id: d.id });
+      if (!E.canRoll(s.game.turn) || E.ftPerfect(s.game.turn)) { s = must(s, { type: 'stop' }); continue; }
+    }
+    s = must(s, { type: 'roll' }, { rng });
+  }
+  return s;
+}
+
+// a finished Schocken game: dice games set aside 1s, turn 6s and roll blind now and then; real dice enter random throws,
+// some blind (their cups come up when the round's last turn is booked)
+export function skGame(seed, n = 2 + (seed % 5), mode = seed % 2 ? 'dice' : 'score') {
+  const rng = seeded(seed);
+  let s = must(E.blank(), { type: 'start', kind: E.SK, names: Array.from({ length: n }, (_, i) => `P${i + 1}`), starter: seed % n, mode });
+  while (s.phase !== 'over') {
+    const g = s.game, t = g.turn, pick = rng();
+    if (mode === 'score') {
+      const dice = [rng(), rng(), rng()];
+      if (g.lifting) { s = must(s, { type: 'score', dice, hand: pick > 3 }); s.game.history = []; continue; }
+      const rolls = 1 + (rng() % (g.pos === 0 ? 3 : g.mark));
+      s = pick === 6 ? must(s, { type: 'score', rolls, blind: true }) : must(s, { type: 'score', dice, rolls, hand: pick > 3 });
+      s.game.history = []; // no undo here, and the snapshots make every step slower
+      continue;
+    }
+    if (t.rolls === 0 || (pick > 1 && E.canRoll(t))) {
+      if (pick === 6 && E.canRoll(t)) s = must(s, { type: 'blind' }, { rng });
+      else if (E.canFlip(t) && pick > 3) s = must(s, { type: 'flip' }, { rng });
+      else {
+        t.dice.forEach(d => { if (d.held === null && d.value === 1 && t.rolls) s = must(s, { type: 'keep', id: d.id }); });
+        s = E.canRoll(s.game.turn) ? must(s, { type: 'roll' }, { rng }) : must(s, { type: 'stop' }, { rng });
+      }
+    } else if (t.flip && t.flip.roll === t.rolls) s = must(s, { type: 'roll' }, { rng });
+    else s = must(s, { type: 'stop' }, { rng });
+  }
+  return s;
+}

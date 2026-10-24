@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { register } from 'node:module';
 import { fakeD1 } from './fake-d1.js';
-import { diceGame, scoreGame } from './games.js';
+import { diceGame, scoreGame, ftGame, skGame } from './games.js';
 import { sheetOf } from '../server/core/stats.js';
 import { softAuthenticator } from './authenticator.js';
 
@@ -241,7 +241,7 @@ function reportEnv(d1 = fakeD1()) {
     REPORT_LIMIT: { limit: async ({ key }) => { hits.set(key, (hits.get(key) || 0) + 1); return { success: hits.get(key) <= 10 }; } }
   };
 }
-const reportBody = (s, id = '0123456789abcdef') => JSON.stringify({ id, mode: s.game.mode, startedAt: Date.now() - 600_000, finishedAt: Date.now() - 1000, sheet: sheetOf(s.game) });
+const reportBody = (s, id = '0123456789abcdef') => JSON.stringify({ id, ...(s.game.kind ? { kind: s.game.kind } : {}), mode: s.game.mode, startedAt: Date.now() - 600_000, finishedAt: Date.now() - 1000, sheet: sheetOf(s.game) });
 const post = (body, headers = {}) => new Request('https://x/report', { method: 'POST', body, headers: { Origin: ORIGIN, 'content-type': 'application/json', 'CF-Connecting-IP': '203.0.113.9', ...headers } });
 
 test('report: a one-phone game is checked and stored; the same game again replaces it', async () => {
@@ -253,6 +253,15 @@ test('report: a one-phone game is checked and stored; the same game again replac
   assert.equal(res.status, 204);
   const rows = env.STATS.raw.prepare('SELECT source, mode, status FROM games').all().map(r => ({ ...r }));
   assert.deepEqual(rows, [{ source: 'phone', mode: 'score', status: 'over' }]);
+});
+
+test('report: 42/18 and Schocken games are stored as their game', async () => {
+  const env = reportEnv();
+  assert.equal((await worker.fetch(post(reportBody(ftGame(5, 3, 'dice'), '00000000000000a1')), env)).status, 204);
+  assert.equal((await worker.fetch(post(reportBody(skGame(5, 3, 'score'), '00000000000000a2')), env)).status, 204);
+  assert.equal((await worker.fetch(post(reportBody(diceGame(5), '00000000000000a3')), env)).status, 204);
+  const rows = env.STATS.raw.prepare('SELECT id, kind FROM games ORDER BY id').all().map(r => ({ ...r }));
+  assert.deepEqual(rows, [{ id: '00000000000000a1', kind: '4218' }, { id: '00000000000000a2', kind: 'schocken' }, { id: '00000000000000a3', kind: 'sevens' }]);
 });
 
 test('report: preflight, wrong origin, wrong method, size, bad input', async () => {

@@ -1,6 +1,8 @@
 // 42/18 in the browser: the game choice, the dice turn with kept dice, real dice, the round's coaster and game over,
 // and two phones online. Runs against the Node server (npm run test:e2e), the online test also with TARGET=worker.
 import { test, expect } from '@playwright/test';
+import '../../engine.js';
+import { checkReport } from '../../server/core/stats.js';
 import { url, live, idle, skipRace, fixDice, noSideScroll, openMenu, closeMenu, openScores, closeScores } from './helpers.js';
 
 test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -118,6 +120,8 @@ test('the dice turn fits a small phone: the dice, the kept tray and the bar', as
 });
 
 test('real dice: throws, No 42, a correction, and game over at three coasters', async ({ page }) => {
+  const reports = [];
+  await page.route('**/report', async route => { reports.push(route.request().postDataJSON()); await route.fulfill({ status: 204 }); });
   await start42(page, { mode: 'score' });
   await expect(page.locator('#app [data-act=commit]')).toHaveText('Enter the points');
   await page.click('[data-act=key][data-id="2"]');
@@ -162,8 +166,12 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   await expect(page.locator('.verdict')).toContainText('Ben loses');
   await expect(page.locator('#app .panel .sub')).toHaveText('Ben took coaster number 3 with 42 + 3, the lowest throw of round 3.');
   await expect(page.locator('#app .lede')).toHaveText('Anna wins with 0 coasters.');
-  // 42/18 games aren't sent to the statistics yet
-  expect(await page.evaluate(() => localStorage.getItem('sevens-out-reports'))).toBeNull();
+  // the finished game goes to the statistics as 42/18, and the server's check rebuilds the same result
+  await expect.poll(() => reports.length).toBe(1);
+  expect(reports[0].kind).toBe('4218');
+  const r = checkReport(reports[0], globalThis.SevensEngine);
+  expect(r.error).toBeUndefined();
+  expect(r.state.game.loser).toBe((await live(page)).game.loser);
 });
 
 test('real dice: a 42/18 puts the player out, it can only be undone, and the last player left loses', async ({ page }) => {

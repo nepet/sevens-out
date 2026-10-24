@@ -879,7 +879,7 @@
     apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
     active, sumActive, maxPairs, finalPenalty, pairable, canRoll, matchPairs, current,
     reachedAt, tiedForStart, nextStarter, highestLater, roundRecap,
-    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser, ftPlays, ftLeft, ftPerfect,
+    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser, ftPlays, ftLeft, ftPerfect, ftGameLoser,
     SK, SK_DICE, SK_POT, isSK, skThrow, skBetter, skExtremes, skInPlay, skHand, canFlip
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

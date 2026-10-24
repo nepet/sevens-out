@@ -17,7 +17,7 @@ server/core/stats.js       game summaries for the statistics, and the rule check
 server/core/accounts.js    player accounts: the /auth handler (Fetch API) and resolveSession for rooms (no runtime code)
 server/core/webauthn.js    passkey checks with WebCrypto only (registration, sign-in, DER, base64url)
 server/d1/                 schema.sql (stats + accounts + rooms), db.js (D1 adapter), write.js (store/replace/delete a game, write a room),
-                           accounts.js (account store), migrations/0001-accounts.sql, 0002-rooms.sql (once each, for the live database)
+                           accounts.js (account store), migrations/0001-accounts.sql, 0002-rooms.sql, 0003-kinds.sql (once each, for the live database)
 server/admin/              the owner's admin page: worker.js, access.js (Access token check), queries.js, page.html, wrangler.jsonc
 server/cloudflare/         option 4: worker.js (Worker + Durable Object adapter), wrangler.jsonc
 server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files + /auth), ws.js (built-in WebSocket server),
@@ -55,6 +55,7 @@ npm run admin:deploy              # deploy the admin Worker
 npm run db:schema                 # load server/d1/schema.sql into the remote D1 database (fresh database)
 npm run db:accounts               # once: add the accounts tables and players.user_id to the live database
 npm run db:rooms                  # once: add the rooms tables (admin page's live and past rooms) to the live database
+npm run db:kinds                  # once: add games.kind and rooms.kind (42/18 and Schocken in the statistics) to the live database
 ```
 
 ## Deploy
@@ -62,7 +63,7 @@ npm run db:rooms                  # once: add the rooms tables (admin page's liv
 - **The page** is served by GitHub Pages from `main`, at the repo root. A push deploys it within about a minute. Check it with `gh api repos/<owner>/sevens-out/pages/builds/latest --jq .status`.
 - **The room server (option 4)** deploys with `npm run worker:deploy`, which needs `npx wrangler login` once.
   - **Order:** when the page depends on a new engine behaviour, deploy the Worker (`npm run worker:deploy`) before pushing the page. A new page with an old Worker breaks online play; an old cached page with a new Worker is fine.
-  - **Database changes go first:** a migration (`npm run db:accounts`) runs before the Worker that needs it. The Worker writes `players.user_id`, so stats writes fail (and wait for a retry) until it exists. The page probes `GET /auth/config` and hides accounts on an old Worker.
+  - **Database changes go first:** a migration (`npm run db:accounts`, `npm run db:kinds`) runs before the Worker that needs it; `games.kind` must exist before a Worker that records 42/18 and Schocken. The Worker writes `players.user_id`, so stats writes fail (and wait for a retry) until it exists. The page probes `GET /auth/config` and hides accounts on an old Worker.
   - `ALLOWED_ORIGINS` in `server/cloudflare/wrangler.jsonc` must list the page origin, for example `https://<owner>.github.io`.
   - The page finds the server through `<meta name="sevens-out-server" content="wss://sevens-out.<subdomain>.workers.dev">` in `index.html`.
   - An empty `content` hides online play; `same-origin` means "this host", which is what the Node server sets when it serves the page.
@@ -101,7 +102,7 @@ The most common pub rules, chosen for the first version (refine with the owner):
 4. **Who starts.** Round 1 as in Sevens Out; after that the round's loser.
 5. **Ending.** The first to 3 coasters (`COASTERS`) loses, or the last player left (see 2). A player's `score` is their coasters, so higher is worse in both games. Ending early: the most coasters among the players still in lose.
 6. **Real dice:** each player enters the points (3–18, or No 42) and the rolls used (1–5, everyone: they break ties). Undo, dice on the floor and corrections work as in Sevens Out; a correction counts the coasters again (`ftRecalc`). A correction can't make or take back a 42/18 (`perfect_fixed`: it decides who is out), so the page shows that round fixed and steps to 17 at most; Undo takes one back.
-7. **Not yet:** the statistics skip 42/18 (no report, no room record), so the D1 schema is unchanged.
+7. **Statistics:** recorded like Sevens Out with `games.kind = '4218'`: `score` = coasters, a turn's `pts` = the throw's points (0 = no 42), `sevens_outs` counts 42/18s. `checkReport` rebuilds the rounds with `roundLoser`, `ftPlays`, `ftLeft` and `ftGameLoser` (dice games: the round's loser starts the next, the game ends at the first 3 coasters; scoreboard games skip both, because a correction changes past losers).
 
 ### Schocken (`game.kind: 'schocken'`)
 
@@ -114,7 +115,8 @@ Common pub rules with the blind throw, chosen for the first version (refine with
 5. **Coasters.** The round's lowest throw takes as many coasters as the highest is worth: from the pot of 13 (`SK_POT`, `game.pot`) while it has some (what's left, if less), then from the player with the highest throw. Schock out hands the loser every coaster. Once the pot is empty, players without coasters sit out the half (`skInPlay`, `game.order` holds only those in play). A player's `score` is their coasters in the current half.
 6. **Halves.** Whoever holds all 13 loses the half (`halfOver`, `game.halves`). Two halves; the same loser twice loses the game, two different losers play a final (`game.half: 3`) and its loser loses. The round's loser starts the next round (also the next half and the final).
 7. **Real dice:** each player enters the three dice (1–6), the rolls used (1–3 for the starter, up to the limit for the others) and "From one roll" for a General or Straight from more than one roll; Blind hides the keypad and saves the rolls only (see 4). Undo, dice on the floor and Ending early work as in Sevens Out (ending early: the most coasters lose; right after a half, its loser). **No corrections yet** (`edit` is refused; the list lines aren't tappable).
-8. **Not yet:** the statistics skip Schocken; local rule variants (Jule 4-2-1, covered last throws, Schock out from the hand above a built one).
+8. **Statistics:** recorded with `games.kind = 'schocken'`: `score` = coasters in the last half played, a turn's `pts` = the throw's worth (13 = Schock out, which `sevens_outs` counts), the sheet's rounds carry `loser` and `half`. `checkReport` plays the coasters, halves and starters again (both modes follow every rule: no corrections); a blind cup that never came up (`dice: null`) is only allowed in the last round of a game ended early and isn't a turn. "From one roll" is taken on trust.
+9. **Not yet:** local rule variants (Jule 4-2-1, covered last throws, Schock out from the hand above a built one).
 
 ### Scoreboard mode ("Real dice, scores here")
 
@@ -355,10 +357,12 @@ One `Room` per room code holds the authoritative game.
 - **Net interface:** `bind(conn, seatId, info?)` and `infoOf(conn)`. A spectator has no seat, so `bind(conn, null, {viewer, name, user})` keeps their identity with the connection: in the Worker's socket attachment (it survives hibernation), on the Node socket as `ws.info`.
 
 **Statistics** (`server/core/stats.js`, D1 via `server/d1/`):
+- Every game is recorded, with `games.kind` (`sevens` | `4218` | `schocken`); points, `score` and `sevens_outs` (the game's top throw: Sevens Out, 42/18, Schock out) mean what that game says (see `server/d1/schema.sql` and the game's rules above). `writeRecord` writes a record without `kind` (queued by an older Worker) as `sevens`.
 - Rooms record their game through the optional `stats` adapter: `playing` on start, `over` whenever an action leaves the game over, `playing` again when undo leaves game over, `abandoned` on reopen mid-game or when the room expires. Each game has a 16-hex `id`; a new record replaces the old one.
 - The Cloudflare adapter writes to D1 and keeps failed writes in `pendingStats`, retried from the alarm (1 min doubling to 1 h, dropped after 24 h). Writes in one room run one after another. When an empty room is removed, `pendingStats` stays and is retried; storage is cleared only once nothing is waiting.
-- `POST /report` takes a finished one-phone game, with an optional `owner` (line index) and `Authorization: Bearer <token>`: the line counts for the signed-in player only when the session is valid and the line carries the player's name (case and spaces ignored). `checkReport` rebuilds it with the engine (dice games: full rules; scoreboard games skip the starter and 101-round checks because corrections can change past rounds). 10 per minute per IP, 32 KB max (`MAX_REPORT_BYTES`; a long, low-scoring game of 12 fits).
-- The admin page reads the same database. `/api/games?before=` takes the opaque cursor `<finishedAt>_<id>`.
+- `POST /report` takes a finished one-phone game, with an optional `owner` (line index) and `Authorization: Bearer <token>`: the line counts for the signed-in player only when the session is valid and the line carries the player's name (case and spaces ignored). `checkReport` rebuilds it with the engine (`kind` in the report: `4218`, `schocken`, missing = Sevens Out; dice games: full rules; Sevens Out and 42/18 scoreboard games skip the starter and game-end checks because corrections can change past rounds). 10 per minute per IP, 32 KB max (`MAX_REPORT_BYTES`; a long, low-scoring game of 12 fits).
+- The admin page reads the same database. `/api/games?before=` takes the opaque cursor `<finishedAt>_<id>`. Its filters take `kind=4218|schocken|all` (missing = Sevens Out, so the page looks as before); the facts about points need one game (`all` leaves them out).
+- The page sends every finished one-phone game (`save()` → `queueReport()`), with `kind` for 42/18 and Schocken.
 
 **Rooms for the admin page** (`sessions` adapter in `room.js`, `rooms` + `room_events` in D1, `server/admin/`; see `docs/admin.md`):
 - Each room has its own id `data.rid` (16 hex; a room saved before gets one on its first write), counters in `data.tally` (`connects`, `rejoins`, `spectators`, `chat`, `games`, `finished`, `peak`, `firstStart`) and a timeline counter `data.evSeq` (at most 500 events).

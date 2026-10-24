@@ -1,6 +1,6 @@
 -- Sevens Out statistics and player accounts (D1). Load with: npm run db:schema (remote) or tests/e2e/d1-setup.mjs (local).
 -- A database created before accounts gets them from server/d1/migrations/0001-accounts.sql instead (once),
--- and one created before the rooms from 0002-rooms.sql.
+-- one created before the rooms from 0002-rooms.sql, and one created before 42/18 and Schocken from 0003-kinds.sql.
 -- One row per game; players and turns are replaced whenever the game is recorded again.
 CREATE TABLE IF NOT EXISTS games (
   id           TEXT PRIMARY KEY,
@@ -16,19 +16,21 @@ CREATE TABLE IF NOT EXISTS games (
   loser        TEXT,
   top_score    INTEGER,
   margin       INTEGER,
-  sheet        TEXT
+  sheet        TEXT,
+  kind         TEXT NOT NULL DEFAULT 'sevens' CHECK (kind IN ('sevens', '4218', 'schocken')) -- the game: Sevens Out, 42/18, Schocken
 );
 CREATE INDEX IF NOT EXISTS games_finished ON games (status, finished_at);
 CREATE INDEX IF NOT EXISTS games_started ON games (status, started_at);
+CREATE INDEX IF NOT EXISTS games_kind ON games (kind, status, finished_at);
 
 CREATE TABLE IF NOT EXISTS players (
   game_id     TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE,
   idx         INTEGER NOT NULL,
   name        TEXT NOT NULL,
   name_key    TEXT NOT NULL,
-  score       INTEGER NOT NULL,
+  score       INTEGER NOT NULL, -- Sevens Out: points; 42/18: coasters; Schocken: coasters in the last half played
   lost        INTEGER NOT NULL,
-  sevens_outs INTEGER NOT NULL,
+  sevens_outs INTEGER NOT NULL, -- turns with the game's top throw: a Sevens Out, a 42/18, a Schock out
   shots       INTEGER NOT NULL,
   turns       INTEGER NOT NULL,
   user_id     TEXT, -- the player's account, if any; no foreign key, so the row outlives a deleted account
@@ -41,7 +43,7 @@ CREATE TABLE IF NOT EXISTS turns (
   game_id TEXT NOT NULL REFERENCES games (id) ON DELETE CASCADE,
   round   INTEGER NOT NULL,
   idx     INTEGER NOT NULL,
-  pts     INTEGER NOT NULL,
+  pts     INTEGER NOT NULL, -- Sevens Out: points; 42/18: the throw's points (0 = no 42); Schocken: the throw's worth in coasters
   rolls   INTEGER,
   starter INTEGER NOT NULL,
   mark    INTEGER,
@@ -118,7 +120,8 @@ CREATE TABLE IF NOT EXISTS rooms (
   rejoins        INTEGER NOT NULL DEFAULT 0, -- of those, phones that got their seat back
   spectators     INTEGER NOT NULL DEFAULT 0, -- of those, phones that came to watch
   chat           INTEGER NOT NULL DEFAULT 0, -- chat messages sent
-  peak           INTEGER NOT NULL DEFAULT 0  -- most phones connected at once
+  peak           INTEGER NOT NULL DEFAULT 0, -- most phones connected at once
+  kind           TEXT                        -- the game chosen in the lobby: sevens, 4218, schocken
 );
 CREATE INDEX IF NOT EXISTS rooms_open ON rooms (closed_at, active_at);
 CREATE INDEX IF NOT EXISTS rooms_created ON rooms (created_at);

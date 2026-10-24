@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import '../engine.js';
 import { summarize, sheetOf, nameKey, GAME_ID_RE, checkReport, MAX_REPORT_BYTES } from '../server/core/stats.js';
-import { diceGame, scoreGame, must } from './games.js';
+import { diceGame, scoreGame, ftGame, skGame, must } from './games.js';
 
 const E = globalThis.SevensEngine;
 const ID = '0123456789abcdef';
@@ -79,7 +79,7 @@ test('a game that is still running or was abandoned has only its game row', () =
 });
 
 const reportOf = (s, over = {}) => ({
-  id: ID, mode: s.game.mode, startedAt: 1_000_000, finishedAt: 2_000_000,
+  id: ID, ...(s.game.kind ? { kind: s.game.kind } : {}), mode: s.game.mode, startedAt: 1_000_000, finishedAt: 2_000_000,
   sheet: JSON.parse(JSON.stringify(sheetOf(s.game))), ...over
 });
 const NOW = 3_000_000;
@@ -176,4 +176,142 @@ test('signed-in players carry their player ID; guests have none', () => {
   const { players } = summarize(s, { id: ID, source: 'online', status: 'over', users: [null, 'aaaa000000000001'] });
   assert.deepEqual(players.map(p => p.user_id), s.game.players.map((_, i) => (i === 1 ? 'aaaa000000000001' : null)));
   assert.ok(summarize(s, { id: ID, source: 'phone', status: 'over' }).players.every(p => p.user_id === null));
+});
+
+// ---------- 42/18 and Schocken ----------
+// (real-dice games keep undo snapshots, so they take a moment to play)
+const played = new Map();
+const both = seed => played.get(seed) || played.set(seed, [ftGame(seed, undefined, 'dice'), ftGame(seed, undefined, 'score'), skGame(seed, undefined, 'dice'), skGame(seed, undefined, 'score')]).get(seed);
+
+test('42/18 and Schocken games are recorded with their game, coasters and top throws', () => {
+  for (let seed = 1; seed <= 15; seed++) {
+    for (const s of both(seed)) {
+      const g = s.game, ft = g.kind === '4218';
+      const { game, players, turns } = summarize(s, { id: ID, source: 'phone', status: 'over', finishedAt: 5 });
+      assert.equal(game.kind, g.kind);
+      assert.equal(game.loser, g.players[g.loser].name);
+      assert.deepEqual(players.map(p => p.score), g.players.map(p => p.score), 'coasters');
+      const sheet = JSON.parse(game.sheet);
+      g.rounds.forEach((rd, k) => {
+        assert.equal(sheet.rounds[k].loser, rd.loser);
+        assert.equal(sheet.rounds[k].half, rd.half);
+      });
+      for (const p of players) {
+        const mine = turns.filter(t => t.idx === p.idx);
+        assert.equal(p.turns, mine.length);
+        assert.equal(p.sevens_outs, mine.filter(t => t.pts === (ft ? 18 : 13)).length, 'a 42/18 or a Schock out');
+      }
+      for (const t of turns) assert.equal(t.pts, g.rounds[t.round - 1].results[t.idx].pts);
+    }
+  }
+  assert.equal(summarize(diceGame(2), { id: ID, source: 'phone', status: 'over' }).game.kind, 'sevens');
+});
+
+test('Schocken ended early with a blind cup still down: the cup is not a turn', () => {
+  let s = must(E.blank(), { type: 'start', kind: E.SK, names: ['Anna', 'Ben', 'Cleo'], starter: 0, mode: 'dice' });
+  s = must(s, { type: 'roll' }, { rng: () => 3 }); s = must(s, { type: 'stop' });
+  s = must(s, { type: 'blind' });
+  s = must(s, { type: 'endearly' });
+  const { players, turns } = summarize(s, { id: ID, source: 'phone', status: 'over' });
+  assert.deepEqual(turns.map(t => t.idx), [0]);
+  assert.deepEqual(players.map(p => p.turns), [1, 0, 0]);
+  const r = checkReport(reportOf(s), E, NOW);
+  assert.ok(r.ok, r.error);
+  assert.equal(r.state.game.loser, s.game.loser);
+});
+
+test('every real 42/18 and Schocken game is accepted, and the server works out the same result', () => {
+  let left = 0, blind = 0, finals = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    for (const s of both(seed)) {
+      const r = checkReport(reportOf(s), E, NOW);
+      assert.ok(r.ok, `seed ${seed} ${s.game.kind} ${s.game.mode}: ${r.error}`);
+      const a = r.state.game, b = s.game;
+      assert.equal(a.kind, b.kind);
+      assert.equal(a.loser, b.loser, `seed ${seed} ${b.kind} ${b.mode}: loser`);
+      assert.deepEqual(a.players.map(p => p.score), b.players.map(p => p.score));
+      assert.deepEqual(a.rounds.map(rd => rd.loser), b.rounds.map(rd => rd.loser));
+      // the same rows; the stored sheet is rebuilt (Schocken's blind results lose the dice kept before the blind roll)
+      const sum = st => { const x = summarize(st, { id: ID, source: 'phone', status: 'over', finishedAt: 1 }); return { ...x, game: { ...x.game, sheet: null } }; };
+      assert.deepEqual(sum(r.state), sum(s), 'the same rows');
+      if (b.left) left++;
+      if (b.half === 3) finals++;
+      if (b.rounds.some(rd => Object.values(rd.results).some(x => x.blind))) blind++;
+    }
+  }
+  assert.ok(left && blind && finals, `the games cover the corners: ${left} left, ${blind} blind, ${finals} finals`);
+});
+
+test('42/18 and Schocken games ended early are accepted, between rounds and in the middle of one', () => {
+  for (let seed = 1; seed <= 20; seed++) {
+    for (const s of both(seed)) {
+      // replay the game's first turns, then end it early
+      let t = must(E.blank(), { type: 'start', kind: s.game.kind, names: s.game.players.map(p => p.name), starter: s.game.rounds[0].starter, mode: 'score' });
+      const steps = 1 + (seed * 7) % 20;
+      const turns = s.game.rounds.flatMap(rd => E.orderFrom(rd.starter, s.game.players.length).filter(p => rd.results[p]).map(p => rd.results[p]));
+      for (const x of turns.slice(0, steps)) {
+        if (t.phase !== 'play') break;
+        const action = s.game.kind === '4218' ? { type: 'score', pts: x.pts === 18 ? 17 : x.pts, rolls: x.rolls }
+          : t.game.lifting ? { type: 'score', dice: [2, 3, 5] } : { type: 'score', dice: x.dice || [6, 4, 1], rolls: Math.min(x.rolls, t.game.pos === 0 ? 3 : t.game.mark), hand: x.hand };
+        t = must(t, action);
+      }
+      if (t.phase !== 'play') continue;
+      t = must(t, { type: 'endearly' });
+      const r = checkReport(reportOf(t), E, NOW);
+      assert.ok(r.ok, `seed ${seed} ${t.game.kind}: ${r.error}`);
+      assert.equal(r.state.game.loser, t.game.loser, `seed ${seed} ${t.game.kind}: loser`);
+    }
+  }
+});
+
+test('a corrected 42/18 scoreboard game is accepted even though a round\'s starter no longer lost the round before', () => {
+  let s = must(E.blank(), { type: 'start', kind: E.FT, names: ['Anna', 'Ben'], starter: 0, mode: 'score' });
+  for (let i = 0; i < 3; i++) { s = must(s, { type: 'score', pts: 5, rolls: 1 }); s = must(s, { type: 'score', pts: 9, rolls: 1 }); }
+  assert.equal(s.phase, 'over');
+  s = must(s, { type: 'edit', player: 0, values: { 1: 12 } }); // Ben lost round 1 now, yet Anna started round 2
+  assert.equal(s.phase, 'play', 'Anna is down to 2 coasters: round 4');
+  s = must(s, { type: 'score', pts: 5, rolls: 1 }); s = must(s, { type: 'score', pts: 9, rolls: 1 });
+  assert.equal(s.phase, 'over');
+  const r = checkReport(reportOf(s), E, NOW);
+  assert.ok(r.ok, r.error);
+  assert.equal(r.state.game.loser, s.game.loser);
+  const dice = reportOf(s, { mode: 'dice' });
+  assert.equal(checkReport(dice, E, NOW).error, 'round 2: wrong starter', 'dice games follow every rule');
+});
+
+test('a long Schocken game of 12 fits in one report', () => {
+  let biggest = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const s = skGame(seed, 12, 'dice');
+    const rep = { ...reportOf(s), owner: 11 };
+    biggest = Math.max(biggest, JSON.stringify(rep).length);
+    assert.ok(checkReport(rep, E, NOW).ok);
+  }
+  assert.ok(biggest < MAX_REPORT_BYTES / 2, `${biggest} bytes`);
+});
+
+test('broken or made-up 42/18 and Schocken reports are refused', () => {
+  const ft = ftGame(3, 4, 'dice'), sk = skGame(3, 4, 'dice');
+  const edit = (s, fn) => { const rep = reportOf(s); fn(rep, rep.sheet); return rep; };
+  const second = sh => (sh.rounds[0].starter + 1) % sh.players.length;
+  refused(edit(ft, r => { r.kind = 'yahtzee'; }), 'unknown game');
+  refused(edit(ft, r => { delete r.kind; }), 'read as Sevens Out');
+  refused(edit(ft, (r, sh) => { sh.rounds[0].results[sh.rounds[0].starter].pts = 2; }), 'no throw has 2 points');
+  refused(edit(ft, (r, sh) => { sh.rounds[0].results[sh.rounds[0].starter].rolls = 6; }), 'six rolls');
+  refused(edit(ft, (r, sh) => { sh.rounds[1].starter = second(sh); if (sh.rounds[1].starter === sh.rounds[0].loser) sh.rounds[1].starter = (sh.rounds[1].starter + 1) % 4; }), 'the round\'s loser starts');
+  refused(edit(ft, (r, sh) => { sh.rounds.push({ ...sh.rounds.at(-1), no: sh.rounds.length + 1 }); }), 'played on after 3 coasters');
+  refused(edit(ft, (r, sh) => { sh.rounds.pop(); }), 'nobody has 3 coasters');
+  refused(edit(ft, (r, sh) => { for (const p of [0, 1, 2]) if (sh.rounds[0].results[p]) sh.rounds[0].results[p].pts = 18; }), 'everyone out but one, and the round goes on');
+  refused(edit(sk, (r, sh) => { sh.rounds[0].results[sh.rounds[0].starter].dice = [7, 1, 1]; }), 'a 7');
+  refused(edit(sk, (r, sh) => { sh.rounds[0].results[sh.rounds[0].starter].dice = [6, 1]; }), 'two dice');
+  refused(edit(sk, (r, sh) => { const rd = sh.rounds[0]; rd.results[second(sh)].rolls = rd.results[rd.starter].rolls + 1; }), 'over the limit');
+  refused(edit(sk, (r, sh) => { const rd = sh.rounds[0]; rd.results[rd.starter] = { dice: null, rolls: 1, blind: true }; }), 'a cup never came up mid-game');
+  refused(edit(sk, (r, sh) => { sh.rounds[1].starter = (sh.rounds[0].loser + 1) % 4; }), 'the round\'s loser starts');
+  refused(edit(sk, (r, sh) => { sh.rounds.pop(); }), 'unfinished');
+  refused(edit(sk, (r, sh) => { sh.rounds.push({ ...sh.rounds.at(-1), no: sh.rounds.length + 1 }); }), 'played on after the end');
+  refused(edit(sk, r => { r.sheet.early = true; }), 'ended early after the end');
+  // a throw that loses claimed as a Schock out: the coasters no longer add up to the rounds that follow
+  const rep = reportOf(sk), rd = rep.sheet.rounds[0];
+  rd.results[rd.loser].dice = [1, 1, 1];
+  assert.notEqual(checkReport(rep, E, NOW).state?.game.loser ?? -1, sk.game.loser, 'a made-up Schock out changes the game');
 });

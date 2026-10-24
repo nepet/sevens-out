@@ -4275,7 +4275,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (online() || ui.race || ui.landed) return;
     // statistics never break playing; queueReport runs first because it may give an old save its id, which is saved with it
     let report = false;
-    if (state.phase === 'over' && !state.game.kind){ try { queueReport(); report = true; } catch (e) {} } // 42/18 and Schocken aren't in the statistics yet
+    if (state.phase === 'over'){ try { queueReport(); report = true; } catch (e) {} }
     write(state);
     if (report){ try { flushReports(); } catch (e) {} }
   }
@@ -4309,7 +4309,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function sheetOf(g){
     return {
       players:g.players.map(p => p.name),
-      rounds:g.rounds.map(rd => ({ no:rd.no, starter:rd.starter, mark:rd.mark == null ? null : rd.mark, results:rd.results })),
+      rounds:g.rounds.map(rd => Object.assign({ no:rd.no, starter:rd.starter, mark:rd.mark == null ? null : rd.mark, results:rd.results },
+        rd.loser != null ? { loser:rd.loser } : {}, rd.half ? { half:rd.half } : {})),
       shots:(g.shots || []).map(s => ({ player:s.player, round:s.round })),
       early:!!g.early
     };
@@ -4321,6 +4322,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const sheet = sheetOf(g), sig = hashText(JSON.stringify(sheet)), id = state.stats.id, r = readReports();
     if (r.sent[id] === sig || r.queue.some(q => q.id === id && q.sig === sig)) return;
     const body = { id, mode:g.mode, startedAt:state.stats.startedAt, finishedAt:Date.now(), sheet };
+    if (g.kind) body.kind = g.kind; // 42/18 or Schocken; none = Sevens Out
     if (Number.isInteger(state.stats.owner)) body.owner = state.stats.owner;
     // ownerId: whose session may go with it (a report can wait while another player signs in on this phone)
     const ownerId = Number.isInteger(state.stats.owner) && typeof state.stats.ownerId === 'string' ? state.stats.ownerId : null;

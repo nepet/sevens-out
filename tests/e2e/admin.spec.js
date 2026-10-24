@@ -3,7 +3,7 @@
 import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { sheetOf } from '../../server/core/stats.js';
-import { quickGame } from '../games.js';
+import { quickGame, ftGame, skGame } from '../games.js';
 import { enterScore, skipRace, toPlayers, live, net, noSideScroll } from './helpers.js';
 
 const GAME = 'http://127.0.0.1:8787', ADMIN = 'http://127.0.0.1:8789', PAGE = 'http://127.0.0.1:8790';
@@ -144,6 +144,47 @@ test('filters, leaderboard, a score sheet and deleting a game', async ({ page, r
   await expect(games).toHaveCount(4);
   await expect(page.locator('.tile[data-k=games] .v')).toHaveText('4');
   expect(await noSideScroll(page)).toBe(true);
+});
+
+test('the game filter: 42/18 and Schocken have their own facts, leaderboard column and score sheet', async ({ page, request }) => {
+  for (const [s, id] of [[ftGame(6, 3, 'dice'), '00000000000000c1'], [skGame(6, 3, 'dice'), '00000000000000c2']]) {
+    const res = await request.post(`${GAME}/report`, {
+      headers: { Origin: PAGE },
+      data: { id, kind: s.game.kind, mode: s.game.mode, startedAt: Date.now() - 900_000, finishedAt: Date.now() - 30_000, sheet: sheetOf(s.game) }
+    });
+    expect(res.status()).toBe(204);
+  }
+  await page.goto(ADMIN);
+  await expect(page.locator('#f-kind')).toHaveValue('');
+  await expect(page.locator('.tile[data-k=games] .v')).toHaveText('4'); // Sevens Out only
+
+  await page.selectOption('#f-kind', '4218');
+  await expect(page).toHaveURL(/kind=4218/);
+  await expect(page.locator('.tile[data-k=games] .v')).toHaveText('1');
+  await expect(page.locator('#facts .tile[data-k=tops] .k')).toHaveText('42/18s thrown');
+  await expect(page.locator('#facts h3')).toHaveText(['Rolls per throw', 'Throws']);
+  await page.check('#show-all');
+  await expect(page.locator('#leaderboard thead')).toContainText('42/18s');
+  const list = page.locator('#games .games li');
+  await expect(list).toHaveCount(1);
+  await expect(list).toContainText('42/18');
+  await list.locator('button').click();
+  await expect(page.locator('#sheet table')).toContainText('Coasters');
+  await expect(page.locator('#sheet table')).toContainText(/42\+\d+|no 42/);
+  await page.keyboard.press('Escape');
+
+  await page.selectOption('#f-kind', 'schocken');
+  await expect(page.locator('#facts .tile[data-k=tops] .k')).toHaveText('Schock outs');
+  await expect(page.locator('#facts h3')).toHaveText(['Roll limits starters choose', 'Throws by worth']);
+  await expect(page.locator('#leaderboard thead')).toContainText('Schock outs');
+
+  await page.selectOption('#f-kind', 'all');
+  await expect(page.locator('.tile[data-k=games] .v')).toHaveText('6');
+  await expect(page.locator('#facts .note')).toContainText('Pick one game');
+  await expect(page.locator('#leaderboard thead')).toContainText('Top throws');
+  expect(await noSideScroll(page)).toBe(true);
+  await page.selectOption('#f-kind', '');
+  await expect(page.locator('.tile[data-k=games] .v')).toHaveText('4');
 });
 
 test('when the API cannot be reached, the page says how to fix it', async ({ page }) => {

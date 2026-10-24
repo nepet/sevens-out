@@ -3,7 +3,7 @@
  * A record replaces any earlier version of the same game, so a game recorded as playing,
  * then over, then corrected ends up as one row with the latest score sheet.
  */
-const GAME_COLS = ['id', 'source', 'mode', 'room_code', 'status', 'early', 'started_at', 'finished_at', 'rounds', 'player_count', 'loser', 'top_score', 'margin', 'sheet'];
+const GAME_COLS = ['id', 'source', 'kind', 'mode', 'room_code', 'status', 'early', 'started_at', 'finished_at', 'rounds', 'player_count', 'loser', 'top_score', 'margin', 'sheet'];
 const PLAYER_COLS = ['game_id', 'idx', 'name', 'name_key', 'score', 'lost', 'sevens_outs', 'shots', 'turns', 'user_id'];
 const TURN_COLS = ['game_id', 'round', 'idx', 'pts', 'rolls', 'starter', 'mark'];
 
@@ -26,7 +26,8 @@ const clearChildren = id => [['DELETE FROM turns WHERE game_id = ?', [id]], ['DE
 export async function writeRecord(db, { game, players, turns }) {
   await db.batch([
     ...clearChildren(game.id),
-    [UPSERT_GAME, values(game, GAME_COLS)],
+    // a record from before 42/18 and Schocken were recorded (still waiting for a retry) is Sevens Out
+    [UPSERT_GAME, values({ kind: 'sevens', ...game }, GAME_COLS)],
     ...insertRows('players', PLAYER_COLS, players),
     ...insertRows('turns', TURN_COLS, turns),
     // a room may still remember a player who has deleted their account since
@@ -39,7 +40,7 @@ export async function deleteGame(db, id) {
 }
 
 // ----- rooms (the admin page's live and past rooms) -----
-const ROOM_COLS = ['id', 'code', 'created_at', 'active_at', 'closed_at', 'close_reason', 'phase', 'mode', 'pairing', 'round', 'seats', 'connected',
+const ROOM_COLS = ['id', 'code', 'created_at', 'active_at', 'closed_at', 'close_reason', 'phase', 'kind', 'mode', 'pairing', 'round', 'seats', 'connected',
   'watching', 'signed_in', 'host', 'names', 'game_id', 'first_start_at', 'games_started', 'games_finished', 'connects', 'rejoins', 'spectators', 'chat', 'peak'];
 const EVENT_COLS = ['room_id', 'seq', 'at', 'kind', 'detail'];
 const UPSERT_ROOM = `${insert('rooms', ROOM_COLS)} ON CONFLICT (id) DO UPDATE SET ${ROOM_COLS.slice(1).map(c => `${c} = excluded.${c}`).join(', ')}`;

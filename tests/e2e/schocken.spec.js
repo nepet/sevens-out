@@ -2,6 +2,8 @@
 // small phone, real dice to game over, and two phones online. Runs against the Node server (npm run test:e2e), the
 // online test also with TARGET=worker.
 import { test, expect } from '@playwright/test';
+import '../../engine.js';
+import { checkReport } from '../../server/core/stats.js';
 import { url, live, idle, skipRace, fixDice, noSideScroll, openMenu, closeMenu, openScores, closeScores } from './helpers.js';
 
 test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -109,6 +111,8 @@ test('the dice turn fits a small phone: the dice, the tray with its tools and th
 });
 
 test('real dice: three dice, the rolls used within the limit, from one roll, blind, and Schock out ends the halves', async ({ page }) => {
+  const reports = [];
+  await page.route('**/report', async route => { reports.push(route.request().postDataJSON()); await route.fulfill({ status: 204 }); });
   await startSK(page, { mode: 'score' });
   await expect(page.locator('#app [data-act=commit]')).toHaveText('Enter the three dice');
   for (const d of [6, 1]) await page.click(`[data-act=key][data-id="${d}"]`);
@@ -167,8 +171,12 @@ test('real dice: three dice, the rolls used within the limit, from one roll, bli
   expect(s.game.rounds[2].results[0]).toEqual({ dice: [3, 2, 2], hand: true, rolls: 1, blind: true, pts: 1 });
   await expect(page.locator('.verdict')).toContainText('Anna loses');
   await expect(page.locator('#app .panel .sub')).toHaveText('Anna lost both halves.');
-  // Schocken games aren't sent to the statistics yet
-  expect(await page.evaluate(() => localStorage.getItem('sevens-out-reports'))).toBeNull();
+  // the finished game goes to the statistics as Schocken, and the server's check rebuilds the same result
+  await expect.poll(() => reports.length).toBe(1);
+  expect(reports[0].kind).toBe('schocken');
+  const r = checkReport(reports[0], globalThis.SevensEngine);
+  expect(r.error).toBeUndefined();
+  expect(r.state.game.loser).toBe((await live(page)).game.loser);
 });
 
 test.describe('online', () => {
