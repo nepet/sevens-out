@@ -453,7 +453,7 @@ dialog h3,#usage h3{margin-top:16px}
       case 'left': return `${esc(d.name)} left`;
       case 'kicked': return `${esc(d.name)} was removed by the host`;
       case 'watching': return `${esc(d.name)} came to watch`;
-      case 'started': return d.kind === '4218' ? `42/18 started: ${plural(d.players, 'player', 'players')}, ${MODE_SHORT[d.mode] || ''}`
+      case 'started': return d.kind === '4218' || d.kind === 'schocken' ? `${d.kind === '4218' ? '42/18' : 'Schocken'} started: ${plural(d.players, 'player', 'players')}, ${MODE_SHORT[d.mode] || ''}`
         : `Game started: ${plural(d.players, 'player', 'players')}, ${MODE_SHORT[d.mode] || ''}${d.mode === 'dice' ? (d.pairing === 'auto' ? ', the app finds the 7s' : ', find the 7s yourself') : ''}`;
       case 'over': return `${d.early ? 'Game ended early' : `Game over after ${plural(d.rounds, 'round', 'rounds')}`}: ${esc(d.loser)} lost`;
       case 'undone': return 'Game over undone';
@@ -468,7 +468,8 @@ dialog h3,#usage h3{margin-top:16px}
     const seats = v.room.seats, cur = v.state.phase === 'play' ? g.order[g.pos] : -1;
     const rd = (g.rounds || []).find(x => x.no === g.round) || { results: {} };
     const ft = g.kind === '4218'; // 42/18: a throw is "42 + N" or "no 42", the totals are coasters
-    const pts = r => ft ? (r.pts ? `42 + ${r.pts}` : 'no 42') : `+${r.pts}`;
+    const sk = g.kind === 'schocken'; // Schocken: a throw is its three dice (blind ones under the cup), the totals are coasters
+    const pts = r => ft ? (r.pts ? `42 + ${r.pts}` : 'no 42') : sk ? (r.dice ? r.dice.join('-') : 'blind') : `+${r.pts}`;
     const rows = g.order.map(i => {
       const res = rd.results[i], seat = seats.find(s => s.id === (g.seats || [])[i]);
       return `<tr class="${i === cur ? 'now' : ''}"><td><span class="dot${seat && seat.connected ? ' on' : ''}"></span>${esc(g.players[i].name)}${i === g.starter ? ' <span class="meta">▸</span>' : ''}</td>
@@ -478,10 +479,10 @@ dialog h3,#usage h3{margin-top:16px}
     if (v.state.phase === 'over') turn = `<p class="note">${g.players[g.loser] ? `${esc(g.players[g.loser].name)} lost.` : 'Game over.'}</p>`;
     else if (g.mode === 'dice' && g.turn) {
       const t = g.turn, table = (t.dice || []).filter(d => !d.held);
-      turn = `<p class="note">${esc(g.players[cur].name)}: roll ${t.rolls} of ${t.maxRolls || g.mark || 3}${t.rolls ? ` · on the table ${table.map(d => `<span class="die">${d.value}</span>`).join('')}` : ''}${(t.pairs || []).length ? ` · ${plural(t.pairs.length, 'pair', 'pairs')} set aside` : ''}${ft && t.dice.some(d => d.held) ? ` · kept ${t.dice.filter(d => d.held).map(d => `<span class="die">${d.value}</span>`).join('')}` : ''}</p>`;
+      turn = `<p class="note">${esc(g.players[cur].name)}: roll ${t.rolls} of ${t.maxRolls || g.mark || 3}${t.rolls ? ` · on the table ${table.map(d => `<span class="die">${d.value}</span>`).join('')}` : ''}${(t.pairs || []).length ? ` · ${plural(t.pairs.length, 'pair', 'pairs')} set aside` : ''}${(ft || sk) && t.dice.some(d => d.held) ? ` · kept ${t.dice.filter(d => d.held).map(d => `<span class="die">${d.value}</span>`).join('')}` : ''}</p>`;
     } else if (cur >= 0) turn = `<p class="note">Waiting for ${esc(g.players[cur].name)} to enter their points.</p>`;
-    return `<h3>${ft ? '42/18 · ' : ''}Round ${g.round}${g.mark ? ` · up to ${plural(g.mark, 'roll', 'rolls')}` : ''}</h3>
-      <div class="tablewrap"><table class="live sheet"><thead><tr><th scope="col">Player</th><th scope="col">This round</th><th scope="col">${ft ? 'Coasters' : 'Total'}</th></tr></thead><tbody>${rows}</tbody></table></div>${turn}`;
+    return `<h3>${ft ? '42/18 · ' : sk ? `Schocken · ${g.half === 3 ? 'final' : `half ${g.half}`} · pot ${g.pot} · ` : ''}Round ${g.round}${g.mark ? ` · up to ${plural(g.mark, 'roll', 'rolls')}` : ''}</h3>
+      <div class="tablewrap"><table class="live sheet"><thead><tr><th scope="col">Player</th><th scope="col">This round</th><th scope="col">${ft || sk ? 'Coasters' : 'Total'}</th></tr></thead><tbody>${rows}</tbody></table></div>${turn}`;
   }
   function renderRoom() {
     const r = view.room, v = r.live;

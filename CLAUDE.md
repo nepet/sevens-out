@@ -1,6 +1,6 @@
 # Sevens Out
 
-Dice games for 2–12 players, played on phones: **Sevens Out** (the default) and **42/18** (Zweiundvierzig-Achtzehn, `game.kind: '4218'`). The app has two ways to play together:
+Dice games for 2–12 players, played on phones: **Sevens Out** (the default), **42/18** (Zweiundvierzig-Achtzehn, `game.kind: '4218'`) and **Schocken** (`game.kind: 'schocken'`). The app has two ways to play together:
 
 - **On one phone (pass-and-play):** a static page on GitHub Pages.
 - **Online:** everyone uses their own phone and joins a room by code. A small room server holds the game. It runs as a Cloudflare Worker with Durable Objects (option 4) or as a self-hosted Node server (option 5), using the same code.
@@ -102,6 +102,19 @@ The most common pub rules, chosen for the first version (refine with the owner):
 6. **Real dice:** each player enters the points (3–18, or No 42) and the rolls used (1–5, everyone: they break ties). Undo, dice on the floor and corrections work as in Sevens Out; a correction counts the coasters again (`ftRecalc`).
 7. **Not yet:** the statistics skip 42/18 (no report, no room record), so the D1 schema is unchanged.
 
+### Schocken (`game.kind: 'schocken'`)
+
+Common pub rules with the blind throw, chosen for the first version (refine with the owner):
+
+1. **Dice and rolls.** A turn uses 3 dice (`SK_DICE`), up to 3 rolls; the round's starter sets the limit for everyone else (`game.mark`, as in Sevens Out). After each roll the player sets aside any dice (`keep {id}`, none is fine) and rolls the rest, or stops. A die set aside in this roll can go back (`unkeep`).
+2. **Turning 6s** (`flip`): two 6s from the same roll may become one 1, three 6s two 1s (`canFlip`). The other 6 goes back into the cup: it can't be set aside (`flip_back`), and stopping is refused until it is rolled (`flip_roll`). Not on the last roll. Putting a turned 1 back undoes the turn.
+3. **Throws, best first** (`skThrow`): Schock out (1-1-1, all coasters, emits `schockOut`), Schock 6 to 2 (1-1-x, x coasters), General (three of a kind, 3), Straight (three in a row, 2), then any other throw (1), read as a number from the highest die (665 … 221). A General or Straight counts only from one roll ("from the hand": every die from the same roll, none turned, `skHand`); built, it is a number. Tie: fewer rolls win, then the earlier player (`skBetter`).
+4. **Blind** (`blind`): instead of rolling, the player rolls blind; the turn ends at once with the cup down. The engine rolls those dice only when the round's last turn is booked (`revealed`), so no phone ever holds the secret. When the round's highest or lowest throw was blind, the coasters double.
+5. **Coasters.** The round's lowest throw takes as many coasters as the highest is worth: from the pot of 13 (`SK_POT`, `game.pot`) while it has some (what's left, if less), then from the player with the highest throw. Schock out hands the loser every coaster. Once the pot is empty, players without coasters sit out the half (`skInPlay`, `game.order` holds only those in play). A player's `score` is their coasters in the current half.
+6. **Halves.** Whoever holds all 13 loses the half (`halfOver`, `game.halves`). Two halves; the same loser twice loses the game, two different losers play a final (`game.half: 3`) and its loser loses. The round's loser starts the next round (also the next half and the final).
+7. **Real dice:** each player enters the three dice (1–6), the rolls used (1–3 for the starter, up to the limit for the others), "From one roll" for a General or Straight from more than one roll, and Blind. Undo, dice on the floor and Ending early work as in Sevens Out (ending early: the most coasters lose; right after a half, its loser). **No corrections yet** (`edit` is refused; the list lines aren't tappable).
+8. **Not yet:** the statistics skip Schocken; local rule variants (Jule 4-2-1, covered last throws, Schock out from the hand above a built one).
+
 ### Scoreboard mode ("Real dice, scores here")
 
 - **Entering a turn:** each turn the player enters the pips left on the table (0–36). The starter also enters the rolls used (1–3).
@@ -133,15 +146,15 @@ The most common pub rules, chosen for the first version (refine with the owner):
 
 | Group | Actions |
 |---|---|
-| Setup | `start {names, starter, mode, pairing?, seats?, kind?}` (`pairing` defaults to `manual`; `kind: '4218'` starts 42/18) |
-| Dice turn | `roll`, `pair {a, b}`, `unpair {index}`, `takeall`, `stop` (alias `end`); 42/18: `roll`, `keep {id}`, `unkeep {id}`, `stop` |
-| Scoreboard turn | `score {pts, rolls?}` (42/18: `pts` 0 or 3–18, `rolls` always) |
+| Setup | `start {names, starter, mode, pairing?, seats?, kind?}` (`pairing` defaults to `manual`; `kind: '4218'` starts 42/18, `'schocken'` Schocken) |
+| Dice turn | `roll`, `pair {a, b}`, `unpair {index}`, `takeall`, `stop` (alias `end`); 42/18: `roll`, `keep {id}`, `unkeep {id}`, `stop`; Schocken also `flip`, `blind` |
+| Scoreboard turn | `score {pts, rolls?}` (42/18: `pts` 0 or 3–18, `rolls` always; Schocken: `score {dice: [a, b, c], rolls, hand?, blind?}`) |
 | Table | `drop`, `undo`, `edit {player, values: {roundNo: pts}}` |
 | Flow | `nextround` (only for games saved between rounds, the old `roundEnd` phase), `endearly` |
 
 **Rounds move on by themselves:** the action that books the last turn of a round (`stop`/`end`, `score`) also starts the next round, unless someone is at 101. Ending early before anyone has played in the new round drops that empty round first.
 
-**Events** (for animations and messages): `started`, `rolled {auto, values}`, `paired {pairs}`, `unpaired`, `missed {player, how: 'roll'|'stop', pairs: [[a, b]..]}` (pip values), `sevensOut {player}`, `turn`, `roundEnd {round, next}` (always followed by `started` in the same action; 42/18 adds `loser`), `gameOver {loser}`, 42/18's `kept {id, value}`, `unkept {id, value}` and `perfect {player}`, `dropped {drops}`, `shots {player}`, `undone {msg}`, `edited`, `ended`.
+**Events** (for animations and messages): `started`, `rolled {auto, values}`, `paired {pairs}`, `unpaired`, `missed {player, how: 'roll'|'stop', pairs: [[a, b]..]}` (pip values), `sevensOut {player}`, `turn`, `roundEnd {round, next}` (always followed by `started` in the same action; 42/18 adds `loser`), `gameOver {loser}`, 42/18's `kept {id, value}`, `unkept {id, value}` and `perfect {player}`, Schocken's `flipped {ids, back}`, `unkept {…, flip}`, `revealed {player, values}`, `schockOut {player}`, `halfOver {half, loser}` (and `turn {blind: true}`), `dropped {drops}`, `shots {player}`, `undone {msg}`, `edited`, `ended`.
 
 ### State
 
@@ -152,10 +165,14 @@ state = {
   phase: 'setup' | 'play' | 'over',   // 'roundEnd' only in games saved before rounds moved on by themselves
   setup: { names: [..], starter, kind?, mode: 'dice' | 'score', pairing: 'manual' | 'auto', where? },   // kind: 'sevens' | '4218' (missing = sevens)   // the Play sheet and Who's playing; where: 'table' | 'phones' (missing = table)
   game: {
-    kind?, mode, pairing?, players: [{ name, score }], seats?: [seatId..],   // kind '4218' = 42/18 (score = coasters, no pairing); pairing missing = auto (old saves); seats only online
+    kind?, mode, pairing?, players: [{ name, score }], seats?: [seatId..],   // kind '4218' = 42/18 (score = coasters, no pairing), 'schocken' = Schocken (score = coasters this half); pairing missing = auto (old saves); seats only online
+    half?, pot?, halves?,                                         // Schocken: 1 | 2 | 3 (the final), coasters left in the pot, each half's loser
     round, starter, order: [playerIdx..], pos,                    // whose turn: order[pos]
     mark,                                                         // roll limit set by this round's starter
     rounds: [{ no, starter, mark, results: { [playerIdx]: { pts, rolls } }, loser? }],   // the score sheet (loser: 42/18, who took the coaster)
+                                                                  // Schocken: results {dice (null while blind), hand, rolls, pts = worth, blind?, kept?},
+                                                                  // and half, loser, high, take, from ('pot'|'player'|'all'), pot, after (coasters), halfLost?
+    turn: { …, flip? },                                           // Schocken: dice carry from (the roll) and flipped; flip {roll, ids, back}
     turn: { dice: [{ id, value, held }], rolls, maxRolls, pairs: [{ a, b, roll }], cleared },
     ending, crosser, next, loser, early, last,
     history: [..], drops, shots: [{ player, round }]
@@ -216,7 +233,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
   - A join sends the seat token kept for that room in `sevens-out-seats`, so a guest who left mid-game gets their seat back and plays on.
 - **Settings sheet** (kind `settings`, title "Settings", only on home): Sound, Look and Shake (`settingsBlock()`, segmented rows) with the shake hint (`.shake-hint`), then How to play and Developer as folds.
 - **Play sheet** (sheet kind `play`, `playBody()`, title "New game"; on home and Who's playing):
-  - "Game": Sevens Out / 42/18 (`button.opt[data-act=kind][data-id=0|1]` → `state.setup.kind`; left out with an old cached `engine.js`, `hasFT()`). 42/18 has no 7s switch.
+  - "Game": Sevens Out / 42/18 / Schocken (`button.opt[data-act=kind][data-id=0|1|2]`, the place in `KINDS`, in `.cards.three` → `state.setup.kind`; a game an old cached `engine.js` lacks is left out, `hasFT()`, `hasSK()`). Only Sevens Out has the 7s switch.
   - "Where is everyone?" At this table / Own phones (`button.opt[data-act=where][data-id=0|1]` → `state.setup.where`, `'table'` | `'phones'`, missing = table; left out without online).
   - Dice: In the app / Real dice (`opt[data-act=mode][data-id=0|1]`).
   - For dice in the app, the switch "The app finds the 7s" (`pairSwitch()`, `button.switch[role=switch][data-act=pairing]`: no `data-id` toggles, 0/1 sets manual/auto).
@@ -232,7 +249,7 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
   - **Signed in:** an 88 px brass avatar with the initial, `h1#profile-h` with the name and the muted `#tag`, the line "Your games count for you on any phone where you sign in.", a card of 60 px rows (`.rowbtn`: icon, label, sub-line, chevron): Rename (`arename`, in place), "Add a passkey on this phone" (`aadd`) and Sign out (`asignout`); then the hint, and "Delete player" (`adelete`, `--danger`, confirmed in the page) at the bottom.
   - **Signed out:** an empty avatar (person icon), `h1` "Keep your scores", the same line, the name field (`#aname`), "Sign in with a passkey" (`asignin`, primary) and "New player" (`acreate`), then the hint.
 
-**The lobby** (`viewLobby()`; Settings starts with Game, `okind` 0/1, host only, which sends `{op:'settings', kind}`): the slim header with the menu (Leave room is in it), "Room" (the connection chip only while not connected) and the chat button at the right end; a card with the room code large (`.roomcode`) and "Share invite" (`oshare` when the phone has a share sheet, else `ocopy`; a failed share copies, a failed copy shows the link `#olink` selected, `ui.showLink`, reset when the phone leaves or starts a room); the seats under "Players · n of 12" (`#seats-h`; `ul.seats` → `li.seat`: online dot (`--ok`), name, `#tag`, `you`, Host, and for the host a remove button `okick[data-seat]`); Settings rows for everyone, changeable only by the host: Dice (`omode` 0/1), for dice in the app the same switch as the Play sheet (`button.switch[data-act=opairing]`), Who starts (`ostarter`, -1 = random). The pinned bar: the host's "Start · N players" (`ostart`, disabled under 2 as "Waiting for one more player"), the others "Waiting for <host> to start."
+**The lobby** (`viewLobby()`; Settings starts with Game, `okind` 0/1/2, host only, which sends `{op:'settings', kind}`): the slim header with the menu (Leave room is in it), "Room" (the connection chip only while not connected) and the chat button at the right end; a card with the room code large (`.roomcode`) and "Share invite" (`oshare` when the phone has a share sheet, else `ocopy`; a failed share copies, a failed copy shows the link `#olink` selected, `ui.showLink`, reset when the phone leaves or starts a room); the seats under "Players · n of 12" (`#seats-h`; `ul.seats` → `li.seat`: online dot (`--ok`), name, `#tag`, `you`, Host, and for the host a remove button `okick[data-seat]`); Settings rows for everyone, changeable only by the host: Dice (`omode` 0/1), for dice in the app the same switch as the Play sheet (`button.switch[data-act=opairing]`), Who starts (`ostarter`, -1 = random). The pinned bar: the host's "Start · N players" (`ostart`, disabled under 2 as "Waiting for one more player"), the others "Waiting for <host> to start."
 
 **The score chip** (in `chipHeader()`): `button.scorechip[data-act=scores][aria-expanded]` with every player's name and total in one line, in this round's playing order (`span.sc-p`, the current player `.now` in `--brass-text`, bold), an `aria-label` "Scores: Anna 34, Ben 50, …", and a chevron. Online, once the server speaks chat, the chat button shows the connection only when it is lost (a red `.chat-dot`); with an old server the chip keeps its dot (`.sc-dot`, `--ok`, `--danger` while not connected).
 - **Fitting one line:** names shorten to their first 3 letters from 4 players (letters 2–3 sit in `.sc-mid`, the rest is hidden in `.sc-rest`, so `textContent` keeps the full name; the `aria-label` always has the full names). `fitChip()` runs after every render, on resize and when the fonts load: it adds `short` when the names overflow, then `tight` and `tiny` (smaller type, no chevron), then `mini` (names down to their first letter), then `micro` (smaller type and gaps, for the chat button online) while it still overflows. Offline, six 3-digit totals fit whole at 375 px in both looks (Vegas needs `mini`) and at 320 px (`mini`); online, next to the chat button, they need `micro` at 320 px; the chip-fit tests check every name and total lies inside the chip's box.
@@ -271,6 +288,8 @@ The script is one IIFE. Every `render()` rebuilds `#app.innerHTML` from template
 - A phone that may not enter (`.keymat.watch`) gets the floor row and the hint row near the bar, and the waiting note in the bar, with no keypad.
 - Keys, rolls buttons and Die dropped are at least 44 px tall. A tap on the keypad while the list is open only closes the list.
 - With three players it fits a 390×844 phone without scrolling, Rolls used and Undo included, online with the feed area too. At 375×667 online, the starter's hint row and Undo scroll under the pinned bar (the feed area takes 72 px); Save stays pinned. With six players on 375×667 the mat is longer than the screen, so the page scrolls under the pinned bar; Save stays pinned and the chip shows all six totals. With twelve, the same, and the list over the mat scrolls inside itself.
+
+**Schocken's turns** (`viewPlaySK()`, `viewScoreSK()`, 42/18's frame, `section.skturn`): the eyebrow is "1st half · Pot 9 · Roll 1 of 3" (`skEyebrow`); under the name `p.tobeat` (`skStandLine()`) shows "To beat: Anna · Schock 3 in 2 rolls" or "Low Ben 532 · High Anna Sch 3" and "· N blind". A tap on a die sets it aside into `.tray`; next to the tray `button.sktool[data-act=flip]` ("6 → 1", when `canFlip`) and `[data-act=blind]` (Blind, armed first: "Sure?"). The throw cell shows `skShort()` ("Sch 4", "Gen 5", "St 456", "653", "blind") and "lowest now" / "highest now" / "beats the low". Real dice: a 1–6 keypad (`.skpad`), the entry as three minis, Rolls used up to the limit, the switches From one roll (`skhand`, only for a General or Straight) and Blind (`skblind`). The score list (`.board.sk`) lists the players sitting out last ("out"), its head says "1st half · pot 9"; the race uses `BADGE_SK`, `WHY_SK`, and a lost half drops the curtain as "Second half" or "The final"; the score sheet marks each half (`tr.halfrow`) and the loser's cell `+N`.
 
 **42/18's turns** (`viewPlayFT()`, `viewScoreFT()`, same frame and classes as Sevens Out's): a tap on a die on the mat keeps it; kept dice lie in `.tray` at the mat's foot (`button.die[data-act=unkeep]` for this roll's, 44 px); the bar is Stop | Roll ("keep one" until a die is kept) | `.rackcell.throwcell` with the throw so far ("42+15", "no 42") and whether it "beats it" or is the "lowest now" (`.low`). Under the name on both turn screens, `p.tobeat` (`toBeatLine()`) shows the round's lowest throw so far ("To beat: Ben · 42 + 7 in 2 rolls", or "First throw of the round…"), on every phone; with real dice the hint compares the entered throw (`beats()`: a tie on points and rolls goes against the current player). Real dice: the keypad for the points, `No 42` (`data-act=no42`), Rolls used for everyone. The score list (`.board.ft`), the race (`BADGE_FT`, `WHY_FT`, the totals are coasters to 3), game over and the score sheet (`td.lc`: the round's loser) follow `isFT(g)`.
 
@@ -325,7 +344,7 @@ One `Room` per room code holds the authoritative game.
 | client → server | `{t:'chat', text}` (seated phones and spectators; 1 to 140 characters, control characters and runs of spaces cleaned, bidi controls U+202A–U+202E and U+2066–U+2069 removed (from names too); nothing but zero-width characters counts as empty; more than 8 per 10 s per sender: `rate`; before hello: `not_seated`) |
 | client → server | `{t:'ping'}` |
 | server → client | `{t:'welcome', seat, token, user?, viewer?}` (`viewer`: a spectator's own id, `w` + 8 hex, with `seat: null`; `user`: the player ID the server resolved; `null`: a guest, or the session has ended; left out: the accounts database couldn't be reached, or an old server. The page drops its account only on `null`) |
-| server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings:{kind, mode, pairing, starter}, seats:[{id,name,connected,user}]}, state, events}` (`kind`: `'sevens'` \| `'4218'`, missing in rooms saved before) |
+| server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings:{kind, mode, pairing, starter}, seats:[{id,name,connected,user}]}, state, events}` (`kind`: `'sevens'` \| `'4218'` \| `'schocken'`, missing in rooms saved before) |
 | server → client | `{t:'chat', msg:{id, at, from, seat, name, user, text}}` to every phone (`from`: the seat ID or the spectator's `viewer`; `seat`: `null` for a spectator; `id`: `data.chatSeq`, counting up) |
 | server → client | `{t:'chat', log:[msg..]}` right after `welcome`, to seated phones and spectators: the last 50 messages |
 | server → client | `{t:'error', code, message}` (`closed`: the owner closed the room from the admin page; the socket then closes with 4410 and the page goes home with "Room ABCDE was closed.") |
@@ -365,7 +384,7 @@ One `Room` per room code holds the authoritative game.
 
 | Actions | Who may make them |
 |---|---|
-| `roll`, `pair`, `unpair`, `takeall`, `keep`, `unkeep`, `stop`, `score` | The current player's seat. The host may make them when that player is offline. |
+| `roll`, `pair`, `unpair`, `takeall`, `keep`, `unkeep`, `flip`, `blind`, `stop`, `score` | The current player's seat. The host may make them when that player is offline. |
 | `drop`, `undo`, `edit`, `nextround` | Any seated player |
 | `endearly`, `start`, `reopen`, `kick` | The host |
 
@@ -452,7 +471,7 @@ One `Room` per room code holds the authoritative game.
 ## Testing
 
 - **Unit tests (`node --test`):**
-  - `engine.test.js` plays many seeded random games in both modes and checks every rule against the score sheet, plus the specific cases; `fortytwo.test.js` does the same for 42/18.
+  - `engine.test.js` plays many seeded random games in both modes and checks every rule against the score sheet, plus the specific cases; `fortytwo.test.js` and `schocken.test.js` do the same for 42/18 and Schocken.
   - `room.test.js` covers the protocol with in-memory connections.
   - `node-server.test.js` starts the real server and talks to it over WebSockets.
   - `worker.test.js` runs the Durable Object adapter against a stand-in runtime, including hibernation.
@@ -460,7 +479,7 @@ One `Room` per room code holds the authoritative game.
   - `webauthn.test.js`, `accounts-store.test.js`, `accounts.test.js` and `sqlite.test.js` cover accounts: passkey checks, the store and the migration, the `/auth` handler's ceremonies and refusals, and the Node database.
   - `tests/fake-d1.js` is a D1 stand-in on `node:sqlite`, `tests/games.js` builds deterministic finished games, and `tests/authenticator.js` is a software passkey (real WebCrypto keys) for the account tests.
 - **Browser tests (`@playwright/test`):**
-  - `fortytwo.spec.js`: 42/18's dice turn, real dice, the fit on a small phone and two phones online.
+  - `fortytwo.spec.js`: 42/18's dice turn, real dice, the fit on a small phone and two phones online; `schocken.spec.js` the same for Schocken (turning 6s, blind, halves).
   - Separate browser contexts act as separate phones.
   - The tests read state through `window.SevensDebug` or `localStorage`.
   - Use `contextOptions: { reducedMotion: 'reduce' }` for instant rolls.

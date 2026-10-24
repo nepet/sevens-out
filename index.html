@@ -315,6 +315,20 @@ html:root[data-look="vegas"] .rollbtn small{text-transform:none;letter-spacing:0
 html:root[data-look="vegas"] .throwcell b{font-size:16px}
 .btn.rollbtn.keepfirst{opacity:.8}
 .throwcell.low b{color:var(--danger)}
+/* Schocken (viewPlaySK()): the tools "6 → 1" and Blind sit in the tray row next to the dice set aside; the throw cell
+   holds "Sch 4", "653" or "St 456". With real dice (viewScoreSK()) the entry shows the three dice, the keypad has 1 to 6 */
+.tray .sktool{flex:none;min-width:64px;padding:6px 12px}
+.tray .sktool.armed{background:var(--stitch);color:var(--leather-deep);border-color:var(--stitch)}
+.skturn .throwcell b{font-size:20px}
+html:root[data-look="vegas"] .skturn .throwcell b{font-size:14px}
+.entry .skdice{display:inline-flex;gap:8px;vertical-align:middle}
+.entry .skdice .die.mini{--die:40px}
+.skpad .key.wide{grid-column:span 2}
+.keymat .swrow{min-height:48px;padding:0}
+.halfrow th{text-align:left;font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:var(--brass-text);padding-top:10px}
+:is(.board,.race-card).sk .pl{grid-template-columns:12px minmax(0,6.5rem) minmax(0,1fr) 1.8rem 3.9rem}
+.race-card.grow.sk .pl{grid-template-columns:12px minmax(0,7.5rem) minmax(0,1fr) 2.2rem 4.6rem}
+.sk .trk::after{width:0}
 /* 42/18: the lowest throw of the round so far, under the name */
 .tobeat{margin:6px 0 0;max-width:100%;font-size:15px;line-height:1.3;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tobeat b{color:var(--brass-text)}
@@ -474,6 +488,9 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .choice{margin:0;padding:0;border:0;display:flex;flex-direction:column;gap:8px;min-width:0}
 .choice legend{padding:0 0 8px}
 .cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.cards.three{grid-template-columns:repeat(3,minmax(0,1fr))}
+.cards.three .opt{padding:12px 10px}
+.cards.three .opt[aria-pressed="true"]{padding:11px 9px}
 .opt{min-height:104px;padding:14px;border-radius:16px;border:1px solid var(--line);background:var(--card);display:flex;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:10px;text-align:left}
 .opt[aria-pressed="true"]{border:2px solid var(--ink);padding:13px;background:color-mix(in srgb,var(--brass) 14%,var(--card))}
 .opt svg{width:28px;height:28px;fill:none;stroke:var(--brass);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -668,7 +685,7 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .race-card.grow.denser .num{font-size:1.4rem}
 /* from 7 players the grown lines share the screen, tappable (44 px) ones too: every line stays on screen */
 .race-card.grow.crowd{--rowh:var(--row)}
-@media (max-width:359px){.race-card.grow .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 2.6rem 2.6rem}.race-card.grow.ft .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 1.6rem 3.8rem}}
+@media (max-width:359px){.race-card.grow .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 2.6rem 2.6rem}.race-card.grow.ft .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 1.6rem 3.8rem}.race-card.grow.sk .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 1.8rem 4.2rem}}
 .race-card.grow.denser .nm{font-size:.95rem}
 .race-card.grow .dl{font-size:1.15rem}
 .race-card.grow .bfoot{opacity:0}
@@ -1530,9 +1547,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     setTimeout(() => { try { ok.focus({ preventScroll:true }); } catch (e) {} }, 2400);
   }
 
-  // Sevens Out's clearing all six, or 42/18's perfect throw (ft)
-  function celebrate(name, ft = false){
-    fx.banner(ft ? '42/18!' : 'Sevens out!', ft ? `${name} threw a 4, a 2 and three 6s` : `${name} cleared all six dice`);
+  // Sevens Out's clearing all six, 42/18's perfect throw (game 'ft') or Schocken's Schock out ('sk')
+  function celebrate(name, game = false){
+    const [head, line] = game === 'ft' ? ['42/18!', `${name} threw a 4, a 2 and three 6s`] : game === 'sk' ? ['Schock out!', `${name} threw three 1s`] : ['Sevens out!', `${name} cleared all six dice`];
+    fx.banner(head, line);
     playSound();
     if (!reduceMotion) fx.burst(document.querySelector('#app .mat')); // from the mat of either turn screen
   }
@@ -1574,18 +1592,40 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
-  // ----- the two games: Sevens Out (the default; saves and rooms without a kind) and 42/18 (kind '4218') -----
+  // ----- the three games: Sevens Out (the default; saves and rooms without a kind), 42/18 (kind '4218') and Schocken
+  // (kind 'schocken') -----
   // In 42/18 a player's score is their coasters (3 lose) and a throw's points are the three dice besides the 4 and the 2.
-  // An old engine.js in the cache has no 42/18: then the choice doesn't show and every game is Sevens Out
+  // In Schocken a player's score is their coasters in the current half (13 in all), and a throw is three dice.
+  // An old engine.js in the cache may lack a game: then its choice doesn't show (with neither, every game is Sevens Out)
   const FT = '4218', hasFT = () => typeof E.isFT === 'function';
+  const SK = 'schocken', hasSK = () => typeof E.isSK === 'function';
   const isFT = g => !!g && g.kind === FT;
-  const COASTERS = E.COASTERS || 3, FT_MAX = E.FT_MAX || 18, FT_ROLLS = E.FT_ROLLS || 5;
-  const kindOf = s => s && s.kind === FT && hasFT() ? FT : 'sevens';
-  const KINDS = [['sevens', 'Sevens Out', 'Pairs of 7, to 101', 'sevens'], [FT, '42/18', 'A 4, a 2 and three 6s', 'fortytwo']];
-  const gameName = k => k === FT ? '42/18' : 'Sevens Out';
+  const isSK = g => !!g && g.kind === SK;
+  const COASTERS = E.COASTERS || 3, FT_MAX = E.FT_MAX || 18, FT_ROLLS = E.FT_ROLLS || 5, SK_POT = E.SK_POT || 13;
+  const kindOf = s => s && s.kind === FT && hasFT() ? FT : s && s.kind === SK && hasSK() ? SK : 'sevens';
+  // the games in their fixed order (data-id is the place here): kind, name, line, icon
+  const KINDS = [['sevens', 'Sevens Out', 'Pairs of 7, to 101', 'sevens'], [FT, '42/18', 'A 4, a 2 and three 6s', 'fortytwo'], [SK, 'Schocken', 'Three dice, 13 coasters', 'schocken']];
+  const kindOn = k => k === FT ? hasFT() : k === SK ? hasSK() : true;
+  const kindsShown = () => KINDS.map((k, i) => [k, i]).filter(([k]) => kindOn(k[0]));
   const throwLabel = pts => pts ? `42 + ${pts}` : 'No 42';   // a throw in words
   const throwShort = pts => pts ? `42+${pts}` : 'no 42';     // in the score list
-  const limitOf = g => isFT(g) ? COASTERS : LIMIT;
+  const limitOf = g => isFT(g) ? COASTERS : isSK(g) ? SK_POT : LIMIT;
+  // Schocken: a throw (a result {dice, hand, blind}) in words and short, and the half
+  function skLabel(r){
+    if (!r) return '';
+    if (!r.dice) return 'Blind';
+    const t = E.skThrow(r.dice, r.hand), [a, b, c] = t.dice;
+    return t.cat === 'out' ? 'Schock out' : t.cat === 'schock' ? `Schock ${a}` : t.cat === 'general' ? `General ${a}`
+      : t.cat === 'straight' ? `Straight ${c}-${b}-${a}` : String(t.value);
+  }
+  function skShort(r){
+    if (!r) return '';
+    if (!r.dice) return 'blind';
+    const t = E.skThrow(r.dice, r.hand), [a, b, c] = t.dice;
+    return t.cat === 'out' ? 'Sch out' : t.cat === 'schock' ? `Sch ${a}` : t.cat === 'general' ? `Gen ${a}` : t.cat === 'straight' ? `St ${c}${b}${a}` : String(t.value);
+  }
+  const halfWord = h => h === 3 ? 'Final' : h === 2 ? '2nd half' : '1st half';
+  const potWord = g => g.pot ? `Pot ${g.pot}` : 'Pot empty';
   const coasterWord = n => plural(n, 'coaster');
   Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null, feed:{ items:[], held:[], last:0 } });
 
@@ -2238,7 +2278,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     stopTumble(); ui.rolling = false; ui.race = true;
     // leaving the room (or being removed) before the swap drops this change: the phone's own game stays
     const ses = net.session, left = () => ses !== net.session;
-    const so = events.find(e => e.type === 'sevensOut' || e.type === 'perfect'), miss = events.find(e => e.type === 'missed');
+    const so = events.find(e => e.type === 'sevensOut' || e.type === 'perfect' || e.type === 'schockOut'), miss = events.find(e => e.type === 'missed');
     let rest = events.filter(e => e !== so && e !== miss), swapped = false;
     const swap = () => {
       if (swapped || left()) return;
@@ -2256,7 +2296,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     try {
       if (!online()) write(next); // saved at once, so a reload during the race can't lose the last turn
       const g = next.game;
-      if (so){ celebrate(g.players[so.player].name, so.type === 'perfect'); await wait(2900); }
+      if (so){ celebrate(g.players[so.player].name, so.type === 'perfect' ? 'ft' : so.type === 'schockOut' ? 'sk' : false); await wait(2900); }
       if (miss){ showMissed({ name:g.players[miss.player].name, me:isMe(miss.player), how:miss.how, pairs:miss.pairs }); await wait(3200); }
       if (left()) return;
       const recap = typeof E.roundRecap === 'function' ? E.roundRecap(g) : null;
@@ -2272,7 +2312,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         case 'started': if (events.some(x => x.type === 'roundEnd')){ resetInputs(); ui.reveal = null; } else resetUi(); break;
         case 'turn': {
           resetInputs();
+          if (e.blind) sound.cue('roll', 3); // Schocken: the cup is shaken, comes down and stays down
           if (events.some(x => x.type === 'roundEnd')) break; // the race's curtain says who starts
+          if (e.blind) ui.hint = `${nm(e.player)} rolled blind: the cup stays down until the round ends.`;
           if (state.phase === 'play' && myTurn()) sound.cue('yourturn');
           break;
         }
@@ -2282,7 +2324,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
             sound.cue('roll', active(g.turn).length + 2 * e.auto.length, true);
             e.auto.forEach((p, i) => sound.cue('pair', g.turn.pairs.length - e.auto.length + i, { delay:0.25 + 0.15 * i }));
           }
-          if (E.byHand(g) || isFT(g)){ ui.hint = null; break; }
+          if (E.byHand(g) || isFT(g) || isSK(g)){ ui.hint = null; break; }
           const t = g.turn, n = e.auto.length, left = active(t).length;
           if (!left) ui.hint = 'All six dice are out. Nothing counts against you.';
           else ui.hint = (n ? `${plural(n, 'pair')} of 7 set aside.` : 'No 7s in this roll.') + (t.rolls >= t.maxRolls ? ' No rolls left.' : '');
@@ -2297,20 +2339,22 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         case 'unpaired': sound.cue('unpair'); ui.selected = null; ui.hint = `${e.values[0]} and ${e.values[1]} are back on the table and will be rolled again.`; break;
         case 'sevensOut': ui.celebrate = nm(e.player); break;
         case 'perfect': ui.celebrate = { name:nm(e.player), ft:true }; break;
+        case 'schockOut': ui.celebrate = { name:nm(e.player), sk:true }; break;
+        case 'flipped': sound.cue('pair', 0); ui.hint = e.ids.length > 1 ? 'Two 6s turned into 1s. The third 6 goes back into the cup.' : 'A 6 turned into a 1. The other 6 goes back into the cup.'; break;
         case 'kept': sound.cue('pair', g.turn.dice.filter(d => d.held !== null).length - 1); ui.hint = null; break;
-        case 'unkept': sound.cue('unpair'); ui.hint = `The ${e.value} goes back into the next roll.`; break;
+        case 'unkept': sound.cue('unpair'); ui.hint = e.flip ? 'The 1 is a 6 again.' : `The ${e.value} goes back into the next roll.`; break;
         case 'missed': ui.missed = { name:nm(e.player), me:isMe(e.player), how:e.how, pairs:e.pairs }; break;
         case 'dropped': sound.cue('floor'); ui.hint = `${nm(e.player)} dropped a die. ${e.drops} of 3 on the floor.`; break;
         case 'shots': ui.doom = nm(e.player); ui.hint = `${nm(e.player)} pays a round of shots.`; break;
         case 'undone': sound.cue('undo'); resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
         case 'edited': ui.hint = `${nm(e.player)}'s scores were corrected.`; break;
         case 'gameOver': case 'ended':
-          sound.cue('over', { delay:events.some(x => x.type === 'sevensOut' || x.type === 'perfect' || x.type === 'missed') ? 3 : 0.35 }); // after the fanfare or the trombone
+          sound.cue('over', { delay:events.some(x => x.type === 'sevensOut' || x.type === 'perfect' || x.type === 'schockOut' || x.type === 'missed') ? 3 : 0.35 }); // after the fanfare or the trombone
           ui.open.sheet = true; ui.confirmEnd = false; ui.scoresOpen = false; break;
       }
     }
   }
-  function resetInputs(){ ui.selected = null; ui.hint = null; ui.armed = null; ui.nope = null; ui.entry = ''; ui.rolls = null; }
+  function resetInputs(){ ui.selected = null; ui.hint = null; ui.armed = null; ui.nope = null; ui.entry = ''; ui.rolls = null; ui.skHand = true; ui.skBlind = false; }
   function resetUi(){ resetInputs(); ui.edit = null; ui.editVals = {}; ui.reveal = null; ui.scoresOpen = false; ui.layout = {}; } // a new game: new spots
 
   // ---------- correcting past scores (scoreboard mode) ----------
@@ -2357,7 +2401,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // at the right end, and the 101 alert as one line. With the chat button the room chip shows only while not connected
   // (as in the lobby): the button's dot shows the connection
   function header(g){
-    const lim = state.phase === 'over' ? 'Game over' : isFT(g) ? `up to ${plural(FT_ROLLS, 'roll')}`
+    const lim = state.phase === 'over' ? 'Game over' : isFT(g) ? `up to ${plural(FT_ROLLS, 'roll')}` : isSK(g) ? `${halfWord(g.half)} · ${potWord(g).toLowerCase()}`
       : g.mark != null ? `${plural(g.mark, 'roll')} max` : `${esc(pname(g.starter))} sets the limit (max ${MAX_ROLLS})`;
     return `<header class="top slim">${feedBox()}<div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       ${state.phase !== 'over' ? endingAlert(g) : ''}`;
@@ -2378,34 +2422,39 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
 
   // the list's row size: real 44 px rows when the lines are tappable (real dice), 30 px with 5–6 players, 26 px from 7
-  const listClass = g => isScore(g) && seated() ? 'tall' : g.players.length > CHIP_ALL ? 'denser' : g.players.length >= 5 ? 'dense' : '';
+  // (Schocken has no corrections yet, so its lines are never tappable)
+  const editable = g => isScore(g) && seated() && !isSK(g);
+  const listClass = g => editable(g) ? 'tall' : g.players.length > CHIP_ALL ? 'denser' : g.players.length >= 5 ? 'dense' : '';
   // the score list: one line per player. During play (and corrections) the lines follow this round's
   // playing order with `cur` highlighted; at game over they are sorted by total, highest first.
   function board(g, cur){
     const over = state.phase === 'over', rd = g.rounds[g.rounds.length - 1], turn = over ? -1 : current(g);
-    const edit = isScore(g) && seated(); // then every line is a button, so the list drops its list role (role="none")
-    const ids = over ? g.players.map((_, i) => i).sort((a, b) => g.players[b].score - g.players[a].score || a - b) : g.order;
+    const edit = editable(g); // then every line is a button, so the list drops its list role (role="none")
+    // Schocken: the players sitting out the half (no coasters once the pot is empty, or not in the final) come last
+    const out = isSK(g) && !over ? g.players.map((_, i) => i).filter(i => !g.order.includes(i)) : [];
+    const ids = over ? g.players.map((_, i) => i).sort((a, b) => g.players[b].score - g.players[a].score || a - b) : g.order.concat(out);
     const lines = ids.map(i => {
-      const r = rd.results[i], lost = over && i === g.loser;
-      return lineHtml(g, i, { now:i === cur, wait:!over && !r && i !== turn, played:!!r, starter:i === g.starter, pts:r ? r.pts : 0,
-        tag:lost ? 'Loses' : over && !r ? '–' : null, lost, edit });
+      const r = rd.results[i], lost = over && i === g.loser, sat = out.includes(i);
+      return lineHtml(g, i, { now:i === cur, wait:!over && !r && i !== turn && !sat, played:!!r, starter:i === g.starter, pts:r ? r.pts : 0, res:r,
+        tag:lost ? 'Loses' : sat ? 'out' : over && !r ? '–' : null, lost, edit });
     }).join('');
     const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
-    const cls = listClass(g) + (isFT(g) ? ' ft' : '');
-    return `<section class="board${cls.trim() ? ` ${cls.trim()}` : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>${isFT(g) ? `${COASTERS} coasters lose` : `to ${LIMIT}`}</span></div>
+    const cls = listClass(g) + (isFT(g) ? ' ft' : isSK(g) ? ' sk' : '');
+    const right = isFT(g) ? `${COASTERS} coasters lose` : isSK(g) ? (over ? 'coasters' : `${halfWord(g.half)} · ${potWord(g).toLowerCase()}`) : `to ${LIMIT}`;
+    return `<section class="board${cls.trim() ? ` ${cls.trim()}` : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>${right}</span></div>
       <ol class="lines"${edit ? ' role="none"' : ''}>${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
   }
   // one line: turn marker, name (a die mark for the round's starter), bar towards 101 with the last 15 hatched,
   // total, and this round's points (`tag` replaces them). The race between rounds draws its lines with this too,
   // so it depends only on its arguments (and the room's connections for "Offline").
-  function lineHtml(g, i, { now = false, wait = false, played = false, starter = false, pts = 0, total = null, tag = null, lost = false, edit = false } = {}){
+  function lineHtml(g, i, { now = false, wait = false, played = false, starter = false, pts = 0, res = null, total = null, tag = null, lost = false, edit = false } = {}){
     const pl = g.players[i], tot = total != null ? total : pl.score;
     const shotsN = (g.shots || []).filter(s => s.player === i).length;
     const away = online() && g.seats && !seatOnline(g.seats[i]);
     const me = online() && g.seats && g.seats[i] === net.seat;
     const user = online() && g.seats && !me && seatInfo(g.seats[i]) ? seatInfo(g.seats[i]).user : null;
-    // in 42/18 the round's column shows the throw ("42+15", "no 42") and the total is the coasters
-    const dl = tag != null ? tag : played ? (isFT(g) ? throwShort(pts) : `+${pts}`) : wait ? '–' : 'now';
+    // in 42/18 and Schocken the round's column shows the throw ("42+15", "no 42"; "Sch 4", "653", "blind") and the total is the coasters
+    const dl = tag != null ? tag : played ? (isFT(g) ? throwShort(pts) : isSK(g) ? skShort(res) : `+${pts}`) : wait ? '–' : 'now';
     const attrs = edit ? ` role="button" tabindex="0" data-act="edit" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
     const sub = (away ? '<span class="pl-away">Offline</span>' : '') + (shotsN ? `<span class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</span>` : '');
     return `<li class="pl${now ? ' now' : ''}${wait ? ' wait' : ''}${tot >= limitOf(g) ? ' over' : ''}${lost ? ' lost' : ''}${edit ? ' editable' : ''}" data-id="${i}"${attrs}>`
@@ -2534,7 +2583,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       const nm = [...g.players[i].name], mid = nm.slice(1, 3).join(''), rest = nm.slice(3).join('');
       return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm[0] || '')}${mid ? `<span class="sc-mid">${esc(mid)}</span>` : ''}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''} <b>${g.players[i].score}</b></span>`;
       }).join('');
-    const label = `${isFT(g) ? 'Coasters' : 'Scores'}: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
+    const label = `${isFT(g) || isSK(g) ? 'Coasters' : 'Scores'}: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
     // online with chat, the chat button shows a lost connection (its red dot); an old server without chat keeps the dot in the chip
     const dot = online() && !net.chat.ready ? `<i class="sc-dot${net.status === 'open' ? '' : ' warn'}" aria-hidden="true"></i>` : '';
     const open = !!ui.scoresOpen;
@@ -2548,7 +2597,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // online the chat feed (its area always two lines high, so the mat and the keypad never move)
   function turnHead(g, cur, eyebrow){
     return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who">${nameOf(cur)}</h2>
-        ${isFT(g) ? toBeatLine(g) : ''}${endingAlert(g)}${feedArea()}</div>`;
+        ${isFT(g) ? toBeatLine(g) : isSK(g) ? skStandLine(g) : ''}${endingAlert(g)}${feedArea()}</div>`;
   }
   // 42/18: the lowest throw of the round so far, the one the player must beat to stay clear of the coaster. The line is
   // always there in 42/18 (the first player sees that nobody has thrown yet), so the mat doesn't move between turns
@@ -2561,6 +2610,25 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function beats(low, pts, rolls){
     if (pts !== low.pts) return pts > low.pts;
     return rolls ? rolls < low.rolls : null;
+  }
+  // Schocken: the round's highest and lowest throws so far (blind ones are still under their cups). The line is always
+  // there, so the mat doesn't move between turns
+  function skStand(g){
+    const rd = g.rounds[g.rounds.length - 1], { high, low } = E.skExtremes(rd, g.order);
+    const blind = g.order.filter(i => rd.results[i] && !rd.results[i].dice).length;
+    return { high, low, blind, rd };
+  }
+  function skStandLine(g){
+    const { high, low, blind, rd } = skStand(g), more = blind ? ` · ${blind} blind` : '';
+    if (high == null) return `<p class="tobeat">${blind ? `Under the cup: ${blind} blind` : 'First throw of the round: nothing to beat yet.'}</p>`;
+    if (high === low) return `<p class="tobeat">To beat: <b>${esc(pname(low))}</b> · ${esc(skLabel(rd.results[low]))} in ${plural(rd.results[low].rolls, 'roll')}${more}</p>`;
+    return `<p class="tobeat">Low <b>${esc(pname(low))}</b> ${esc(skShort(rd.results[low]))} · High <b>${esc(pname(high))}</b> ${esc(skShort(rd.results[high]))}${more}</p>`;
+  }
+  // a Schocken throw (dice, hand, rolls) against the round's so far: the current player throws after all of them
+  function skVersus(g, res){
+    const { high, low, rd } = skStand(g);
+    if (low == null || !res) return null;
+    return { low:E.skBetter(res, 99, rd.results[low], 0), high:E.skBetter(res, 99, rd.results[high], 0), lowP:low, highP:high };
   }
   function toBeatLine(g){
     const low = toBeat(g);
@@ -2744,11 +2812,123 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </section>` + `<div class="bar leather c4save">${actions}</div>`;
   }
 
+  // Schocken's dice turn, in the same frame as 42/18's: a tap on a die sets it aside into the tray (one set aside in
+  // this roll is a button that puts it back); next to the tray "6 → 1" when two 6s may turn, and Blind while a roll is
+  // left; the bar Stop | Roll (End) | the throw so far against the round's lowest
+  function skEyebrow(g, rest){ return `${halfWord(g.half)} · ${potWord(g)} · ${rest}`; }
+  function viewPlaySK(){
+    const g = state.game, t = g.turn, p = current(g), act = canAct();
+    const rolled = t.rolls > 0, done = rolled && !canRoll(t), nAct = active(t).length;
+    const kept = t.dice.filter(d => d.held !== null).sort((a, b) => a.held - b.held || a.id - b.id);
+    const back = t.flip && t.flip.roll === t.rolls ? t.flip.back : null; // the other 6 must be rolled again
+    const res = rolled ? { dice:t.dice.map(d => d.value), hand:E.skHand(t), rolls:t.rolls } : null;
+    const th = res && E.skThrow(res.dice, res.hand), busy = ui.rolling || ui.busy;
+    const eyebrow = skEyebrow(g, rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : g.mark == null ? 'Sets the limit' : `Up to ${plural(t.maxRolls, 'roll')}`);
+    const flip = act && !busy && E.canFlip(t), blind = act && !busy && canRoll(t);
+    let hint = ui.hint;
+    if (hint == null){
+      if (!act) hint = '';
+      else if (!rolled) hint = ui.rolling ? '' : firstRollHint(p);
+      else if (back !== null) hint = 'The other 6 goes back into the cup: roll it.';
+      else if (done) hint = `${skLabel(res)}. ${nAct ? 'No rolls left' : 'All three are set aside'}: end your turn.`;
+      else if (th.cat === 'out') hint = 'Schock out, the best throw. Stop now!';
+      else if (flip) hint = 'Two 6s: turn one into a 1, or play on.';
+      else hint = `Stop with ${skLabel(res)}, or set dice aside and roll again.`;
+    }
+    const tray = kept.map(d => act && !done && d.held === t.rolls && !ui.rolling
+      ? `<button class="die" data-act="unkeep" data-id="${d.id}" aria-label="${d.flipped ? 'Turn the 1 back into a 6' : `Put the ${d.value} back on the table`}">${face(d.value)}</button>`
+      : `<span class="die" role="img" aria-label="Set aside: ${d.value}">${face(d.value)}</span>`).join('');
+    const tools = (flip ? '<button class="btn small sktool" data-act="flip" aria-label="Turn a 6 into a 1">6 → 1</button>' : '')
+      + (blind ? `<button class="btn small sktool${ui.armed === 'blind' ? ' armed' : ''}" data-act="blind" aria-label="${ui.armed === 'blind' ? 'Confirm: roll blind' : 'Roll blind'}">${ui.armed === 'blind' ? 'Sure?' : 'Blind'}</button>` : '');
+    const trayHtml = `<div class="tray" aria-label="Set aside">${tray || (rolled && !tools ? '<span class="tray-empty">Dice set aside go here</span>' : '')}${tools}</div>`;
+
+    const val = rolled ? skShort(res) : '–';
+    let left = '', mid;
+    if (!rolled) left = `<p class="barnote">Up to ${plural(t.maxRolls, 'roll')}</p>`;
+    else if (!done) left = busy || back !== null ? `<button class="btn stopc" disabled><b>Stop</b> <small>${val}</small></button>`
+      : ui.armed === 'stop' ? `<button class="btn stopc armed" data-act="stop"><b>Confirm<span class="sr"> stop</span></b> <small>${val}</small></button>`
+      : `<button class="btn stopc" data-act="stop"><b>Stop</b> <small>${val}</small></button>`;
+    if (busy) mid = '<button class="btn primary rollbtn" disabled><b aria-hidden="true">…</b><span class="sr">Rolling</span></button>';
+    else if (done) mid = `<button class="btn primary rollbtn" data-act="end"><b>End<span class="sr"> turn</span></b> <small>${val}</small></button>`;
+    else mid = `<button class="btn primary rollbtn" data-act="roll"><b>Roll</b> <small>${diceWord(nAct)}</small></button>`;
+    // against the round so far: the lowest takes the coasters, the highest decides how many
+    const vs = rolled ? skVersus(g, res) : null;
+    const tag = !rolled ? 'three dice' : !vs ? 'your throw' : !vs.low ? 'lowest now' : vs.high ? 'highest now' : 'beats the low';
+    const say = !rolled ? 'No throw yet' : `Throw so far: ${skLabel(res)}${vs ? `, ${!vs.low ? `lower than ${pname(vs.lowP)}'s` : vs.high ? 'the highest' : `beats ${pname(vs.lowP)}'s`}` : ''}`;
+    const throwCell = `<div class="rackcell throwcell${vs && !vs.low ? ' low' : ''}" role="img" aria-label="${esc(say)}"><b aria-hidden="true">${esc(val)}</b><small class="racklabel" aria-hidden="true">${tag}</small></div>`;
+    const actions = act ? `<div class="c4cell c4left">${left}</div>${mid}${throwCell}` : waiting(pname(p), rolled ? 'finish their turn' : 'roll') + throwCell;
+
+    return chipHeader(g, p) + `
+      <section class="turn felt-turn diceturn ftturn skturn" aria-label="${esc(pname(p))}'s turn">
+        ${turnHead(g, p, eyebrow)}
+        <div class="mat">
+          <div class="dice">${t.dice.map(d => dieView(d, new Set(), act && !done)).join('')}</div>
+          <div class="mat-foot">${trayHtml}<p class="hint" aria-live="polite">${esc(hint)}</p></div>
+        </div>
+      </section>` + `<div class="bar leather c4bar${act ? '' : ' wait'}">${actions}</div>`;
+  }
+  // Schocken with real dice: the three dice on a 1–6 keypad, the rolls used (everyone: fewer rolls win a tie; the
+  // starter's set the limit), "From one roll" for a General or a Straight, and Blind
+  function skEntry(g){
+    const vals = [...(ui.entry || '')].map(Number), max = g.pos === 0 ? MAX_ROLLS : g.mark;
+    const rolls = ui.rolls || (max === 1 ? 1 : null), full = vals.length === 3;
+    const hand = rolls === 1 || ui.skHand !== false;
+    const res = full ? { dice:vals, hand, rolls:rolls || MAX_ROLLS } : null;
+    const askHand = full && rolls !== 1 && ['general', 'straight'].includes(E.skThrow(vals, true).cat);
+    return { vals, max, rolls, full, res, askHand };
+  }
+  function skSwitch(act, on, label, sub, idp){
+    return `<div class="swrow"><span><b id="${idp}-l">${label}</b><small id="${idp}-d">${sub}</small></span>
+        <button class="switch" role="switch" data-act="${act}" aria-checked="${on}" aria-labelledby="${idp}-l" aria-describedby="${idp}-d"><span></span></button></div>`;
+  }
+  function viewScoreSK(){
+    const g = state.game, p = current(g), act = canAct(), e = skEntry(g);
+    const eyebrow = skEyebrow(g, g.pos === 0 ? 'Sets the limit' : `Up to ${plural(g.mark, 'roll')}`);
+    const keys = [1,2,3,4,5,6].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
+      + '<button class="key fn wide" data-act="clear">Clear</button><button class="key fn" data-act="back" aria-label="Delete the last die">⌫</button>';
+    const rollPick = `<div class="rollpick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg" role="group" aria-labelledby="rolls-h">${Array.from({ length:e.max }, (_, k) => k + 1).map(k => `<button class="segbtn${e.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${e.rolls === k}">${k}</button>`).join('')}</div></div>`;
+    let label, ready = false;
+    if (!e.full) label = e.vals.length ? `Enter ${3 - e.vals.length === 1 ? 'one more die' : 'two more dice'}` : 'Enter the three dice';
+    else if (!e.rolls) label = 'Choose the rolls used';
+    else { label = `Save · ${pname(p)} ${skShort(e.res)}`; ready = true; }
+    const vs = ready ? skVersus(g, e.res) : null, last = g.pos === g.order.length - 1;
+    const versus = !vs ? '' : !vs.low ? (last ? 'The lowest: that takes the coasters.' : 'The lowest so far.') : vs.high ? 'The highest so far.' : `Beats ${pname(vs.lowP)}.`;
+    let hint = ui.hint != null ? ui.hint : versus || (e.full ? `${skLabel(e.res)}.` : '');
+    if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the throw for them.`;
+    const foot = `<div class="hintrow"><p class="hint" aria-live="polite">${esc(hint)}</p>${undoLink(g)}</div>`;
+    const shown = e.vals.length ? `<span class="skdice">${e.vals.map(v => mini(v)).join('')}</span>` : '<span class="ph">–</span>';
+    const entry = act ? `
+          <div class="entry-top"><span class="tlabels"><span class="tlabel">Your three dice</span><span class="tlabel">${e.full ? esc(skLabel(e.res)) : '1–6 each'}</span></span>
+            <div class="entry" aria-live="polite" aria-label="${e.vals.length ? `Dice: ${e.vals.join(', ')}` : 'No dice yet'}">${shown}</div></div>
+          <div class="pad skpad">${keys}</div>
+          ${rollPick}
+          ${e.askHand ? skSwitch('skhand', ui.skHand !== false, 'From one roll', 'Off: built, so it counts as a number', 'skhand') : ''}
+          ${skSwitch('skblind', !!ui.skBlind, 'Blind', 'Doubles if it was the high or low throw', 'skblind')}`
+      : '';
+    const actions = act ? `<button class="btn primary save" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>` : waiting(pname(p), 'enter their throw');
+    return chipHeader(g, p) + `
+      <section class="turn felt-turn keyturn skturn" aria-label="${esc(pname(p))}'s turn">
+        ${turnHead(g, p, eyebrow)}
+        <div class="mat keymat${act ? '' : ' watch'}">${entry}
+          ${floorRow(g)}
+          ${foot}
+        </div>
+      </section>` + `<div class="bar leather c4save">${actions}</div>`;
+  }
+
   function viewOver(){
     const g = state.game, L = g.loser, ls = g.players[L].score;
     const tiedWith = g.players.map((_, i) => i).filter(i => i !== L && g.players[i].score === ls);
-    let why;
-    if (isFT(g)){ // 42/18: the most coasters lose, normally the player who just took the third
+    let why, winner = null;
+    if (isSK(g)){ // Schocken: whoever lost both halves, or the final
+      const h = g.halves || [], rival = h.length === 3 ? (h[0] === L ? h[1] : h[0]) : null;
+      if (g.early) why = ls ? `The game was ended early. ${pname(L)} has the most coasters, ${ls}.`
+        : h.length ? `The game was ended early. ${pname(L)} lost the last half.` : 'The game was ended early, before anyone took a coaster.';
+      else if (rival == null) why = `${pname(L)} lost both halves.`;
+      else { why = `${pname(L)} lost the final against ${pname(rival)}.`; winner = `<p class="lede"><b>${esc(pname(rival))}</b> wins the final.</p>`; }
+      winner = winner || '';
+    }
+    else if (isFT(g)){ // 42/18: the most coasters lose, normally the player who just took the third
       const rd = [...g.rounds].reverse().find(r => r.loser != null), r = rd && rd.loser === L ? rd.results[L] : null;
       if (tiedWith.length) why = `Tied on ${coasterWord(ls)} with ${listNames(tiedWith)}. ${pname(L)} played later in the last round, so ${pname(L)} loses.`;
       else if (g.early) why = `The game was ended early. ${pname(L)} has the most coasters, ${ls}.`;
@@ -2758,7 +2938,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     else if (g.early) why = `The game was ended early. ${pname(L)} has the highest score, ${ls}.`;
     else if (g.crosser !== L) why =`${pname(g.crosser)} reached ${LIMIT} first, but ${pname(L)} finished the round higher with ${ls}.`;
     else why = `${pname(L)} reached ${LIMIT} and finished with the highest score, ${ls}.`;
-    const winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(1 - L))}</b> wins with ${isFT(g) ? coasterWord(g.players[1 - L].score) : g.players[1 - L].score}.</p>` : '';
+    if (winner == null) winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(1 - L))}</b> wins with ${isFT(g) ? coasterWord(g.players[1 - L].score) : g.players[1 - L].score}.</p>` : '';
     // one phone: Home leaves the finished game (to join or start a room), Play again goes to Who's playing
     const again = !online() ? '<div class="row"><button class="btn two cancel" data-act="home">Home</button><button class="btn two primary go" data-act="again">Play again</button></div>'
       : amHost() ? '<button class="btn primary" data-act="oreopen">Play again with this room</button>'
@@ -2793,9 +2973,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     play:'M4 4h16v16H4zM9 9h.01M15 15h.01M12 12h.01', online:'M2 6h7v12H2zM15 6h7v12h-7zM9 12h6',
     you:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c1.5-4 4.5-6 8-6s6.5 2 8 6',
     table:'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2', real:'M4 6h16M4 12h16M4 18h10',
-    // the games: a 3 and a 4 (a 7), a 4 and a 2 (the 42)
+    // the games: a 3 and a 4 (a 7), a 4 and a 2 (the 42), two 1s (a Schock)
     sevens:'M2 7h9v9H2zM13 7h9v9h-9zM4.5 9.5h.01M6.5 11.5h.01M8.5 13.5h.01M15.5 9.5h.01M19.5 9.5h.01M15.5 13.5h.01M19.5 13.5h.01',
-    fortytwo:'M2 7h9v9H2zM13 7h9v9h-9zM4.5 9.5h.01M8.5 9.5h.01M4.5 13.5h.01M8.5 13.5h.01M15.5 9.5h.01M19.5 13.5h.01'
+    fortytwo:'M2 7h9v9H2zM13 7h9v9h-9zM4.5 9.5h.01M8.5 9.5h.01M4.5 13.5h.01M8.5 13.5h.01M15.5 9.5h.01M19.5 13.5h.01',
+    schocken:'M2 7h9v9H2zM13 7h9v9h-9zM6.5 11.5h.01M17.5 11.5h.01'
   };
   const icon = k => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[k]}"/></svg>`;
   // which home screen shows: ui.screen null (or 'home', a ?join landing over a saved game) means home
@@ -2836,11 +3017,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const opt = (act, id, on, ic, title, sub) => `<button class="opt" data-act="${act}" data-id="${id}" aria-pressed="${on}">${icon(ic)}<span><b>${title}</b><small>${sub}</small></span></button>`;
     const whereSet = onlineAvailable() ? `<fieldset class="choice"><legend class="h3">Where is everyone?</legend><div class="cards">
         ${opt('where', 0, where === 'table', 'table', 'At this table', 'Pass one phone round')}${opt('where', 1, where === 'phones', 'online', 'Own phones', 'Online, with a code')}</div></fieldset>` : '';
-    const gameSet = hasFT() ? `<fieldset class="choice"><legend class="h3">Game</legend><div class="cards">
-        ${KINDS.map(([k, title, sub, ic], i) => opt('kind', i, kind === k, ic, title, sub)).join('')}</div></fieldset>` : '';
+    const games = kindsShown();
+    const gameSet = games.length > 1 ? `<fieldset class="choice"><legend class="h3">Game</legend><div class="cards${games.length > 2 ? ' three' : ''}">
+        ${games.map(([[k, title, sub, ic], i]) => opt('kind', i, kind === k, ic, title, sub)).join('')}</div></fieldset>` : '';
     const diceSet = `<fieldset class="choice"><legend class="h3">Dice</legend><div class="cards">
         ${opt('mode', 0, mode === 'dice', 'play', 'In the app', 'Tap to roll')}${opt('mode', 1, mode === 'score', 'real', 'Real dice', 'Enter scores here')}</div></fieldset>`;
-    const sw = mode === 'dice' && kind !== FT ? pairSwitch(auto, 'pairing', 'autopair') : '';
+    const sw = mode === 'dice' && kind === 'sevens' ? pairSwitch(auto, 'pairing', 'autopair') : '';
     let next;
     if (where === 'table') next = `<button class="btn primary" data-act="players">${homeScreen() === 'players' ? 'Done' : 'Next: who\'s playing'}</button>`;
     else {
@@ -2856,7 +3038,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // round 1, a compact row for the dice choices (it opens the Play sheet), and Start game pinned to the bottom
   function modeLine(s){
     if (kindOf(s) === FT) return `42/18 · ${s.mode === 'score' ? 'Real dice' : 'Dice in the app'}`;
-    return (hasFT() ? 'Sevens Out · ' : '') + (s.mode === 'score' ? 'Real dice' : `Dice in the app · ${s.pairing === 'auto' ? 'The app finds the 7s' : 'You find the 7s'}`);
+    if (kindOf(s) === SK) return `Schocken · ${s.mode === 'score' ? 'Real dice' : 'Dice in the app'}`;
+    return (kindsShown().length > 1 ? 'Sevens Out · ' : '') + (s.mode === 'score' ? 'Real dice' : `Dice in the app · ${s.pairing === 'auto' ? 'The app finds the 7s' : 'You find the 7s'}`);
   }
   function viewPlayers(){
     const s = state.setup, mine = myLine(s.names), many = s.names.length > 2;
@@ -2954,7 +3137,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </li>`).join('');
     const modeSeg = `<div class="seg small" role="group" aria-labelledby="omode-h">${[['dice', 'In the app'], ['score', 'Real dice']].map(([v, l]) =>
       `<button class="segbtn${mode === v ? ' on' : ''}" data-act="omode" data-id="${v === 'score' ? 1 : 0}" aria-pressed="${mode === v}"${dis}>${l}</button>`).join('')}</div>`;
-    const kindSeg = `<div class="seg small" role="group" aria-labelledby="okind-h">${KINDS.map(([v, l], i) =>
+    const kindSeg = `<div class="seg small" role="group" aria-labelledby="okind-h">${kindsShown().map(([[v, l], i]) =>
       `<button class="segbtn${kind === v ? ' on' : ''}" data-act="okind" data-id="${i}" aria-pressed="${kind === v}"${dis}>${l}</button>`).join('')}</div>`;
     const starterSeg = `<div class="picks" role="group" aria-labelledby="ostart-h">${seats.map((s, i) =>
       `<button class="pickbtn${st === i ? ' on' : ''}" data-act="ostarter" data-id="${i}" aria-pressed="${st === i}"${dis}>${esc(s.name)}</button>`).join('')}<button class="pickbtn${st === 'random' ? ' on' : ''}" data-act="ostarter" data-id="-1" aria-pressed="${st === 'random'}"${dis}>Random</button></div>`;
@@ -2977,9 +3160,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       <section class="panel" aria-labelledby="set-h">
         <h2 class="h3" id="set-h">Settings${host ? '' : ' · the host picks'}</h2>
         <div class="pcard setcard">
-          ${hasFT() ? `<div class="setrow"><span class="setlbl" id="okind-h">Game</span>${kindSeg}</div>` : ''}
+          ${kindsShown().length > 1 ? `<div class="setrow"><span class="setlbl" id="okind-h">Game</span>${kindSeg}</div>` : ''}
           <div class="setrow"><span class="setlbl" id="omode-h">Dice</span>${modeSeg}</div>
-          ${mode === 'dice' && kind !== FT ? pairSwitch(r.settings.pairing === 'auto', 'opairing', 'opair', host) : ''}
+          ${mode === 'dice' && kind === 'sevens' ? pairSwitch(r.settings.pairing === 'auto', 'opairing', 'opair', host) : ''}
           <div class="setrow col"><span class="setlbl" id="ostart-h">Who starts</span>${starterSeg}</div>
         </div>
       </section>
@@ -2987,22 +3170,25 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
 
   function sheet(g){
-    const ft = isFT(g), head = g.players.map(pl => `<th scope="col">${esc(pl.name)}</th>`).join('');
-    // 42/18: each throw, and the round's loser (who took the coaster) in red
-    const body = g.rounds.map(rd => `<tr><th scope="row">${rd.no}</th>${g.players.map((_, i) => {
-      const r = rd.results[i], cls = [i === rd.starter ? 'st' : '', ft && rd.loser === i ? 'lc' : ''].filter(Boolean).join(' ');
-      return `<td${cls ? ` class="${cls}"` : ''}>${r ? `${ft ? throwShort(r.pts) : `+${r.pts}`}${r.rolls != null ? `<small>${r.rolls}×</small>` : ''}` : '–'}</td>`;
+    const ft = isFT(g), sk = isSK(g), head = g.players.map(pl => `<th scope="col">${esc(pl.name)}</th>`).join('');
+    // 42/18 and Schocken: each throw, and the round's loser (who took the coasters) in red; Schocken marks each new half
+    const body = g.rounds.map((rd, k) => (sk && k && rd.half !== g.rounds[k - 1].half ? `<tr class="halfrow"><th scope="rowgroup" colspan="${g.players.length + 1}">${halfWord(rd.half)}</th></tr>` : '')
+      + `<tr><th scope="row">${rd.no}</th>${g.players.map((_, i) => {
+      const r = rd.results[i], cls = [i === rd.starter ? 'st' : '', (ft || sk) && rd.loser === i ? 'lc' : ''].filter(Boolean).join(' ');
+      const shown = r ? (ft ? throwShort(r.pts) : sk ? `${skShort(r)}${rd.loser === i ? ` +${rd.take}` : ''}` : `+${r.pts}`) : '';
+      return `<td${cls ? ` class="${cls}"` : ''}>${r ? `${shown}${r.rolls != null ? `<small>${r.rolls}×</small>` : ''}` : '–'}</td>`;
     }).join('')}</tr>`).join('');
     const foot = g.players.map(pl => `<td>${pl.score}</td>`).join('');
     return `<details class="fold" data-fold="sheet"${ui.open.sheet !== false ? ' open' : ''}><summary>Score sheet</summary>
-      <div class="tablewrap"><table><thead><tr><th scope="col">Round</th>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr><th scope="row">${ft ? 'Coasters' : 'Total'}</th>${foot}</tr></tfoot></table></div>
-      <p class="note"><span class="dot"></span> marks the round's starter. The small number is how many rolls were used.${ft ? ' Red marks who lost the round and took a coaster.' : ''}</p></details>`;
+      <div class="tablewrap"><table><thead><tr><th scope="col">Round</th>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr><th scope="row">${ft || sk ? 'Coasters' : 'Total'}</th>${foot}</tr></tfoot></table></div>
+      <p class="note"><span class="dot"></span> marks the round's starter. The small number is how many rolls were used.${ft ? ' Red marks who lost the round and took a coaster.' : sk ? ' Red marks who threw lowest and took the coasters (+N).' : ''}</p></details>`;
   }
 
   function rules(){
     const set = online() && net.room ? net.room.settings : state.setup;
     const mode = state.game ? state.game.mode : set.mode;
     if (state.game ? isFT(state.game) : kindOf(set) === FT) return rulesFT(mode);
+    if (state.game ? isSK(state.game) : kindOf(set) === SK) return rulesSK(mode);
     const hand = state.game ? E.byHand(state.game) : mode !== 'score' && set.pairing !== 'auto';
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play</summary><ol>
       <li>On your turn you roll six dice. After each roll you may set aside any pairs that add up to 7 (1+6, 2+5, 3+4). Only such pairs can be set aside; every other die goes back into the next roll.</li>
@@ -3023,13 +3209,25 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the points of their throw (or No 42) and the rolls they used.' : 'Tap a die to keep it. Tap a kept die from this roll to put it back before rolling again.'}</p></details>`;
   }
 
+  function rulesSK(mode){
+    return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play Schocken</summary><ol>
+      <li>On your turn you roll three dice, up to three times; the round's starter decides how many rolls everyone gets. After each roll set aside any dice you like and roll the rest, or stop.</li>
+      <li>Two 6s from the same roll may turn into a 1 (three 6s into two 1s). The other 6 goes back into the cup, so you roll again.</li>
+      <li>Best to worst: Schock out (1-1-1), Schock 6 down to Schock 2 (two 1s and a 6 to a 2), General (three of a kind), Straight (three in a row), then any other throw, read as a number from the highest die: 665 beats 664, and 221 is the lowest. A General or a Straight counts only from one roll, with nothing set aside.</li>
+      <li>On a tie, fewer rolls win; still tied, whoever threw first.</li>
+      <li>The lowest throw takes coasters, as many as the highest throw is worth: Schock out all of them, a Schock its number, a General 3, a Straight 2, any other throw 1. They come from the pot of ${SK_POT} while it has some, then from the player with the highest throw. Once the pot is empty, players without coasters sit out the rest of the half.</li>
+      <li>Blind: instead of rolling, roll blind. The cup stays down until the round ends, and your turn is over. If the round's highest or lowest throw was blind, the coasters double.</li>
+      <li>Whoever ends up with all ${SK_POT} coasters loses the half. There are two halves; when two different players lost them, they play a final. Lose both halves or the final and you lose the game. The round's loser starts the next round.</li>
+    </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the three dice, the rolls used, and whether the throw was blind.' : 'Tap a die to set it aside. Tap it again in the tray to put it back before rolling again.'}</p></details>`;
+  }
+
   function devBlock(){
     // End game now only where the game shows (the game menu), never in home's Settings sheet over a saved game
     const live = state.phase === 'play' && !!state.game && (!online() || amHost()) && !onHome();
     // only dice that are being rolled make a turn in progress; a real-dice turn is booked in one go
     const rolling = live && !E.isScore(state.game) && !!state.game.turn && state.game.turn.rolls > 0;
     const confirm = live && ui.confirmEnd
-      ? `<div class="confirm"><span>End the game now? ${isFT(state.game) ? 'The most coasters lose' : 'The highest score loses'}${rolling ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
+      ? `<div class="confirm"><span>End the game now? ${isFT(state.game) || isSK(state.game) ? 'The most coasters lose' : 'The highest score loses'}${rolling ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
     return `<details class="fold" data-fold="dev"${ui.open.dev ? ' open' : ''}><summary>Developer</summary>
       <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button><button class="btn ghost" data-act="devmiss">Play missed 7</button><button class="btn ghost" data-act="devround">Play round change</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
@@ -3445,6 +3643,19 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   };
   const lowWord = s => s ? `42 + ${s}` : 'no 42';
   const WHY_FT = { low:s => `Took a coaster with ${lowWord(s)}`, rolls:s => `Took a coaster: ${lowWord(s)}, more rolls`, later:s => `Took a coaster: ${lowWord(s)}, played later` };
+  // Schocken: the round's best moment, and why its loser (who threw lowest and took the coasters) starts the next one
+  const BADGE_SK = {
+    schockOut: n => ['Schock out', `${n} threw three 1s`],
+    half: (n, v) => [v === 1 ? 'First half' : 'Second half', `${n} has all ${SK_POT} coasters`],
+    blind: (n, v) => ['Blind', `${n}'s cup came up: ${coasterWord(v)}, doubled`],
+    schock: (n, v) => [`Schock ${v}`, `${n} threw it: ${coasterWord(v)}`],
+    shots: n => ['Shots', `${n} paid a round`]
+  };
+  const WHY_SK = {
+    pot:(s, r) => `Lowest with ${skLabel(r.low)}: ${coasterWord(s)} from the pot`,
+    paid:(s, r, nm) => `Lowest with ${skLabel(r.low)}: ${coasterWord(s)} from ${nm(r.high)}`,
+    all:() => `Took all ${SK_POT} coasters`
+  };
   // the screen's usable band, inside the 16 px gutter and the safe areas
   function edges(){
     const root = getComputedStyle(document.documentElement);
@@ -3478,7 +3689,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     await listInView();
     return new Promise(resolve => {
       const nm = i => g.players[i].name, timers = [];
-      const ft = recap.kind === FT, lim = ft ? COASTERS : LIMIT; // 42/18: the totals are coasters and each line shows its throw
+      const ft = recap.kind === FT, sk = recap.kind === SK, lim = ft ? COASTERS : sk ? SK_POT : LIMIT; // 42/18, Schocken: the totals are coasters and each line shows its throw
       let raf = 0, swapped = false, done = false, el = null, card = null;
       const doSwap = () => {
         if (swapped) return;
@@ -3501,21 +3712,23 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const from = list ? list.getBoundingClientRect() : chip ? chip.getBoundingClientRect() : null;
         const cls = list ? ['dense', 'denser', 'tall'].filter(c => list.classList.contains(c)).join(' ') : chip ? listClass(g) : '';
         const box = $app.getBoundingClientRect(), { minTop, maxBottom } = edges();
-        const badges = ft ? BADGE_FT : BADGE;
+        const badges = ft ? BADGE_FT : sk ? BADGE_SK : BADGE;
         const best = recap.best && badges[recap.best.kind] ? badges[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
-        const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = (ft ? WHY_FT : WHY)[recap.reason.kind](recap.reason.score);
+        const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = (ft ? WHY_FT : sk ? WHY_SK : WHY)[recap.reason.kind](recap.reason.score, recap.reason, nm);
+        // Schocken: a lost half brings the second half or the final instead of the next round
+        const title = sk && recap.half ? (recap.half.next === 3 ? 'The final' : 'Second half') : `Round ${recap.round + 1}`;
         const foot = list && list.querySelector('.bfoot');
         const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
         el = document.createElement('div');
         el.className = 'race';
         // from the chip or the list over the mat, the card is solid like that list (it passes over the menu button and the dice)
         const solid = chip || list && list.closest('.scores-pop');
-        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${ft ? ' ft' : ''}${recap.order.length > CHIP_ALL ? ' crowd' : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
-            <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>${ft ? `${COASTERS} coasters lose` : `to ${LIMIT}`}</span></div>
-            <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:ft ? recap.results[i].pts : recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
+        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${ft ? ' ft' : sk ? ' sk' : ''}${recap.order.length > CHIP_ALL ? ' crowd' : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
+            <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>${ft ? `${COASTERS} coasters lose` : sk ? `${SK_POT} coasters lose` : `to ${LIMIT}`}</span></div>
+            <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:ft ? recap.results[i].pts : recap.pts[i], res:sk ? recap.results[i] : null, total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
             ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
             ${best ? `<p class="race-badge"><b>${esc(best[0])}</b> <span>${esc(best[1])}</span></p>` : ''}</div>
-          <div class="race-curtain" aria-hidden="true"><p class="race-round">${slam(`Round ${recap.round + 1}`)}</p>
+          <div class="race-curtain" aria-hidden="true"><p class="race-round">${slam(title)}</p>
             <p class="race-starter">${esc(starts)}</p><p class="race-why">${esc(why)}</p></div>
           <p class="sr" role="status"></p>`;
         card = el.firstElementChild;
@@ -3544,7 +3757,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const grow = () => {
           card.classList.add('grow'); card.style.top = `${top1}px`;
           if (chip){ card.style.left = `${box.left + 16}px`; card.style.width = `${box.width - 32}px`; card.style.clipPath = 'inset(0 0 0 0 round 14px)'; }
-          card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>${ft ? 'Coasters' : `Race to ${LIMIT}`}</b></span>`;
+          card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>${ft || sk ? 'Coasters' : `Race to ${LIMIT}`}</b></span>`;
         };
         const bars = () => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.fill').style.width = barWidth(recap.after[i], lim); li.classList.toggle('over', recap.after[i] >= lim); });
         const count = k => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.num').textContent = Math.round(recap.before[i] + recap.pts[i] * k); });
@@ -3566,7 +3779,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const drop = () => { curtain.classList.add('in'); sound.round(); };
         el.addEventListener('click', finish);
         document.addEventListener('keydown', onKey, true);
-        later(60, () => { el.querySelector('[role=status]').textContent = `${best ? `${best[0]}: ${best[1]}. ` : ''}Round ${recap.round + 1}. ${starts}. ${why}.`; });
+        later(60, () => { el.querySelector('[role=status]').textContent = `${best ? `${best[0]}: ${best[1]}. ` : ''}${title}. ${starts}. ${why}.`; });
 
         if (reduceMotion){
           grow(); bars(); count(1); sort(false); pop();
@@ -3579,7 +3792,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         later(700, () => {
           bars(); countUp();
           const moved = recap.order.some((i, k, o) => k && recap.after[i] > recap.after[o[k - 1]]); // the sort changes the order
-          if (recap.pts.some(p => p)) sound.cue('bars', Math.max(...recap.pts), moved);
+          if (recap.pts.some(p => p)) sound.cue('bars', Math.max(...recap.pts.map(Math.abs)), moved);
         });
         later(1700, () => sort(true));
         later(2400, pop);
@@ -3594,6 +3807,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function devRecap(){
     const g = state.game, recap = g && E.roundRecap(g);
     if (recap) return { g, recap };
+    if (isSK(g)){ // made-up throws: the first player in order threw Schock 2, the second the lowest, 221
+      const order = g.order, results = {}, L = order[1], H = order[0];
+      const made = [[2, 1, 1], [2, 2, 1], [6, 5, 3], [5, 4, 2], [6, 6, 4], [4, 4, 3]];
+      order.forEach((i, k) => { results[i] = { dice:made[k % made.length], hand:false, rolls:1 + k % 3 }; });
+      const before = g.players.map(p => p.score), pts = before.map((_, i) => (i === L ? 2 : 0)), after = before.map((b, i) => b + pts[i]);
+      return { g, recap:{ kind:SK, round:g.round, next:L, order, pts, before, after, results, best:{ kind:'schock', player:H, value:2 }, reason:{ kind:'pot', score:2, low:results[L], high:H }, half:null } };
+    }
     if (isFT(g)){ // made-up throws: the second player in order found no 42
       const n = g.players.length, order = E.orderFrom(g.starter, n), results = {}, L = order[1];
       order.forEach((i, k) => { results[i] = { pts:k === 1 ? 0 : [9, 0, 15, 18, 4, 12][k] || 3 + k, rolls:1 + k % 3 }; });
@@ -3613,6 +3833,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const t = state.game.turn, d = t.dice[id];
     if (!d || d.held !== null || d.value === null || ui.rolling || !canAct()) return;
     if (isFT(state.game)){ if (canRoll(t)) dispatch({ type:'keep', id }); return; } // 42/18: a tap keeps the die
+    if (isSK(state.game)){ // Schocken: a tap sets the die aside; the 6 left after turning one goes back into the cup
+      if (t.flip && t.flip.roll === t.rolls && t.flip.back === id){ ui.hint = 'This 6 goes back into the cup: roll it.'; ui.nope = id; sound.cue('nope'); return; }
+      ui.armed = null;
+      if (canRoll(t)) dispatch({ type:'keep', id });
+      return;
+    }
     if (ui.selected === null){
       const hand = E.byHand(state.game);
       if (!hand && !pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; sound.cue('nope'); return; }
@@ -3661,7 +3887,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     // these leave the game menu: the screen changes, or there is something to watch
     if (['newyes', 'oleaveyes', 'endyes', 'devconfetti', 'devdoom', 'devmiss', 'devround'].includes(a)) closeSheet({ redraw:a === 'devround' });
     ui.nope = null;
-    if (a !== 'stop' && a !== 'scores') ui.armed = null; // opening the score list keeps Stop armed
+    if (a !== 'stop' && a !== 'blind' && a !== 'scores') ui.armed = null; // opening the score list keeps Stop (or Blind) armed
     if (a !== 'new') ui.confirmNew = false;
     if (a !== 'endearly') ui.confirmEnd = false;
     if (a !== 'oleave') ui.confirmLeave = false;
@@ -3728,7 +3954,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'takeall': if (canAct()){ ui.selected = null; dispatch({ type:'takeall' }); } break;
       case 'drop': if (state.phase === 'play' && E.isScore(g) && seated()) dispatch({ type:'drop' }); break;
       case 'edit':
-        if (!E.isScore(g) || state.phase === 'setup' || !g.players[id] || !seated()) return;
+        if (!E.isScore(g) || isSK(g) || state.phase === 'setup' || !g.players[id] || !seated()) return;
         ui.edit = id; ui.editVals = {};
         break;
       case 'ecancel': ui.edit = null; ui.editVals = {}; break;
@@ -3753,6 +3979,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           const left = t.maxRolls - t.rolls;
           // 42/18: how many rolls are left depends on the dice kept, so the hint names the throw instead
           if (isFT(g)){ ui.hint = `Tap again to stop with ${throwLabel(E.throwPts(t.dice.map(d => d.value)))}.`; break; }
+          if (isSK(g) && g.pos !== 0){ ui.hint = `Tap again to stop with ${skLabel({ dice:t.dice.map(d => d.value), hand:E.skHand(t) })}.`; break; }
           ui.hint = g.pos === 0 && !isFT(g)
             ? `Everyone gets ${plural(t.rolls, 'roll')}. Tap again to stop.`
             : `${coveringFor() ? `${pname(current(g))} has` : 'You have'} ${plural(left, 'roll')} left. Tap again to stop.`;
@@ -3761,6 +3988,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         dispatch({ type:'stop' }); break;
       }
       case 'end': if (g.turn.rolls && canAct()) dispatch({ type:'stop' }); break;
+      // Schocken: turn two 6s into a 1; roll blind (the first tap arms it: the turn ends with the cup down)
+      case 'flip': if (state.phase === 'play' && isSK(g) && canAct() && !ui.rolling) dispatch({ type:'flip' }); break;
+      case 'blind': {
+        if (state.phase !== 'play' || !isSK(g) || E.isScore(g) || !canAct() || ui.rolling || !canRoll(g.turn)) return;
+        if (ui.armed !== 'blind'){ ui.armed = 'blind'; ui.hint = 'Roll blind: the cup stays down until the round ends, and your turn is over. Tap Sure? to roll.'; break; }
+        resetInputs(); dispatch({ type:'blind' }); break;
+      }
+      case 'skhand': ui.skHand = ui.skHand === false; break;
+      case 'skblind': ui.skBlind = !ui.skBlind; break;
       case 'new': ui.confirmNew = true; break;
       case 'newyes': toSetup(); break;
       case 'newno': break;
@@ -3797,12 +4033,17 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         break;
       }
       case 'mode': state.setup.mode = id === 1 ? 'score' : 'dice'; break;
-      case 'kind': state.setup.kind = id === 1 && hasFT() ? FT : 'sevens'; break;
+      case 'kind': state.setup.kind = KINDS[id] && kindOn(KINDS[id][0]) ? KINDS[id][0] : 'sevens'; break;
       // the sheet's switch toggles; data-id 0/1 sets manual/auto
       case 'pairing': state.setup.pairing = (id == null ? state.setup.pairing !== 'auto' : id === 1) ? 'auto' : 'manual'; break;
       case 'key': {
         if (state.phase !== 'play' || !E.isScore(g) || !canAct()) return;
         ui.hint = null;
+        if (isSK(g)){ // three dice, 1 to 6 each
+          if (!(id >= 1 && id <= 6)) break;
+          if ((ui.entry || '').length >= 3){ ui.hint = 'That makes three dice. Delete one to change it.'; break; }
+          ui.entry = (ui.entry || '') + id; break;
+        }
         const s = ui.entry === '0' ? String(id) : ui.entry + id;
         if (isFT(g) && (s.length > 2 || +s > FT_MAX)){ ui.hint = 'The most is 18: three 6s.'; break; }
         if (s.length > 2 || +s > MAX_PIPS){ ui.hint = 'The most you can have left is 36 (six 6s).'; break; }
@@ -3816,6 +4057,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'commit': {
         if (state.phase !== 'play' || !E.isScore(g) || !canAct() || ui.entry === '') break;
         if (isFT(g)){ if (okPts(g, +ui.entry) && ui.rolls) dispatch({ type:'score', pts:+ui.entry, rolls:ui.rolls }); break; }
+        if (isSK(g)){
+          const e = skEntry(g);
+          if (e.full && e.rolls) dispatch({ type:'score', dice:e.vals, rolls:e.rolls, hand:e.rolls === 1 || ui.skHand !== false, blind:!!ui.skBlind });
+          break;
+        }
         const isStarter = g.pos === 0;
         if (isStarter && !ui.rolls) break;
         dispatch({ type:'score', pts:+ui.entry, rolls:isStarter ? ui.rolls : undefined });
@@ -3866,7 +4112,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         return;
       }
       case 'omode': if (amHost()) netSend({ t:'lobby', op:'settings', mode:id === 1 ? 'score' : 'dice' }); break;
-      case 'okind': if (amHost() && hasFT()) netSend({ t:'lobby', op:'settings', kind:id === 1 ? FT : 'sevens' }); break;
+      case 'okind': if (amHost() && KINDS[id] && kindOn(KINDS[id][0])) netSend({ t:'lobby', op:'settings', kind:KINDS[id][0] }); break;
       case 'opairing': { // the switch toggles; data-id 0/1 sets
         if (!amHost()) break;
         const auto = id == null ? net.room.settings.pairing !== 'auto' : id === 1;
@@ -3904,7 +4150,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // ---------- render / persistence ----------
   function gameView(){
     return (ui.edit != null && E.isScore(state.game)) ? viewEdit()
-      : state.phase === 'play' ? (E.isScore(state.game) ? (isFT(state.game) ? viewScoreFT() : viewScore()) : (isFT(state.game) ? viewPlayFT() : viewPlay()))
+      : state.phase === 'play' ? (E.isScore(state.game) ? (isFT(state.game) ? viewScoreFT() : isSK(state.game) ? viewScoreSK() : viewScore())
+        : (isFT(state.game) ? viewPlayFT() : isSK(state.game) ? viewPlaySK() : viewPlay()))
       : viewOver();
   }
   function render(){
@@ -3959,7 +4206,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (focusNext){ const el = document.getElementById(focusNext); focusNext = null; if (el) el.focus({ preventScroll:true }); }
     if (toBar){ const el = $app.querySelector(':scope > .bar .btn.primary:not(:disabled)'); if (el) el.focus({ preventScroll:true }); }
     save();
-    if (ui.celebrate){ const c = ui.celebrate; ui.celebrate = null; celebrate(c.name || c, !!c.ft); }
+    if (ui.celebrate){ const c = ui.celebrate; ui.celebrate = null; celebrate(c.name || c, c.ft ? 'ft' : c.sk ? 'sk' : false); }
     if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }
     if (ui.missed){ const m = ui.missed; ui.missed = null; showMissed(m); }
   }
@@ -3970,7 +4217,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (online() || ui.race) return;
     // statistics never break playing; queueReport runs first because it may give an old save its id, which is saved with it
     let report = false;
-    if (state.phase === 'over' && !isFT(state.game)){ try { queueReport(); report = true; } catch (e) {} } // 42/18 isn't in the statistics yet
+    if (state.phase === 'over' && !state.game.kind){ try { queueReport(); report = true; } catch (e) {} } // 42/18 and Schocken aren't in the statistics yet
     write(state);
     if (report){ try { flushReports(); } catch (e) {} }
   }

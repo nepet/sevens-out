@@ -1,5 +1,6 @@
 /*
- * Sevens Out rules engine, for both games: Sevens Out (the default) and 42/18 (game.kind '4218').
+ * Sevens Out rules engine, for the three games: Sevens Out (the default), 42/18 (game.kind '4218') and Schocken
+ * (game.kind 'schocken').
  *
  * Pure game logic: no DOM, no storage, no network. The same file runs
  *   - in the page, loaded with a classic <script src="engine.js">, and
@@ -91,6 +92,7 @@
   // one before the last (the engine starts the next round in the same action that books the last turn)
   function roundRecap(g) {
     if (isFT(g)) return ftRecap(g);
+    if (isSK(g)) return skRecap(g);
     if (g.rounds.length < 2) return null;
     const n = g.players.length, fin = g.rounds.length - 2, rd = g.rounds[fin];
     const order = orderFrom(rd.starter, n);
@@ -184,6 +186,87 @@
     return { round: rd.no, next: g.rounds[fin + 1].starter, order, pts, before, after, best, reason, results: res, kind: FT };
   }
 
+  // ---------- Schocken, the third game ----------
+  // Three dice, up to three rolls; the round's starter sets the limit for everyone else (as in Sevens Out). After each
+  // roll the player sets aside any dice (setting none aside is fine) and rolls the rest, or stops. Two 6s from the same
+  // roll may be turned into one 1 (three 6s into two 1s): the other 6 goes back into the cup, so the player rolls again.
+  // Throws, best first: Schock out (1-1-1, all the coasters), Schock 6 to 2 (1-1-x, x coasters), General (three of a kind,
+  // 3), Straight (three in a row, 2), then any other throw (1), read as a number from the highest die (665 down to 221).
+  // A General or a Straight counts only from one roll ("from the hand": nothing set aside, nothing turned), else it's a
+  // number. A tie: fewer rolls win, then the earlier player. Blind: instead of rolling, the player may roll blind; the cup
+  // stays down until the round ends and the turn ends (the dice are rolled when the round's cups come up, which is the
+  // same chance as rolling them earlier, and keeps the secret off every phone). When the round's highest or lowest throw
+  // was blind, its coasters double.
+  // The round's lowest throw takes coasters, as many as the highest throw is worth: from the pot (13 coasters) while it
+  // has some, then from the player with the highest throw. Once the pot is empty, players without coasters are out of
+  // the half. Whoever holds all 13 loses the half. Two halves; two different losers play a final. The round's loser
+  // starts the next round. A player's `score` is their coasters in the current half.
+  const SK = 'schocken', SK_DICE = 3, SK_POT = 13;
+  const isSK = g => !!g && g.kind === SK;
+  // a throw: its category, its rank (higher is better) and what it is worth in coasters; dice are three values 1..6
+  function skThrow(dice, hand) {
+    const [a, b, c] = dice.slice().sort((x, y) => y - x);
+    if (a === 1) return { cat: 'out', value: 1, dice: [a, b, c], rank: 4000, worth: SK_POT };
+    if (b === 1 && c === 1) return { cat: 'schock', value: a, dice: [a, b, c], rank: 3000 + a, worth: a };
+    if (hand && a === b && b === c) return { cat: 'general', value: a, dice: [a, b, c], rank: 2000 + a, worth: 3 };
+    if (hand && a === b + 1 && b === c + 1) return { cat: 'straight', value: a, dice: [a, b, c], rank: 1000 + a, worth: 2 };
+    return { cat: 'number', value: a * 100 + b * 10 + c, dice: [a, b, c], rank: a * 100 + b * 10 + c, worth: 1 };
+  }
+  const skOf = r => (r && r.dice ? skThrow(r.dice, r.hand) : null);
+  // is result a (at place ia in the round's order) better than b (at ib)? Higher rank, then fewer rolls, then earlier
+  function skBetter(a, ia, b, ib) {
+    const x = skOf(a).rank, y = skOf(b).rank;
+    if (x !== y) return x > y;
+    if ((a.rolls || 0) !== (b.rolls || 0)) return (a.rolls || 0) < (b.rolls || 0);
+    return ia < ib;
+  }
+  // the highest and the lowest of the round's revealed throws so far (blind ones are still under the cup)
+  function skExtremes(rd, order) {
+    let high = null, low = null;
+    order.forEach((p, k) => {
+      const r = rd.results[p];
+      if (!r || !r.dice) return;
+      if (high === null || skBetter(r, k, rd.results[order[high]], high)) high = k;
+      if (low === null || !skBetter(r, k, rd.results[order[low]], low)) low = k;
+    });
+    return { high: high === null ? null : order[high], low: low === null ? null : order[low] };
+  }
+  // who plays in the current half: the two losers in the final; once the pot is empty only those holding coasters
+  function skInPlay(g) {
+    const all = g.players.map((_, i) => i);
+    if (g.half === 3) return all.filter(i => g.halves.includes(i));
+    return g.pot > 0 ? all : all.filter(i => g.players[i].score > 0);
+  }
+  const skOrder = (g, starter) => { const inn = skInPlay(g); return orderFrom(starter, g.players.length).filter(i => inn.includes(i)); };
+  // the dice on the turn as a throw: from the hand when all three came from the same roll and none was turned
+  const skHand = t => !t.dice.some(d => d.flipped) && t.dice.every(d => d.from === t.dice[0].from);
+  // two 6s from this roll may be turned into a 1 (not on the last roll: the other 6 must be rolled again)
+  // (a 6 set aside in this roll counts too: turning puts it back first)
+  const skSixes = t => t.dice.filter(d => (d.held === null || d.held === t.rolls) && !d.flipped && d.value === 6 && d.from === t.rolls);
+  const canFlip = t => t.rolls > 0 && t.rolls < t.maxRolls && !(t.flip && t.flip.roll === t.rolls) && skSixes(t).length >= 2;
+  // what the round just finished did, in the shape of roundRecap: the totals are coasters (they can go down: the highest
+  // throw pays them once the pot is empty), results: the round's throws, half: the half it ended (and what comes next)
+  function skRecap(g) {
+    if (g.rounds.length < 2) return null;
+    const n = g.players.length, fin = g.rounds.length - 2, rd = g.rounds[fin];
+    if (!rd.after) return null;
+    const order = orderFrom(rd.starter, n).filter(i => rd.results[i]);
+    const prev = fin > 0 && g.rounds[fin - 1].half === rd.half ? g.rounds[fin - 1] : null;
+    const before = prev && prev.after ? prev.after.slice() : Array(n).fill(0), after = rd.after.slice();
+    const pts = after.map((a, i) => a - before[i]), res = rd.results, L = rd.loser, H = rd.high;
+    const first = f => order.find(f);
+    let best = null;
+    const pick = (kind, player, value = null) => { if (player !== undefined) best = { kind, player, value }; return player !== undefined; };
+    pick('schockOut', first(i => skOf(res[i]).cat === 'out')) ||
+    (rd.halfLost != null && pick('half', L, rd.half)) ||
+    ((res[H].blind || res[L].blind) && pick('blind', res[H].blind ? H : L, rd.take)) ||
+    (skOf(res[H]).cat === 'schock' && pick('schock', H, skOf(res[H]).value)) ||
+    pick('shots', first(i => (g.shots || []).some(x => x.player === i && x.round === rd.no)));
+    const reason = { kind: rd.from === 'pot' ? 'pot' : rd.from === 'all' ? 'all' : 'paid', score: rd.take, low: res[L], high: H };
+    return { round: rd.no, next: g.rounds[fin + 1].starter, order, pts, before, after, best, reason, results: res, kind: SK,
+      half: rd.halfLost != null ? { lost: rd.half, next: g.rounds[fin + 1].half } : null, pot: rd.pot };
+  }
+
   // ---------- constructors ----------
   function blank() { return { phase: 'setup', setup: { names: ['', ''], starter: 0, mode: 'dice', pairing: 'manual' }, game: null }; }
   function newTurn(maxRolls) {
@@ -212,6 +295,23 @@
       mark: null, ending: false, crosser: null, next: null, loser: null, last: null,
       rounds: [{ no: 1, starter, results: {} }],
       turn: ftTurn(),
+      drops: 0, shots: []
+    };
+  }
+
+  // Schocken: three dice; each remembers the roll it was last rolled in (from), to tell a throw from the hand
+  function skTurn(maxRolls) {
+    return { dice: Array.from({ length: SK_DICE }, (_, id) => ({ id, value: null, held: null, from: null })), rolls: 0, maxRolls, pairs: [], flip: null };
+  }
+  function newSKGame(names, starter, mode) {
+    return {
+      kind: SK, mode: mode === 'score' ? 'score' : 'dice', history: [],
+      players: names.map(name => ({ name, score: 0 })),
+      round: 1, starter, order: orderFrom(starter, names.length), pos: 0,
+      mark: null, ending: false, crosser: null, next: null, loser: null, last: null,
+      half: 1, pot: SK_POT, halves: [],
+      rounds: [{ no: 1, starter, half: 1, results: {} }],
+      turn: skTurn(MAX_ROLLS),
       drops: 0, shots: []
     };
   }
@@ -406,6 +506,159 @@
     return { state: s, events: ev };
   }
 
+  // ----- Schocken -----
+  // book a finished turn (a blind one has no dice yet: they are rolled when the round ends)
+  function skRecord(s, res, rng, ev) {
+    const g = s.game, p = current(g), rd = g.rounds[g.rounds.length - 1];
+    if (res.dice) res.pts = skThrow(res.dice, res.hand).worth;
+    rd.results[p] = res;
+    if (g.pos === 0) { g.mark = res.rolls; rd.mark = res.rolls; }
+    g.last = { player: p, pts: res.pts == null ? null : res.pts, rolls: res.rolls, total: g.players[p].score };
+    if (res.dice && skThrow(res.dice, res.hand).cat === 'out') ev.push({ type: 'schockOut', player: p });
+    // a blind cup that stays down (dice in the app); with real dice the blind throw is entered, so it is known
+    ev.push(!res.dice ? { type: 'turn', player: p, pts: null, rolls: res.rolls, blind: true } : { type: 'turn', player: p, pts: res.pts, rolls: res.rolls });
+    g.pos++;
+    if (g.pos < g.order.length) { g.turn = skTurn(g.mark); return; }
+    skEndRound(s, rng, ev);
+  }
+  // the round's cups come up: blind dice are rolled, the lowest throw takes coasters, and a half (or the game) may end
+  function skEndRound(s, rng, ev) {
+    const g = s.game, rd = g.rounds[g.rounds.length - 1], order = g.order;
+    for (const p of order) {
+      const r = rd.results[p];
+      if (!r.blind || r.dice) continue;
+      r.dice = r.kept.concat(Array.from({ length: SK_DICE - r.kept.length }, () => rng())).sort((x, y) => y - x);
+      r.pts = skThrow(r.dice, r.hand).worth;
+      ev.push({ type: 'revealed', player: p, values: r.dice.slice() });
+      if (skThrow(r.dice, r.hand).cat === 'out') ev.push({ type: 'schockOut', player: p });
+    }
+    const { high: H, low: L } = skExtremes(rd, order);
+    const top = skOf(rd.results[H]);
+    const worth = top.worth * (rd.results[H].blind || rd.results[L].blind ? 2 : 1);
+    let take, from;
+    if (top.cat === 'out') { // Schock out: the loser takes every coaster, and with them the half
+      take = SK_POT - g.players[L].score; from = 'all';
+      g.players.forEach(pl => { pl.score = 0; });
+      g.pot = 0; g.players[L].score = SK_POT;
+    } else if (g.pot > 0) { take = Math.min(worth, g.pot); from = 'pot'; g.pot -= take; g.players[L].score += take; }
+    else { take = Math.min(worth, g.players[H].score); from = 'player'; g.players[H].score -= take; g.players[L].score += take; }
+    Object.assign(rd, { loser: L, high: H, take, from, pot: g.pot, after: g.players.map(pl => pl.score) });
+    if (g.players[L].score < SK_POT) {
+      ev.push({ type: 'roundEnd', round: g.round, next: L, loser: L, high: H, take });
+      return skNextRound(s, L, ev);
+    }
+    // L holds all the coasters: the half is lost
+    rd.halfLost = L;
+    g.halves.push(L);
+    const done = g.halves.length === 3 || (g.halves.length === 2 && g.halves[0] === g.halves[1]);
+    if (done) {
+      g.loser = L; g.ending = true; s.phase = 'over';
+      ev.push({ type: 'halfOver', half: g.half, loser: L }, { type: 'gameOver', loser: L });
+      return;
+    }
+    ev.push({ type: 'roundEnd', round: g.round, next: L, loser: L, high: H, take }, { type: 'halfOver', half: g.half, loser: L });
+    g.half++; g.pot = SK_POT;
+    g.players.forEach(pl => { pl.score = 0; });
+    skNextRound(s, L, ev);
+  }
+  function skNextRound(s, starter, ev) {
+    const g = s.game;
+    g.round++; g.starter = starter; g.next = null;
+    g.order = skOrder(g, starter); g.pos = 0; g.mark = null; g.last = null;
+    g.rounds.push({ no: g.round, starter, half: g.half, results: {} });
+    g.turn = skTurn(MAX_ROLLS);
+    s.phase = 'play';
+    if (ev) ev.push({ type: 'started', starter });
+  }
+  // Schocken's own actions; drop and undo are the same as in Sevens Out (apply handles them)
+  function applySK(s, action, rng, fail, ev) {
+    const g = s.game, inPlay = s.phase === 'play', t = g.turn;
+    const dice = inPlay && !isScore(g);
+    switch (action.type) {
+      case 'roll': {
+        if (!dice) return fail('phase');
+        if (!canRoll(t)) return fail('no_rolls');
+        t.rolls++;
+        active(t).forEach(d => { d.value = rng(); d.from = t.rolls; });
+        ev.push({ type: 'rolled', player: current(g), roll: t.rolls, values: t.dice.map(d => d.value), auto: [] });
+        break;
+      }
+      case 'keep': {
+        if (!dice || !t.rolls) return fail('phase');
+        const d = t.dice[action.id];
+        if (!d || d.held !== null || !d.value) return fail('bad_die');
+        if (t.flip && t.flip.roll === t.rolls && t.flip.back === d.id) return fail('flip_back'); // the other 6 goes back into the cup
+        d.held = t.rolls;
+        ev.push({ type: 'kept', id: d.id, value: d.value });
+        break;
+      }
+      case 'unkeep': {
+        if (!dice) return fail('phase');
+        const d = t.dice[action.id];
+        if (!d || d.held === null || d.held !== t.rolls) return fail('locked');
+        if (d.flipped) { // a turned 6 goes back as a 6, and so does the whole turn of this roll
+          t.flip.ids.forEach(id => { const x = t.dice[id]; x.value = 6; x.held = null; delete x.flipped; });
+          t.flip = null;
+          ev.push({ type: 'unkept', id: d.id, value: 6, flip: true });
+          break;
+        }
+        d.held = null;
+        ev.push({ type: 'unkept', id: d.id, value: d.value });
+        break;
+      }
+      case 'flip': {
+        if (!dice || !t.rolls) return fail('phase');
+        if (!canFlip(t)) return fail('no_sixes');
+        const six = skSixes(t), n = six.length >= 3 ? 2 : 1, ids = six.slice(0, n).map(d => d.id);
+        six.forEach(d => { d.held = null; });
+        ids.forEach(id => { const x = t.dice[id]; x.value = 1; x.held = t.rolls; x.flipped = true; });
+        t.flip = { roll: t.rolls, ids, back: six[n].id };
+        ev.push({ type: 'flipped', ids, back: six[n].id });
+        break;
+      }
+      case 'stop': case 'end': {
+        if (!dice || !t.rolls) return fail('phase');
+        if (t.flip && t.flip.roll === t.rolls) return fail('flip_roll'); // a turned 6 means rolling the other one again
+        skRecord(s, { dice: t.dice.map(d => d.value).sort((x, y) => y - x), hand: skHand(t), rolls: t.rolls }, rng, ev);
+        break;
+      }
+      case 'blind': {
+        if (!dice) return fail('phase');
+        if (!canRoll(t)) return fail('no_rolls');
+        const kept = t.dice.filter(d => d.held !== null);
+        skRecord(s, { dice: null, kept: kept.map(d => d.value), hand: kept.length === 0, rolls: t.rolls + 1, blind: true }, rng, ev);
+        break;
+      }
+      case 'score': {
+        if (!inPlay || !isScore(g)) return fail('phase');
+        const v = action.dice;
+        if (!Array.isArray(v) || v.length !== SK_DICE || !v.every(x => intIn(x, 1, 6))) return fail('dice');
+        if (!intIn(action.rolls, 1, g.pos === 0 ? MAX_ROLLS : g.mark)) return fail('rolls');
+        snapshot(s, `${g.players[current(g)].name}'s entry was removed. Enter it again.`);
+        const res = { dice: v.slice().sort((x, y) => y - x), hand: action.rolls === 1 || action.hand === true, rolls: action.rolls };
+        if (action.blind === true) res.blind = true;
+        skRecord(s, res, rng, ev);
+        break;
+      }
+      case 'endearly': {
+        if (s.phase !== 'play') return fail('phase');
+        if (betweenRounds(s)) { // back to the round just finished; shots paid in the empty round move to it
+          const gone = g.rounds.pop(), rd = g.rounds[g.rounds.length - 1];
+          g.round = rd.no; g.starter = rd.starter;
+          g.shots = (g.shots || []).map(x => x.round === gone.no ? { player: x.player, round: rd.no } : x);
+        }
+        // the most coasters lose; right after a half nobody holds any, so its loser does
+        const max = Math.max(...g.players.map(p => p.score));
+        g.loser = max > 0 || !g.halves.length ? highestLater(g) : g.halves[g.halves.length - 1];
+        g.early = true; s.phase = 'over';
+        ev.push({ type: 'ended', loser: g.loser });
+        break;
+      }
+      default: return fail('unknown_action'); // pair, unpair, takeall: no pairs; edit: corrections aren't in Schocken yet
+    }
+    return { state: s, events: ev };
+  }
+
   // scoreboard mode: every entry can be undone
   function snapshot(s, msg) {
     const g = s.game, copy = clone(g);
@@ -414,6 +667,7 @@
   }
   const intIn = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
   const FT_OWN = new Set(['roll', 'keep', 'unkeep', 'pair', 'unpair', 'takeall', 'stop', 'end', 'score', 'edit', 'nextround']);
+  const SK_OWN = new Set([...FT_OWN, 'flip', 'blind', 'endearly']);
   function cleanName(n, i) {
     const s = String(n == null ? '' : n).replace(/\s+/g, ' ').trim().slice(0, 16);
     return s || `Player ${i + 1}`;
@@ -425,6 +679,8 @@
    * Events describe what happened, so a screen can animate it: rolled, paired, unpaired, missed, sevensOut, turn,
    * roundEnd, gameOver, dropped, shots, undone, edited, started, ended; in 42/18 also kept, unkept and perfect (a 42/18 throw).
    * A 42/18 game starts with `start {kind:'4218'}` and plays with roll, keep {id}, unkeep {id}, stop and score {pts, rolls}.
+   * A Schocken game starts with `start {kind:'schocken'}` and plays with roll, keep {id}, unkeep {id}, flip, blind, stop and
+   * score {dice, rolls, hand?, blind?}; its own events are flipped, revealed, schockOut and halfOver.
    * The turn that completes a round also starts the next one: roundEnd is always followed by started.
    */
   function apply(state, action, opts) {
@@ -435,13 +691,16 @@
     const inPlay = s.phase === 'play' && g;
     const t = g && g.turn;
     if (isFT(g) && FT_OWN.has(action.type)) return applyFT(s, action, rng, fail, ev);
+    if (isSK(g) && SK_OWN.has(action.type)) return applySK(s, action, rng, fail, ev);
 
     switch (action.type) {
       case 'start': {
         const names = Array.isArray(action.names) ? action.names : [];
         if (names.length < 2 || names.length > MAX_PLAYERS) return fail('players');
         const starter = intIn(action.starter, 0, names.length - 1) ? action.starter : 0;
-        s.game = action.kind === FT ? newFTGame(names.map(cleanName), starter, action.mode) : newGame(names.map(cleanName), starter, action.mode, action.pairing);
+        s.game = action.kind === FT ? newFTGame(names.map(cleanName), starter, action.mode)
+          : action.kind === SK ? newSKGame(names.map(cleanName), starter, action.mode)
+          : newGame(names.map(cleanName), starter, action.mode, action.pairing);
         if (Array.isArray(action.seats)) s.game.seats = action.seats.slice(0, names.length);
         s.phase = 'play';
         ev.push({ type: 'started', starter });
@@ -576,6 +835,7 @@
     apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
     active, sumActive, maxPairs, finalPenalty, pairable, canRoll, matchPairs, current,
     reachedAt, tiedForStart, nextStarter, highestLater, roundRecap,
-    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser
+    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser,
+    SK, SK_DICE, SK_POT, isSK, skThrow, skBetter, skExtremes, skInPlay, skHand, canFlip
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

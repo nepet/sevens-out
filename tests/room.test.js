@@ -754,3 +754,30 @@ test('42/18: the host picks the game, keep and unkeep are the player\'s moves, a
   assert.equal(msg.state.game.pos, 1);
   assert.equal(msg.state.game.rounds[0].results[0].rolls, 1);
 });
+
+test('Schocken: the host picks it, flip and blind are the player\'s moves, a blind roll stays secret, and the stats skip it', async () => {
+  const stats = recorder();
+  const { room, a, b } = await lobbyOf2({ stats });
+  await send(room, a, { t: 'lobby', op: 'settings', kind: 'schocken' });
+  assert.equal(last(b, 'room').room.settings.kind, 'schocken');
+  await send(room, a, { t: 'lobby', op: 'start' });
+  let g = last(b, 'room').state.game;
+  assert.deepEqual([g.kind, g.turn.dice.length, g.pot], ['schocken', 3, 13]);
+  assert.equal(stats.records.length, 0, 'Schocken games are not recorded');
+  await send(room, b, { t: 'act', action: { type: 'blind' } });
+  assert.equal(last(b, 'error').code, 'not_your_turn');
+  await send(room, a, { t: 'act', action: { type: 'flip' } });
+  assert.equal(last(a, 'error').code, 'phase');
+  await send(room, a, { t: 'act', action: { type: 'blind' } });
+  const msg = last(b, 'room');
+  assert.deepEqual(msg.events, [{ type: 'turn', player: 0, pts: null, rolls: 1, blind: true }]);
+  assert.equal(msg.state.game.rounds[0].results[0].dice, null);
+  assert.equal(msg.state.game.pos, 1);
+  await send(room, b, { t: 'act', action: { type: 'roll' } });
+  await send(room, b, { t: 'act', action: { type: 'stop' } });
+  const end = last(a, 'room');
+  assert.ok(end.events.some(e => e.type === 'revealed' && e.player === 0));
+  g = end.state.game;
+  assert.equal(g.rounds[0].results[0].dice.length, 3);
+  assert.equal(g.starter, g.rounds[0].loser);
+});

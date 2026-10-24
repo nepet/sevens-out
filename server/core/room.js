@@ -37,7 +37,7 @@ export const TRACK_EVERY_MS = 60_000; // moves and chat alone update the admin p
 const MAX_EVENTS = 500; // timeline events per room
 
 // actions only the player whose turn it is may make (or the host, when that player is offline)
-const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'keep', 'unkeep', 'stop', 'end', 'score']);
+const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'keep', 'unkeep', 'flip', 'blind', 'stop', 'end', 'score']);
 // actions any seated player may make
 const TABLE_ACTIONS = new Set(['drop', 'undo', 'edit', 'nextround']);
 // actions only the host may make
@@ -289,7 +289,7 @@ export class Room {
       case 'settings': {
         if (!isHost) return this.error(conn, 'host_only', 'Only the host can change the settings.');
         if (d.phase !== 'lobby') return this.error(conn, 'phase', 'The game has started.');
-        if (m.kind === 'sevens' || m.kind === '4218') d.settings.kind = m.kind;
+        if (m.kind === 'sevens' || m.kind === '4218' || m.kind === 'schocken') d.settings.kind = m.kind;
         if (m.mode === 'dice' || m.mode === 'score') d.settings.mode = m.mode;
         if (m.pairing === 'manual' || m.pairing === 'auto') d.settings.pairing = m.pairing;
         if (m.starter === 'random' || (Number.isInteger(m.starter) && m.starter >= 0 && m.starter < MAX_SEATS)) d.settings.starter = m.starter;
@@ -454,7 +454,7 @@ export class Room {
   statsRecord(status) {
     const d = this.data;
     if (!this.stats || !d || !d.stats || !d.state || !d.state.game) return null;
-    if (this.E.isFT(d.state.game)) return null; // the statistics are Sevens Out's for now: 42/18 games aren't recorded
+    if (d.state.game.kind) return null; // the statistics are Sevens Out's for now: 42/18 and Schocken games aren't recorded
     try {
       const seats = d.state.game.seats || [];
       return summarize(d.state, {
