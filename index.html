@@ -924,7 +924,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   applyLook();
 
   let state = blank();
-  const ui = { scoresOpen:false, selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{}, sheet:null, sheetFrom:null };
+  const ui = { scoresOpen:false, selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, landed:false, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{}, sheet:null, sheetFrom:null };
 
   function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, kind:'sevens', mode:'dice', pairing:'manual' }, game:null }; }
   const isScore = g => !!g && g.mode === 'score';
@@ -2233,7 +2233,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // ---------- applying changes: locally through the engine, or via the server ----------
   let queue = Promise.resolve(), pending = 0;
   const enqueue = fn => { pending++; return (queue = queue.then(fn).catch(err => console.error(err)).finally(() => { pending--; })); };
-  const animated = events => events.some(e => e.type === 'roundEnd') || (!reduceMotion && events.some(e => e.type === 'rolled' || e.type === 'paired'));
+  // 42/18: a roll that shows 42/18 also books the turn (rolled, then turn); the throw lies on the mat for a moment first
+  const rollEnds = events => events.some(e => e.type === 'rolled') && events.some(e => e.type === 'turn');
+  const animated = events => events.some(e => e.type === 'roundEnd') || rollEnds(events) || (!reduceMotion && events.some(e => e.type === 'rolled' || e.type === 'paired'));
   // changes without an animation show at once; rolls, pairs and the race between rounds play in order, one after another
   function show(next, events){
     if (!animated(events) && !pending){ stopTumble(); ui.rolling = false; state = next; afterEvents(events); render(); return; }
@@ -2248,16 +2250,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // show a new state; when dice were rolled or paired, animate it first (same for everyone watching);
   // a round's last turn plays the race between rounds instead (presentRound)
   async function present(next, events){
+    if (rollEnds(events)) return presentRollEnd(next, events);
     if (events.some(e => e.type === 'roundEnd')) return presentRound(next, events);
     const ses = net.session, left = () => ses !== net.session; // this phone left the room meanwhile
     const rolled = events.find(e => e.type === 'rolled');
     const paired = events.find(e => e.type === 'paired');
-    if (rolled && !reduceMotion){
-      if (!ui.rolling){ sound.cue('roll', active(state.game.turn).length); ui.rolling = true; ui.rollStart = Date.now(); render(); startTumble(); }
-      // the faces flicker until the last thrown die has landed on its spot
-      const thrown = state.game && state.game.turn ? active(state.game.turn).length : 6;
-      await wait(Math.max(0, throwTime(thrown) - (Date.now() - ui.rollStart)));
-    }
+    if (rolled) await tumble();
     stopTumble(); ui.rolling = false;
     if (left()) return;
     state = next;
@@ -2272,6 +2270,37 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
     afterEvents(events);
     render();
+  }
+  // with motion, the faces flicker until the last thrown die has landed on its spot
+  async function tumble(){
+    if (reduceMotion) return;
+    if (!ui.rolling){ sound.cue('roll', active(state.game.turn).length); ui.rolling = true; ui.rollStart = Date.now(); render(); startTumble(); }
+    const thrown = state.game && state.game.turn ? active(state.game.turn).length : 6;
+    await wait(Math.max(0, throwTime(thrown) - (Date.now() - ui.rollStart)));
+  }
+  // 42/18: the roll that shows 42/18 ends the turn. The dice land and lie on the mat with the celebration (the state
+  // with the rolled faces, `ui.landed`, never saved), then the turn is booked: the next player, the race between rounds
+  // when it was the round's last turn, or game over
+  async function presentRollEnd(next, events){
+    const ses = net.session, left = () => ses !== net.session;
+    const rolled = events.find(e => e.type === 'rolled'), perfect = events.find(e => e.type === 'perfect');
+    await tumble();
+    stopTumble(); ui.rolling = false;
+    if (left()) return;
+    if (reduceMotion) sound.cue('roll', active(state.game.turn).length, true);
+    if (!online()) write(next); // a reload meanwhile keeps the booked turn
+    const shown = E.clone(state), t = shown.game.turn;
+    t.dice.forEach((d, i) => { d.value = rolled.values[i]; });
+    t.rolls = rolled.roll;
+    state = shown; ui.landed = true; ui.busy = true; resetInputs();
+    if (perfect) ui.celebrate = { name:next.game.players[perfect.player].name, ft:true };
+    render();
+    await wait(perfect ? 2900 : 700);
+    ui.landed = false; ui.busy = false;
+    if (left()) return;
+    const rest = events.filter(e => e !== rolled && e !== perfect);
+    if (rest.some(e => e.type === 'roundEnd')) return presentRound(next, rest);
+    state = next; afterEvents(rest); render();
   }
   // the last turn of a round: its Sevens Out celebration or missed-7 joke plays first, then the race to 101,
   // whose curtain covers the switch to the new round
@@ -2744,7 +2773,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (hint == null){
       if (!act) hint = '';
       else if (!rolled) hint = ui.rolling ? '' : firstRollHint(p);
-      else if (perfect) hint = '42/18! Out and safe for the rest of the game: end the turn.';
+      else if (perfect) hint = ui.landed ? '42/18! Out and safe for the rest of the game.' : '42/18! Out and safe for the rest of the game: end the turn.';
       else if (done) hint = `${throwLabel(pts)}. ${nAct ? 'No rolls left' : 'All five are kept'}: end your turn.`;
       else if (mustKeep) hint = 'Keep at least one die: tap it, then roll.';
       else hint = pts ? `Stop for ${throwLabel(pts)}, or roll the rest.` : 'No 42 yet. Roll the rest, or keep more first.';
@@ -2761,7 +2790,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     else if (!done) left = busy ? `<button class="btn stopc" disabled><b>Stop</b> <small>${val}</small></button>`
       : ui.armed === 'stop' ? `<button class="btn stopc armed" data-act="stop"><b>Confirm<span class="sr"> stop</span></b> <small>${val}</small></button>`
       : `<button class="btn stopc" data-act="stop"><b>Stop</b> <small>${val}</small></button>`;
-    if (busy) mid = '<button class="btn primary rollbtn" disabled><b aria-hidden="true">…</b><span class="sr">Rolling</span></button>';
+    if (perfect && ui.landed) mid = `<button class="btn primary rollbtn" disabled><b>Out</b> <small>${val}</small></button>`;
+    else if (busy) mid = '<button class="btn primary rollbtn" disabled><b aria-hidden="true">…</b><span class="sr">Rolling</span></button>';
     else if (done) mid = `<button class="btn primary rollbtn" data-act="end"><b>End<span class="sr"> turn</span></b> <small>${val}</small></button>`;
     else mid = `<button class="btn primary rollbtn${mustKeep ? ' keepfirst' : ''}" data-act="roll"><b>Roll</b> <small>${mustKeep ? 'keep one' : diceWord(nAct)}</small></button>`;
     // with a throw to beat, the cell says whether this one beats it (stopping now) or is the lowest now
@@ -4228,7 +4258,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const write = s => { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch (e) {} };
   function save(){
     // during the race between rounds the screen still shows the old state; the new one is already saved (presentRound)
-    if (online() || ui.race) return;
+    if (online() || ui.race || ui.landed) return;
     // statistics never break playing; queueReport runs first because it may give an old save its id, which is saved with it
     let report = false;
     if (state.phase === 'over' && !state.game.kind){ try { queueReport(); report = true; } catch (e) {} } // 42/18 and Schocken aren't in the statistics yet

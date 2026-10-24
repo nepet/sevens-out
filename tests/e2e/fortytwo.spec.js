@@ -58,14 +58,14 @@ test('the dice turn: keep at least one, put one back, 42/18 puts Anna out, and t
   await expect(tray(page).locator('.die')).toHaveCount(2);
   await expect(page.locator('#app .rollbtn small')).toHaveText('3 dice');
   await page.click('[data-act=roll]');
+  // 42/18: out at once, so the roll ends the turn. The throw lies on the mat for a moment (no Stop, no Roll, no keeping)
   await expect(page.locator('#app .throwcell b')).toHaveText('42+18');
   await expect(page.locator('#app .eyebrow')).toHaveText('Round 1 · Roll 2 of 5');
-  // 42/18: out at once, so the turn can only end (no Stop, Roll becomes End, the dice can't be kept)
-  await expect(page.locator('#app .mat-foot .hint')).toHaveText('42/18! Out and safe for the rest of the game: end the turn.');
+  await expect(page.locator('#app .mat-foot .hint')).toHaveText('42/18! Out and safe for the rest of the game.');
+  await expect(page.locator('#app .rollbtn')).toBeDisabled();
+  await expect(page.locator('#app .rollbtn b')).toHaveText('Out');
   await expect(page.locator('#app [data-act=stop]')).toHaveCount(0);
-  await expect(page.locator('#app [data-act=roll]')).toHaveCount(0);
   await expect(page.locator('#app button.die')).toHaveCount(0);
-  await page.click('[data-act=end]');
   await expect(page.locator('.fx-banner')).toContainText('42/18!');
   await expect(page.locator('.fx-banner')).toContainText('Anna is out: safe for the rest of the game');
   await expect(page.locator('#app .who')).toContainText('Ben');

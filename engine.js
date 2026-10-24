@@ -151,7 +151,7 @@
   const ftOrder = (g, starter, no) => { const inn = ftPlays(g, no); return orderFrom(starter, g.players.length).filter(i => inn.includes(i)); };
   const ftDone = (g, rd) => Object.keys(rd.results).length === ftPlays(g, rd.no).length;
   const ftLeft = g => g.players.map((_, i) => i).filter(i => g.players[i].out == null);
-  // the dice show 42/18: the turn can only end (the player is out)
+  // the dice show 42/18: the roll that shows it ends the turn (the player is out); a game saved before that can only end it
   const ftPerfect = t => t.rolls > 0 && throwPts(t.dice.map(d => d.value)) === FT_MAX;
   // the round's loser: the lowest throw; on a tie the one who needed more rolls, then the later player in the round's order
   function roundLoser(rd, n) {
@@ -469,6 +469,7 @@
         active(t).forEach(d => { d.value = rng(); });
         t.rolls++;
         ev.push({ type: 'rolled', player: current(g), roll: t.rolls, values: t.dice.map(d => d.value), auto: [] });
+        if (ftPerfect(t)) ftRecord(s, FT_MAX, t.rolls, ev); // 42/18: out at once, so the roll ends the turn
         break;
       }
       case 'keep': {

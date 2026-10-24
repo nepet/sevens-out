@@ -65,17 +65,24 @@ test('after a roll at least one die is kept before the next; a die kept in this 
   assert.equal(s.game.turn.dice[0].held, null);
   s = must(s, { type: 'keep', id: 0 }).state;
   s = must(s, { type: 'keep', id: 4 }).state;
-  s = must(s, { type: 'roll' }, { rng: faces([2, 6, 6]) }).state;
-  assert.deepEqual(s.game.turn.dice.map(d => d.value), [4, 2, 6, 6, 6]);
   // dice kept in an earlier roll stay kept
-  assert.equal(E.apply(s, { type: 'unkeep', id: 0 }).error, 'locked');
-  // 42/18 can only end the turn
-  assert.ok(E.ftPerfect(s.game.turn));
-  s = must(s, { type: 'keep', id: 1 }).state;
-  assert.equal(E.apply(s, { type: 'roll' }).error, 'perfect');
-  const stop = must(s, { type: 'stop' });
-  assert.deepEqual(stop.events.map(e => e.type), ['perfect', 'turn']);
-  assert.deepEqual(stop.state.game.rounds[0].results[0], { pts: 18, rolls: 2 });
+  const two = must(s, { type: 'roll' }, { rng: faces([2, 6, 1]) }).state;
+  assert.equal(E.apply(two, { type: 'unkeep', id: 0 }).error, 'locked');
+  // the roll that shows 42/18 ends the turn: the player is out
+  const r = must(s, { type: 'roll' }, { rng: faces([2, 6, 6]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'perfect', 'turn']);
+  assert.deepEqual(r.events[0].values, [4, 2, 6, 6, 6]);
+  assert.deepEqual(r.state.game.rounds[0].results[0], { pts: 18, rolls: 2 });
+  assert.equal(r.state.game.players[0].out, 1);
+  assert.equal(r.state.game.pos, 1);
+  assert.equal(r.state.game.turn.rolls, 0);
+  // a game saved before that, with 42/18 on the mat, can only end the turn
+  const old = E.clone(s), t = old.game.turn;
+  [4, 2, 6, 6, 6].forEach((v, k) => { t.dice[k].value = v; });
+  t.rolls = 2;
+  assert.ok(E.ftPerfect(t));
+  assert.equal(E.apply(old, { type: 'roll' }).error, 'perfect');
+  assert.deepEqual(must(old, { type: 'stop' }).events.map(e => e.type), ['perfect', 'turn']);
 });
 
 test('a turn rolls on while dice are left, one kept each time: five rolls at most', () => {
