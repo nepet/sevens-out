@@ -38,6 +38,7 @@ test('the dice turn: keep at least one, put one back, stop, and the lowest throw
   await start42(page);
   let s = await live(page);
   expect(s.game.kind).toBe('4218');
+  await expect(page.locator('#app .tobeat')).toHaveText('First throw of the round: nothing to beat yet.');
   await expect(page.locator('#app .throwcell')).toContainText('–');
   await page.click('[data-act=roll]');
   await expect(mat(page).locator('.die')).toHaveCount(5);
@@ -67,7 +68,10 @@ test('the dice turn: keep at least one, put one back, stop, and the lowest throw
   await page.click('[data-act=stop]');
   await expect(page.locator('.fx-banner')).toContainText('42/18!');
   await expect(page.locator('#app .who')).toContainText('Ben');
+  await expect(page.locator('#app .tobeat')).toHaveText('To beat: Anna · 42 + 18 in 2 rolls');
   await page.click('[data-act=roll]');
+  await expect(page.locator('#app .throwcell')).toHaveClass(/\blow\b/);
+  await expect(page.locator('#app .throwcell .racklabel')).toHaveText('lowest now');
   await mat(page).locator('.die').first().click();
   await page.click('[data-act=roll]');
   await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
@@ -95,7 +99,7 @@ test('the dice turn fits a small phone: the dice, the kept tray and the bar', as
   await page.click('[data-act=roll]');
   for (const v of [4, 2]) await mat(page).locator(`[aria-label="Die showing ${v}"]`).click();
   const inView = sel => page.locator(sel).evaluate(el => { const r = el.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth; });
-  for (const sel of ['#app [data-act=stop]', '#app [data-act=roll]', '#app .throwcell', '#app .tray']) expect(await inView(sel), sel).toBe(true);
+  for (const sel of ['#app [data-act=stop]', '#app [data-act=roll]', '#app .throwcell', '#app .tray', '#app .tobeat']) expect(await inView(sel), sel).toBe(true);
   // the dice on the table stay above the tray
   const trayTop = await tray(page).evaluate(el => el.getBoundingClientRect().top);
   const bottoms = await mat(page).locator('.die').evaluateAll(ds => ds.map(d => d.getBoundingClientRect().bottom));
@@ -119,6 +123,13 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   await page.click('[data-act=rolls][data-id="2"]');
   await expect(page.locator('#app [data-act=commit]')).toHaveText('Save · Anna 42+15');
   await page.click('[data-act=commit]');
+  await expect(page.locator('#app .tobeat')).toHaveText('To beat: Anna · 42 + 15 in 2 rolls');
+  for (const k of ['1', '5']) await page.click(`[data-act=key][data-id="${k}"]`);
+  await expect(page.locator('#app .mat .hint')).toHaveText('Tied with Anna: fewer rolls beat it.');
+  await page.click('[data-act=rolls][data-id="1"]');
+  await expect(page.locator('#app .mat .hint')).toHaveText('Beats Anna.');
+  await page.click('[data-act=rolls][data-id="2"]');
+  await expect(page.locator('#app .mat .hint')).toHaveText('The lowest: that takes the coaster.');
   await enterThrow(page, 0);                 // Ben: no 42, takes a coaster and starts round 2
   await skipRace(page);
   let s = await live(page);

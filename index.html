@@ -314,6 +314,10 @@ html:root[data-look="vegas"] .rollbtn small{text-transform:none;letter-spacing:0
 .throwcell b{font:800 24px/1 var(--font-display);font-variant-numeric:tabular-nums;white-space:nowrap}
 html:root[data-look="vegas"] .throwcell b{font-size:16px}
 .btn.rollbtn.keepfirst{opacity:.8}
+.throwcell.low b{color:var(--danger)}
+/* 42/18: the lowest throw of the round so far, under the name */
+.tobeat{margin:6px 0 0;max-width:100%;font-size:15px;line-height:1.3;color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tobeat b{color:var(--brass-text)}
 /* 42/18 with real dice: the entry reads "42 + 15" or "No 42"; No 42 is one tap */
 .entry .ftpre{font-size:.45em;opacity:.75;margin-right:.2em;vertical-align:middle}
 .entry .ftno{font-size:.6em}
@@ -2544,7 +2548,24 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // online the chat feed (its area always two lines high, so the mat and the keypad never move)
   function turnHead(g, cur, eyebrow){
     return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who">${nameOf(cur)}</h2>
-        ${endingAlert(g)}${feedArea()}</div>`;
+        ${isFT(g) ? toBeatLine(g) : ''}${endingAlert(g)}${feedArea()}</div>`;
+  }
+  // 42/18: the lowest throw of the round so far, the one the player must beat to stay clear of the coaster. The line is
+  // always there in 42/18 (the first player sees that nobody has thrown yet), so the mat doesn't move between turns
+  function toBeat(g){
+    const rd = g.rounds[g.rounds.length - 1], L = E.roundLoser(rd, g.players.length);
+    return L == null ? null : { player:L, pts:rd.results[L].pts, rolls:rd.results[L].rolls || 0 };
+  }
+  // does a throw (pts, rolls) beat the lowest so far? The current player plays after everyone in it, so a tie on
+  // points and rolls goes against them; with rolls unknown yet (real dice), a tie on points is undecided (null)
+  function beats(low, pts, rolls){
+    if (pts !== low.pts) return pts > low.pts;
+    return rolls ? rolls < low.rolls : null;
+  }
+  function toBeatLine(g){
+    const low = toBeat(g);
+    if (!low) return '<p class="tobeat">First throw of the round: nothing to beat yet.</p>';
+    return `<p class="tobeat">To beat: <b>${esc(pname(low.player))}</b> · ${throwLabel(low.pts)} in ${plural(low.rolls, 'roll')}</p>`;
   }
   // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
   // in two steps (the second drops the chevron), then the names shorten to their first letter (six 3-digit totals on
@@ -2669,7 +2690,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (busy) mid = '<button class="btn primary rollbtn" disabled><b aria-hidden="true">…</b><span class="sr">Rolling</span></button>';
     else if (done) mid = `<button class="btn primary rollbtn" data-act="end"><b>End<span class="sr"> turn</span></b> <small>${val}</small></button>`;
     else mid = `<button class="btn primary rollbtn${mustKeep ? ' keepfirst' : ''}" data-act="roll"><b>Roll</b> <small>${mustKeep ? 'keep one' : diceWord(nAct)}</small></button>`;
-    const throwCell = `<div class="rackcell throwcell" role="img" aria-label="${rolled ? `Throw so far: ${throwLabel(pts)}` : 'No throw yet'}"><b aria-hidden="true">${val}</b><small class="racklabel" aria-hidden="true">${rolled ? 'your throw' : 'need 4 + 2'}</small></div>`;
+    // with a throw to beat, the cell says whether this one beats it (stopping now) or is the lowest now
+    const low = toBeat(g), win = rolled && low ? beats(low, pts, t.rolls) : null;
+    const tag = !rolled ? 'need 4 + 2' : !low ? 'your throw' : win ? 'beats it' : 'lowest now';
+    const throwCell = `<div class="rackcell throwcell${rolled && low && !win ? ' low' : ''}" role="img" aria-label="${rolled ? `Throw so far: ${throwLabel(pts)}${low ? `, ${win ? 'beats' : 'lower than'} ${pname(low.player)}'s` : ''}` : 'No throw yet'}"><b aria-hidden="true">${val}</b><small class="racklabel" aria-hidden="true">${tag}</small></div>`;
     const actions = act ? `<div class="c4cell c4left">${left}</div>${mid}${throwCell}` : waiting(pname(p), rolled ? 'finish their turn' : 'roll') + throwCell;
 
     return chipHeader(g, p) + `
@@ -2695,7 +2719,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     else if (!ok) label = 'Points are 3 to 18';
     else if (!ui.rolls) label = 'Choose the rolls used';
     else { label = `Save · ${pname(p)} ${throwShort(val)}`; ready = true; }
-    let hint = ui.hint != null ? ui.hint : val === 0 ? 'No 42: there was no 4 and 2 among the five dice.' : val === FT_MAX ? '42/18, three 6s: the best throw.' : '';
+    const low = toBeat(g), win = ok && low ? beats(low, val, ui.rolls) : null;
+    const last = g.pos === g.order.length - 1;
+    const versus = !ok || !low ? '' : win ? `Beats ${pname(low.player)}.` : win === false ? (last ? 'The lowest: that takes the coaster.' : 'The lowest so far.') : `Tied with ${pname(low.player)}: fewer rolls beat it.`;
+    let hint = ui.hint != null ? ui.hint : versus || (val === 0 ? 'No 42: there was no 4 and 2 among the five dice.' : val === FT_MAX ? '42/18, three 6s: the best throw.' : '');
     if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the throw for them.`;
     const foot = `<div class="hintrow"><p class="hint" aria-live="polite">${esc(hint)}</p>${undoLink(g)}</div>`;
     const shown = val === null ? '<span class="ph">–</span>' : val === 0 ? '<span class="ftno">No 42</span>' : `<span class="ftpre">42 +</span>${val}`;
