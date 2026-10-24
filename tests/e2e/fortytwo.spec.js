@@ -57,11 +57,13 @@ test('the dice turn: keep at least one, put one back, stop, and the lowest throw
   await expect(page.locator('#app .rollbtn small')).toHaveText('3 dice');
   await page.click('[data-act=roll]');
   await expect(page.locator('#app .throwcell b')).toHaveText('42+18');
+  await expect(page.locator('#app .eyebrow')).toHaveText('Round 1 · Roll 2 of 5');
   await expect(page.locator('#app .mat-foot .hint')).toHaveText('42/18, the best throw. Stop now!');
   // the earlier kept dice can't go back
   await expect(tray(page).locator('button.die')).toHaveCount(0);
   await page.click('[data-act=stop]');
   await expect(page.locator('#app [data-act=stop]')).toContainText('Confirm');
+  await expect(page.locator('#app .mat-foot .hint')).toHaveText('Tap again to stop with 42 + 18.');
   await page.click('[data-act=stop]');
   await expect(page.locator('.fx-banner')).toContainText('42/18!');
   await expect(page.locator('#app .who')).toContainText('Ben');
@@ -112,6 +114,8 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   await page.click('[data-act=clear]');
   await page.click('[data-act=key][data-id="1"]'); await page.click('[data-act=key][data-id="5"]');
   await expect(page.locator('#app [data-act=commit]')).toHaveText('Choose the rolls used');
+  await expect(page.locator('#app [data-act=rolls]')).toHaveText(['1', '2', '3', '4', '5']);
+  for (const box of await page.locator('#app [data-act=rolls]').evaluateAll(bs => bs.map(b => b.getBoundingClientRect().width))) expect(box).toBeGreaterThanOrEqual(44);
   await page.click('[data-act=rolls][data-id="2"]');
   await expect(page.locator('#app [data-act=commit]')).toHaveText('Save · Anna 42+15');
   await page.click('[data-act=commit]');

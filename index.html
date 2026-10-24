@@ -194,6 +194,7 @@ html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
 .keymat .key{min-height:46px}
 .rollpick{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .rollpick .seg{flex:0 1 13rem;min-width:9rem}
+.rollpick .seg.five{flex:0 1 15.5rem;min-width:13.75rem} /* 42/18: 1 to 5, each at least 44 px */
 .rollpick .segbtn{min-height:44px}
 /* the hint row keeps its room even when empty, so the keypad above it never moves when a hint or Undo shows up */
 .hintrow{display:flex;align-items:center;justify-content:center;gap:4px 12px;min-height:44px}
@@ -1574,7 +1575,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // An old engine.js in the cache has no 42/18: then the choice doesn't show and every game is Sevens Out
   const FT = '4218', hasFT = () => typeof E.isFT === 'function';
   const isFT = g => !!g && g.kind === FT;
-  const COASTERS = E.COASTERS || 3, FT_MAX = E.FT_MAX || 18;
+  const COASTERS = E.COASTERS || 3, FT_MAX = E.FT_MAX || 18, FT_ROLLS = E.FT_ROLLS || 5;
   const kindOf = s => s && s.kind === FT && hasFT() ? FT : 'sevens';
   const KINDS = [['sevens', 'Sevens Out', 'Pairs of 7, to 101', 'sevens'], [FT, '42/18', 'A 4, a 2 and three 6s', 'fortytwo']];
   const gameName = k => k === FT ? '42/18' : 'Sevens Out';
@@ -2352,7 +2353,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // at the right end, and the 101 alert as one line. With the chat button the room chip shows only while not connected
   // (as in the lobby): the button's dot shows the connection
   function header(g){
-    const lim = state.phase === 'over' ? 'Game over' : isFT(g) ? `${plural(MAX_ROLLS, 'roll')} max`
+    const lim = state.phase === 'over' ? 'Game over' : isFT(g) ? `up to ${plural(FT_ROLLS, 'roll')}`
       : g.mark != null ? `${plural(g.mark, 'roll')} max` : `${esc(pname(g.starter))} sets the limit (max ${MAX_ROLLS})`;
     return `<header class="top slim">${feedBox()}<div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
       ${state.phase !== 'over' ? endingAlert(g) : ''}`;
@@ -2684,11 +2685,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // (everyone gives them: on a tie for the lowest throw, more rolls lose)
   function viewScoreFT(){
     const g = state.game, p = current(g), act = canAct();
-    const eyebrow = `Round ${g.round} · Up to ${plural(MAX_ROLLS, 'roll')}`;
+    const eyebrow = `Round ${g.round} · Up to ${plural(FT_ROLLS, 'roll')}`;
     const val = ui.entry === '' ? null : +ui.entry, ok = val !== null && okPts(g, val);
     const keys = [1,2,3,4,5,6,7,8,9].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
       + `<button class="key fn" data-act="clear">Clear</button><button class="key" data-act="key" data-id="0">0</button><button class="key fn" data-act="back" aria-label="Delete last digit">⌫</button>`;
-    const rollPick = `<div class="rollpick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg" role="group" aria-labelledby="rolls-h">${[1,2,3].map(k => `<button class="segbtn${ui.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${ui.rolls === k}">${k}</button>`).join('')}</div></div>`;
+    const rollPick = `<div class="rollpick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg five" role="group" aria-labelledby="rolls-h">${[1,2,3,4,5].map(k => `<button class="segbtn${ui.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${ui.rolls === k}">${k}</button>`).join('')}</div></div>`;
     let label, ready = false;
     if (val === null) label = 'Enter the points';
     else if (!ok) label = 'Points are 3 to 18';
@@ -2987,7 +2988,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 
   function rulesFT(mode){
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play 42/18</summary><ol>
-      <li>On your turn you roll five dice, up to three times, and can stop after any roll. After each roll keep at least one die; the others go back into the next roll.</li>
+      <li>On your turn you roll five dice. After each roll keep at least one die and roll the rest again, as long as dice are left, so at most five rolls. You can stop after any roll.</li>
       <li>Your throw needs a 4 and a 2: that's the 42. The other three dice are your points, 3 to 18. With three 6s it's 42/18, the best throw. Without a 4 and a 2 it's "no 42", the worst.</li>
       <li>Everyone plays one turn a round. The lowest throw loses the round and takes a coaster. On a tie, whoever needed more rolls loses; still tied, whoever played later.</li>
       <li>The players choose who starts the first round. After that, the round's loser starts the next one.</li>
@@ -3723,6 +3724,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         if (canRoll(t) && ui.armed !== 'stop'){
           ui.armed = 'stop';
           const left = t.maxRolls - t.rolls;
+          // 42/18: how many rolls are left depends on the dice kept, so the hint names the throw instead
+          if (isFT(g)){ ui.hint = `Tap again to stop with ${throwLabel(E.throwPts(t.dice.map(d => d.value)))}.`; break; }
           ui.hint = g.pos === 0 && !isFT(g)
             ? `Everyone gets ${plural(t.rolls, 'roll')}. Tap again to stop.`
             : `${coveringFor() ? `${pname(current(g))} has` : 'You have'} ${plural(left, 'roll')} left. Tap again to stop.`;

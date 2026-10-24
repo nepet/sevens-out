@@ -94,12 +94,12 @@ These rules were agreed with the owner. Don't change them unless asked.
 
 The most common pub rules, chosen for the first version (refine with the owner):
 
-1. **Dice and rolls.** A turn uses 5 dice (`FT_DICE`), up to 3 rolls; the player can stop after any roll. After each roll the player keeps at least one die before rolling again (`keep {id}`; `roll` without one is refused with `keep_one`). A die kept in this roll can go back (`unkeep`); earlier ones stay.
+1. **Dice and rolls.** A turn uses 5 dice (`FT_DICE`). After each roll the player keeps at least one die and may roll the rest again, as long as dice are left, so at most 5 rolls (`FT_ROLLS`); the player can stop after any roll. Rolling again needs a die kept from this roll (`keep {id}`; `roll` without one is refused with `keep_one`). A die kept in this roll can go back (`unkeep`); earlier ones stay.
 2. **The throw.** It needs a 4 and a 2 (the "42"). The other three dice are its points, 3 to 18 (`throwPts`); 42/18 (three 6s) is the best and emits `perfect`. Without a 4 and a 2 it is "no 42", stored as 0 points, the worst.
 3. **The round.** Everyone plays one turn in seating order from the starter. The lowest throw loses the round and takes a coaster (`roundLoser`; stored in `rd.loser`). Tie: more rolls lose, then the later player.
 4. **Who starts.** Round 1 as in Sevens Out; after that the round's loser.
 5. **Ending.** The first to 3 coasters (`COASTERS`) loses. A player's `score` is their coasters, so higher is worse in both games.
-6. **Real dice:** each player enters the points (3–18, or No 42) and the rolls used (1–3, everyone: they break ties). Undo, dice on the floor and corrections work as in Sevens Out; a correction counts the coasters again (`ftRecalc`).
+6. **Real dice:** each player enters the points (3–18, or No 42) and the rolls used (1–5, everyone: they break ties). Undo, dice on the floor and corrections work as in Sevens Out; a correction counts the coasters again (`ftRecalc`).
 7. **Not yet:** the statistics skip 42/18 (no report, no room record), so the D1 schema is unchanged.
 
 ### Scoreboard mode ("Real dice, scores here")

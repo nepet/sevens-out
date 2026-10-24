@@ -123,12 +123,13 @@
   }
 
   // ---------- 42/18 (Zweiundvierzig-Achtzehn), the second game ----------
-  // Five dice, up to three rolls; after each roll the player keeps at least one die before rolling again. A throw counts
+  // Five dice; after each roll the player keeps at least one die and may roll the rest again, as long as dice are left
+  // (so at most five rolls, FT_ROLLS), or stop. A throw counts
   // when it holds a 4 and a 2 (the 42): the other three dice are its points, 3 to 18 (42/18, three 6s, is the best).
   // Without a 4 and a 2 it is "no 42" (0 points), the worst. The lowest throw loses the round and takes a coaster
   // (a tie: more rolls lose, then the later player); the round's loser starts the next one. The first to COASTERS loses.
   // A player's `score` is their coasters, so higher is worse in both games.
-  const FT = '4218', FT_DICE = 5, COASTERS = 3, FT_MIN = 3, FT_MAX = 18;
+  const FT = '4218', FT_DICE = 5, FT_ROLLS = FT_DICE, COASTERS = 3, FT_MIN = 3, FT_MAX = 18;
   const isFT = g => !!g && g.kind === FT;
   const ftPts = v => v === 0 || intIn(v, FT_MIN, FT_MAX);
   // the points of a throw: the three dice besides a 4 and a 2, or 0 without them
@@ -199,9 +200,9 @@
       drops: 0, shots: []
     };
   }
-  // 42/18: no pairs and no roll limit set by the starter (everyone may roll three times)
+  // 42/18: no pairs and no roll limit set by the starter (everyone rolls while dice are left: one is kept per roll)
   function ftTurn() {
-    return { dice: Array.from({ length: FT_DICE }, (_, id) => ({ id, value: null, held: null })), rolls: 0, maxRolls: MAX_ROLLS, pairs: [] };
+    return { dice: Array.from({ length: FT_DICE }, (_, id) => ({ id, value: null, held: null })), rolls: 0, maxRolls: FT_ROLLS, pairs: [] };
   }
   function newFTGame(names, starter, mode) {
     return {
@@ -377,7 +378,7 @@
       case 'score': {
         if (!inPlay || !isScore(g)) return fail('phase');
         if (!ftPts(action.pts)) return fail('pts');
-        if (!intIn(action.rolls, 1, MAX_ROLLS)) return fail('rolls');
+        if (!intIn(action.rolls, 1, FT_ROLLS)) return fail('rolls');
         snapshot(s, `${g.players[current(g)].name}'s entry was removed. Enter it again.`);
         ftRecord(s, action.pts, action.rolls, ev);
         break;
@@ -575,6 +576,6 @@
     apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
     active, sumActive, maxPairs, finalPenalty, pairable, canRoll, matchPairs, current,
     reachedAt, tiedForStart, nextStarter, highestLater, roundRecap,
-    FT, FT_DICE, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser
+    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);
