@@ -2344,7 +2344,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           resetInputs();
           if (e.blind) sound.cue('roll', 3); // Schocken: the cup is shaken, comes down and stays down
           if (events.some(x => x.type === 'roundEnd')) break; // the race's curtain says who starts
-          if (e.blind) ui.hint = `${nm(e.player)} rolled blind: the cup stays down until the round ends.`;
+          if (e.blind && !events.some(x => x.type === 'lift')) ui.hint = `${nm(e.player)} rolled blind: the cup stays down until the round ends.`;
           if (state.phase === 'play' && myTurn()) sound.cue('yourturn');
           break;
         }
@@ -2659,10 +2659,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return `<p class="tobeat">Low <b>${esc(pname(low))}</b> ${esc(skShort(rd.results[low]))} · High <b>${esc(pname(high))}</b> ${esc(skShort(rd.results[high]))}${more}</p>`;
   }
   // a Schocken throw (dice, hand, rolls) against the round's so far: the current player throws after all of them
-  function skVersus(g, res){
+  // (at: the throw's place in the round's order; by default after everyone, but a blind cup coming up keeps its place)
+  function skVersus(g, res, at = 99){
     const { high, low, rd } = skStand(g);
     if (low == null || !res) return null;
-    return { low:E.skBetter(res, 99, rd.results[low], 0), high:E.skBetter(res, 99, rd.results[high], 0), lowP:low, highP:high };
+    return { low:E.skBetter(res, at, rd.results[low], g.order.indexOf(low)), high:E.skBetter(res, at, rd.results[high], g.order.indexOf(high)), lowP:low, highP:high };
   }
   function toBeatLine(g){
     const low = toBeat(g);
@@ -2905,14 +2906,17 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </section>` + `<div class="bar leather c4bar${act ? '' : ' wait'}">${actions}</div>`;
   }
   // Schocken with real dice: the three dice on a 1–6 keypad, the rolls used (everyone: fewer rolls win a tie; the
-  // starter's set the limit), "From one roll" for a General or a Straight, and Blind
+  // starter's set the limit), "From one roll" for a General or a Straight, and Blind. Blind books the turn with the
+  // rolls only: nobody looks under the cup, the thrower neither. Once every turn is booked, each blind cup comes up in
+  // turn (g.lifting, the current player is the one lifting) and its dice are entered then
   function skEntry(g){
-    const vals = [...(ui.entry || '')].map(Number), max = g.pos === 0 ? MAX_ROLLS : g.mark;
-    const rolls = ui.rolls || (max === 1 ? 1 : null), full = vals.length === 3;
+    const lift = g.lifting ? g.rounds[g.rounds.length - 1].results[current(g)] : null, blind = !lift && !!ui.skBlind;
+    const vals = [...(ui.entry || '')].map(Number), max = lift ? lift.rolls : g.pos === 0 ? MAX_ROLLS : g.mark;
+    const rolls = lift ? lift.rolls : ui.rolls || (max === 1 ? 1 : null), full = vals.length === 3;
     const hand = rolls === 1 || ui.skHand !== false;
-    const res = full ? { dice:vals, hand, rolls:rolls || MAX_ROLLS } : null;
-    const askHand = full && rolls !== 1 && ['general', 'straight'].includes(E.skThrow(vals, true).cat);
-    return { vals, max, rolls, full, res, askHand };
+    const res = full && !blind ? { dice:vals, hand, rolls:rolls || MAX_ROLLS } : null;
+    const askHand = !!res && rolls !== 1 && ['general', 'straight'].includes(E.skThrow(vals, true).cat);
+    return { vals, max, rolls, full, res, askHand, lift, blind };
   }
   function skSwitch(act, on, label, sub, idp){
     return `<div class="swrow"><span><b id="${idp}-l">${label}</b><small id="${idp}-d">${sub}</small></span>
@@ -2920,29 +2924,37 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function viewScoreSK(){
     const g = state.game, p = current(g), act = canAct(), e = skEntry(g);
-    const eyebrow = skEyebrow(g, g.pos === 0 ? 'Sets the limit' : `Up to ${plural(g.mark, 'roll')}`);
+    const eyebrow = skEyebrow(g, e.lift ? 'Cups up' : g.pos === 0 ? 'Sets the limit' : `Up to ${plural(g.mark, 'roll')}`);
     const keys = [1,2,3,4,5,6].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
       + '<button class="key fn wide" data-act="clear">Clear</button><button class="key fn" data-act="back" aria-label="Delete the last die">⌫</button>';
     const rollPick = `<div class="rollpick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg" role="group" aria-labelledby="rolls-h">${Array.from({ length:e.max }, (_, k) => k + 1).map(k => `<button class="segbtn${e.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${e.rolls === k}">${k}</button>`).join('')}</div></div>`;
     let label, ready = false;
-    if (!e.full) label = e.vals.length ? `Enter ${3 - e.vals.length === 1 ? 'one more die' : 'two more dice'}` : 'Enter the three dice';
+    if (e.blind){ if (!e.rolls) label = 'Choose the rolls used'; else { label = `Save · ${pname(p)} blind`; ready = true; } }
+    else if (!e.full) label = e.vals.length ? `Enter ${3 - e.vals.length === 1 ? 'one more die' : 'two more dice'}` : e.lift ? 'Enter the dice under the cup' : 'Enter the three dice';
     else if (!e.rolls) label = 'Choose the rolls used';
     else { label = `Save · ${pname(p)} ${skShort(e.res)}`; ready = true; }
-    const vs = ready ? skVersus(g, e.res) : null, last = g.pos === g.order.length - 1;
+    // against the round so far; "that takes the coasters" only when no other cup is still down
+    const rd = g.rounds[g.rounds.length - 1], down = g.order.filter(i => i !== p && rd.results[i] && !rd.results[i].dice).length;
+    const vs = ready && e.res ? skVersus(g, e.res, e.lift ? g.order.indexOf(p) : 99) : null, last = (e.lift || g.pos === g.order.length - 1) && !down;
     const versus = !vs ? '' : !vs.low ? (last ? 'The lowest: that takes the coasters.' : 'The lowest so far.') : vs.high ? 'The highest so far.' : `Beats ${pname(vs.lowP)}.`;
-    let hint = ui.hint != null ? ui.hint : versus || (e.full ? `${skLabel(e.res)}.` : '');
+    let hint = ui.hint != null ? ui.hint : e.blind ? 'The cup stays down: you enter the throw when the round ends.'
+      : versus || (e.full ? `${skLabel(e.res)}.` : e.lift ? 'Lift your cup and enter the blind throw.' : '');
     if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the throw for them.`;
     const foot = `<div class="hintrow"><p class="hint" aria-live="polite">${esc(hint)}</p>${undoLink(g)}</div>`;
     const shown = e.vals.length ? `<span class="skdice">${e.vals.map(v => mini(v)).join('')}</span>` : '<span class="ph">–</span>';
-    const entry = act ? `
-          <div class="entry-top"><span class="tlabels"><span class="tlabel">Your three dice</span><span class="tlabel">${e.full ? esc(skLabel(e.res)) : '1–6 each'}</span></span>
+    const dice = e.blind ? `
+          <div class="entry-top"><span class="tlabels"><span class="tlabel">Your throw</span><span class="tlabel">under the cup</span></span>
+            <div class="entry" aria-live="polite"><span class="ftno">Blind</span></div></div>`
+      : `
+          <div class="entry-top"><span class="tlabels"><span class="tlabel">${e.lift ? 'Under your cup' : 'Your three dice'}</span><span class="tlabel">${e.res ? esc(skLabel(e.res)) : '1–6 each'}</span></span>
             <div class="entry" aria-live="polite" aria-label="${e.vals.length ? `Dice: ${e.vals.join(', ')}` : 'No dice yet'}">${shown}</div></div>
-          <div class="pad skpad">${keys}</div>
-          ${rollPick}
+          <div class="pad skpad">${keys}</div>`;
+    const entry = act ? `${dice}
+          ${e.lift ? '' : rollPick}
           ${e.askHand ? skSwitch('skhand', ui.skHand !== false, 'From one roll', 'Off: built, so it counts as a number', 'skhand') : ''}
-          ${skSwitch('skblind', !!ui.skBlind, 'Blind', 'Doubles if it was the high or low throw', 'skblind')}`
+          ${e.lift ? '' : skSwitch('skblind', !!ui.skBlind, 'Blind', 'The cup stays down until the round ends', 'skblind')}`
       : '';
-    const actions = act ? `<button class="btn primary save" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>` : waiting(pname(p), 'enter their throw');
+    const actions = act ? `<button class="btn primary save" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>` : waiting(pname(p), e.lift ? 'lift their cup' : 'enter their throw');
     return chipHeader(g, p) + `
       <section class="turn felt-turn keyturn skturn" aria-label="${esc(pname(p))}'s turn">
         ${turnHead(g, p, eyebrow)}
@@ -3259,9 +3271,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       <li>Best to worst: Schock out (1-1-1), Schock 6 down to Schock 2 (two 1s and a 6 to a 2), General (three of a kind), Straight (three in a row), then any other throw, read as a number from the highest die: 665 beats 664, and 221 is the lowest. A General or a Straight counts only from one roll, with nothing set aside.</li>
       <li>On a tie, fewer rolls win; still tied, whoever threw first.</li>
       <li>The lowest throw takes coasters, as many as the highest throw is worth: Schock out all of them, a Schock its number, a General 3, a Straight 2, any other throw 1. They come from the pot of ${SK_POT} while it has some, then from the player with the highest throw. Once the pot is empty, players without coasters sit out the rest of the half.</li>
-      <li>Blind: instead of rolling, roll blind. The cup stays down until the round ends, and your turn is over. If the round's highest or lowest throw was blind, the coasters double.</li>
+      <li>Blind: instead of rolling, roll blind. The cup stays down until the round ends, so nobody sees the throw, you neither, and your turn is over. If the round's highest or lowest throw was blind, the coasters double.</li>
       <li>Whoever ends up with all ${SK_POT} coasters loses the half. There are two halves; when two different players lost them, they play a final. Lose both halves or the final and you lose the game. The round's loser starts the next round.</li>
-    </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the three dice, the rolls used, and whether the throw was blind.' : 'Tap a die to set it aside. Tap it again in the tray to put it back before rolling again.'}</p></details>`;
+    </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the three dice and the rolls used. A blind throw is saved with the rolls only; when the round ends, each blind cup comes up and its dice go in then.' : 'Tap a die to set it aside. Tap it again in the tray to put it back before rolling again.'}</p></details>`;
   }
 
   function devBlock(){
@@ -4099,11 +4111,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'rolls': ui.hint = null; ui.rolls = id; break;
       case 'no42': if (state.phase === 'play' && isFT(g) && E.isScore(g) && canAct()){ ui.hint = null; ui.entry = ui.entry === '0' ? '' : '0'; } break;
       case 'commit': {
-        if (state.phase !== 'play' || !E.isScore(g) || !canAct() || ui.entry === '') break;
+        if (state.phase !== 'play' || !E.isScore(g) || !canAct() || (ui.entry === '' && !(isSK(g) && ui.skBlind && !g.lifting))) break;
         if (isFT(g)){ if (okPts(g, +ui.entry) && ui.rolls) dispatch({ type:'score', pts:+ui.entry, rolls:ui.rolls }); break; }
         if (isSK(g)){
-          const e = skEntry(g);
-          if (e.full && e.rolls) dispatch({ type:'score', dice:e.vals, rolls:e.rolls, hand:e.rolls === 1 || ui.skHand !== false, blind:!!ui.skBlind });
+          const e = skEntry(g), hand = e.rolls === 1 || ui.skHand !== false;
+          if (e.lift){ if (e.full) dispatch({ type:'score', dice:e.vals, hand }); }
+          else if (e.blind){ if (e.rolls) dispatch({ type:'score', rolls:e.rolls, blind:true }); }
+          else if (e.full && e.rolls) dispatch({ type:'score', dice:e.vals, rolls:e.rolls, hand });
           break;
         }
         const isStarter = g.pos === 0;

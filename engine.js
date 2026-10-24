@@ -534,11 +534,22 @@
     if (g.pos === 0) { g.mark = res.rolls; rd.mark = res.rolls; }
     g.last = { player: p, pts: res.pts == null ? null : res.pts, rolls: res.rolls, total: g.players[p].score };
     if (res.dice && skThrow(res.dice, res.hand).cat === 'out') ev.push({ type: 'schockOut', player: p });
-    // a blind cup that stays down (dice in the app); with real dice the blind throw is entered, so it is known
+    // a blind cup stays down: nobody sees the throw, the thrower neither, until the round's cups come up
     ev.push(!res.dice ? { type: 'turn', player: p, pts: null, rolls: res.rolls, blind: true } : { type: 'turn', player: p, pts: res.pts, rolls: res.rolls });
     g.pos++;
     if (g.pos < g.order.length) { g.turn = skTurn(g.mark); return; }
+    if (skLift(g, ev)) return;
     skEndRound(s, rng, ev);
+  }
+  // real dice: once every turn is booked, the blind cups come up one by one in the round's order, and each blind
+  // player enters the throw (g.lifting; the current player is the one lifting). False when no cup is left down
+  function skLift(g, ev) {
+    const rd = g.rounds[g.rounds.length - 1];
+    const k = isScore(g) ? g.order.findIndex(p => rd.results[p] && rd.results[p].blind && !rd.results[p].dice) : -1;
+    if (k < 0) { delete g.lifting; return false; }
+    g.lifting = true; g.pos = k;
+    ev.push({ type: 'lift', player: g.order[k] });
+    return true;
   }
   // the round's cups come up: blind dice are rolled, the lowest throw takes coasters, and a half (or the game) may end
   function skEndRound(s, rng, ev) {
@@ -583,7 +594,7 @@
   function skNextRound(s, starter, ev) {
     const g = s.game;
     g.round++; g.starter = starter; g.next = null;
-    g.order = skOrder(g, starter); g.pos = 0; g.mark = null; g.last = null;
+    g.order = skOrder(g, starter); g.pos = 0; g.mark = null; g.last = null; delete g.lifting;
     g.rounds.push({ no: g.round, starter, half: g.half, results: {} });
     g.turn = skTurn(MAX_ROLLS);
     s.phase = 'play';
@@ -650,12 +661,26 @@
       }
       case 'score': {
         if (!inPlay || !isScore(g)) return fail('phase');
-        const v = action.dice;
-        if (!Array.isArray(v) || v.length !== SK_DICE || !v.every(x => intIn(x, 1, 6))) return fail('dice');
+        const v = action.dice, p = current(g), okDice = Array.isArray(v) && v.length === SK_DICE && v.every(x => intIn(x, 1, 6));
+        if (g.lifting) { // a blind cup comes up: its throw, from one roll or not (the rolls were given with the blind turn)
+          const r = g.rounds[g.rounds.length - 1].results[p];
+          if (!okDice) return fail('dice');
+          snapshot(s, `${g.players[p].name}'s blind throw was removed. Enter it again.`);
+          r.dice = v.slice().sort((x, y) => y - x); r.hand = r.rolls === 1 || action.hand === true; r.pts = skThrow(r.dice, r.hand).worth;
+          ev.push({ type: 'revealed', player: p, values: r.dice.slice() });
+          if (skThrow(r.dice, r.hand).cat === 'out') ev.push({ type: 'schockOut', player: p });
+          g.pos = g.order.length;
+          if (!skLift(g, ev)) skEndRound(s, rng, ev);
+          break;
+        }
         if (!intIn(action.rolls, 1, g.pos === 0 ? MAX_ROLLS : g.mark)) return fail('rolls');
-        snapshot(s, `${g.players[current(g)].name}'s entry was removed. Enter it again.`);
-        const res = { dice: v.slice().sort((x, y) => y - x), hand: action.rolls === 1 || action.hand === true, rolls: action.rolls };
-        if (action.blind === true) res.blind = true;
+        // blind: the cup stays down, so there are no dice to enter yet
+        const blind = action.blind === true && v == null;
+        if (!blind && !okDice) return fail('dice');
+        snapshot(s, `${g.players[p].name}'s entry was removed. Enter it again.`);
+        const res = blind ? { dice: null, hand: null, rolls: action.rolls, blind: true }
+          : { dice: v.slice().sort((x, y) => y - x), hand: action.rolls === 1 || action.hand === true, rolls: action.rolls };
+        if (!blind && action.blind === true) res.blind = true; // a blind throw entered at once (a page from before the cups came up)
         skRecord(s, res, rng, ev);
         break;
       }

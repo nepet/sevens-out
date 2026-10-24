@@ -22,13 +22,13 @@ async function startSK(page, { names = ['Anna', 'Ben'], mode = 'dice' } = {}) {
   for (let i = 0; i < names.length; i++) await page.fill(`#name-${i}`, names[i]);
   await page.click('[data-act=start]');
 }
-// one real-dice turn: the three dice, the rolls used (left out when only one is allowed) and the switches
-async function enterThrow(page, dice, rolls, { blind = false } = {}) {
+// one real-dice turn: the three dice and the rolls used (left out when only one is allowed); also a blind cup coming
+// up (no rolls: they were given with the blind turn)
+async function enterThrow(page, dice, rolls) {
   await closeScores(page);
   await page.click('[data-act=clear]');
   for (const d of dice) await page.click(`[data-act=key][data-id="${d}"]`);
   if (rolls) await page.click(`[data-act=rolls][data-id="${rolls}"]`);
-  if (blind) await page.click('[data-act=skblind]');
   await page.click('[data-act=commit]');
 }
 const mat = page => page.locator('#app .mat .dice');
@@ -143,12 +143,28 @@ test('real dice: three dice, the rolls used within the limit, from one roll, bli
   s = await live(page);
   expect([s.game.half, s.game.halves, s.game.pot, s.game.players.map(p => p.score)]).toEqual([2, [0], 13, [0, 0]]);
   await expect(page.locator('#app .eyebrow')).toHaveText('2nd half · Pot 13 · Sets the limit');
-  // second half: a blind throw is entered with its switch; Anna loses again and with it the game
-  await enterThrow(page, [3, 2, 2], 1, { blind: true });
+  // second half: Anna throws blind, so no dice go in, only the rolls used; the cup comes up when the round ends
+  await page.click('[data-act=skblind]');
+  await expect(page.locator('#app .skpad')).toHaveCount(0);
+  await expect(page.locator('#app .entry')).toHaveText('Blind');
+  await expect(page.locator('#app .mat .hint')).toHaveText('The cup stays down: you enter the throw when the round ends.');
+  await page.click('[data-act=rolls][data-id="1"]');
+  await expect(page.locator('#app [data-act=commit]')).toHaveText('Save · Anna blind');
+  await page.click('[data-act=commit]');
+  await expect(page.locator('#app .mat .hint')).toHaveText('Anna rolled blind: the cup stays down until the round ends.');
+  s = await live(page);
+  expect(s.game.rounds[2].results[0]).toEqual({ dice: null, hand: null, rolls: 1, blind: true });
   await enterThrow(page, [1, 1, 1]);
+  // every turn is booked: Anna lifts the cup and enters what is under it
+  await expect(page.locator('#app .who')).toContainText('Anna');
+  await expect(page.locator('#app .eyebrow')).toHaveText('2nd half · Pot 13 · Cups up');
+  await expect(page.locator('#app .mat .hint')).toHaveText('Lift your cup and enter the blind throw.');
+  await expect(page.locator('#app [data-act=rolls], #app [data-act=skblind]')).toHaveCount(0);
+  await expect(page.locator('#app [data-act=commit]')).toHaveText('Enter the dice under the cup');
+  await enterThrow(page, [3, 2, 2]);
   await idle(page);
   s = await live(page);
-  expect(s.game.rounds[2].results[0].blind).toBe(true);
+  expect(s.game.rounds[2].results[0]).toEqual({ dice: [3, 2, 2], hand: true, rolls: 1, blind: true, pts: 1 });
   await expect(page.locator('.verdict')).toContainText('Anna loses');
   await expect(page.locator('#app .panel .sub')).toHaveText('Anna lost both halves.');
   // Schocken games aren't sent to the statistics yet

@@ -252,12 +252,36 @@ test('real dice: three dice and the rolls used, within the limit; blind and from
   assert.equal(E.apply(s, { type: 'score', dice: [6, 1, 1], rolls: 3 }).error, 'rolls');
   const u = must(s, { type: 'undo' });
   assert.equal(u.state.game.pos, 0);
-  s = score(s, [5, 4, 4], 2, { blind: true });
-  const rd = s.game.rounds[0];
-  assert.deepEqual([rd.loser, rd.take], [1, 6]); // the lowest throw was blind: General 3, doubled
-  s = score(s, [3, 2, 2], 1);
+  // blind: the cup stays down, so the turn is booked with the rolls only
+  const b = must(s, { type: 'score', rolls: 2, blind: true });
+  assert.deepEqual(b.events, [{ type: 'turn', player: 1, pts: null, rolls: 2, blind: true }, { type: 'lift', player: 1 }]);
+  s = b.state;
+  // every turn is booked: the blind cup comes up, and Ben (the current player again) enters what is under it
+  assert.deepEqual([s.game.lifting, E.current(s.game), s.game.rounds[0].results[1]], [true, 1, { dice: null, hand: null, rolls: 2, blind: true }]);
+  assert.equal(E.apply(s, { type: 'score', dice: [7, 4, 4] }).error, 'dice');
+  const up = must(s, { type: 'score', dice: [5, 4, 4] });
+  assert.deepEqual(up.events.map(e => e.type), ['revealed', 'roundEnd', 'started']);
+  const rd = up.state.game.rounds[0];
+  assert.deepEqual([rd.results[1], rd.loser, rd.take], [{ dice: [5, 4, 4], hand: false, rolls: 2, blind: true, pts: 1 }, 1, 6]); // the lowest throw was blind: General 3, doubled
+  assert.equal(up.state.game.lifting, undefined);
+  assert.equal(must(up.state, { type: 'undo' }).state.game.lifting, true); // undo takes the lifted throw back
+  s = score(up.state, [3, 2, 2], 1);
   s = must(s, { type: 'drop' }).state;
   assert.equal(s.game.drops, 1);
+});
+
+test('real dice: several blind cups come up in the round\'s order, then the round is scored', () => {
+  let s = start(3, 0, 'score');
+  s = must(s, { type: 'score', rolls: 2, blind: true }).state;
+  s = score(s, [6, 5, 4], 1);
+  const last = must(s, { type: 'score', rolls: 2, blind: true });
+  assert.deepEqual(last.events.at(-1), { type: 'lift', player: 0 });
+  s = must(last.state, { type: 'score', dice: [3, 1, 1] }).state;
+  assert.deepEqual([E.current(s.game), s.game.lifting, s.game.round], [2, true, 1]);
+  const r = must(s, { type: 'score', dice: [3, 3, 3], hand: true });
+  assert.deepEqual(r.events.map(e => e.type), ['revealed', 'roundEnd', 'started']);
+  const rd = r.state.game.rounds[0];
+  assert.deepEqual([rd.high, rd.loser, rd.take], [0, 1, 6]); // P1's blind Schock 3 is the highest, doubled; P2's Straight is the lowest
 });
 
 test('ending early: the most coasters lose; right after a half, its loser', () => {
