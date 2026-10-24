@@ -32,10 +32,11 @@ async function enterThrow(page, pts, rolls = 1) {
 const mat = page => page.locator('#app .mat .dice');
 const tray = page => page.locator('#app .tray');
 
-test('the dice turn: keep at least one, put one back, stop, and the lowest throw takes a coaster', async ({ page, context }) => {
-  // Anna: 4 1 3 5 6, keeps the 4 and the 6, then 2 6 6: 42/18. Ben: 1 1 1 1 1, keeps one, then 3 3 3 3: no 42
-  await fixDice(context, [4, 1, 3, 5, 6, 2, 6, 6, 1, 1, 1, 1, 1, 3, 3, 3, 3]);
-  await start42(page);
+test('the dice turn: keep at least one, put one back, 42/18 puts Anna out, and the lowest throw takes a coaster', async ({ page, context }) => {
+  // Anna: 4 1 3 5 6, keeps the 4 and the 6, then 2 6 6: 42/18. Ben: 1 1 1 1 1, keeps one, then 3 3 3 3: no 42.
+  // Cleo: 4 2 5 5 5: 42 + 15
+  await fixDice(context, [4, 1, 3, 5, 6, 2, 6, 6, 1, 1, 1, 1, 1, 3, 3, 3, 3, 4, 2, 5, 5, 5]);
+  await start42(page, { names: ['Anna', 'Ben', 'Cleo'] });
   let s = await live(page);
   expect(s.game.kind).toBe('4218');
   await expect(page.locator('#app .tobeat')).toHaveText('First throw of the round: nothing to beat yet.');
@@ -59,14 +60,14 @@ test('the dice turn: keep at least one, put one back, stop, and the lowest throw
   await page.click('[data-act=roll]');
   await expect(page.locator('#app .throwcell b')).toHaveText('42+18');
   await expect(page.locator('#app .eyebrow')).toHaveText('Round 1 · Roll 2 of 5');
-  await expect(page.locator('#app .mat-foot .hint')).toHaveText('42/18, the best throw. Stop now!');
-  // the earlier kept dice can't go back
-  await expect(tray(page).locator('button.die')).toHaveCount(0);
-  await page.click('[data-act=stop]');
-  await expect(page.locator('#app [data-act=stop]')).toContainText('Confirm');
-  await expect(page.locator('#app .mat-foot .hint')).toHaveText('Tap again to stop with 42 + 18.');
-  await page.click('[data-act=stop]');
+  // 42/18: out at once, so the turn can only end (no Stop, Roll becomes End, the dice can't be kept)
+  await expect(page.locator('#app .mat-foot .hint')).toHaveText('42/18! Out and safe for the rest of the game: end the turn.');
+  await expect(page.locator('#app [data-act=stop]')).toHaveCount(0);
+  await expect(page.locator('#app [data-act=roll]')).toHaveCount(0);
+  await expect(page.locator('#app button.die')).toHaveCount(0);
+  await page.click('[data-act=end]');
   await expect(page.locator('.fx-banner')).toContainText('42/18!');
+  await expect(page.locator('.fx-banner')).toContainText('Anna is out: safe for the rest of the game');
   await expect(page.locator('#app .who')).toContainText('Ben');
   await expect(page.locator('#app .tobeat')).toHaveText('To beat: Anna · 42 + 18 in 2 rolls');
   await page.click('[data-act=roll]');
@@ -75,15 +76,23 @@ test('the dice turn: keep at least one, put one back, stop, and the lowest throw
   await mat(page).locator('.die').first().click();
   await page.click('[data-act=roll]');
   await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+  await expect(page.locator('#app .who')).toContainText('Cleo');
+  await page.click('[data-act=roll]');
+  await expect(page.locator('#app .throwcell .racklabel')).toHaveText('beats it');
+  await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
   await skipRace(page);
   s = await live(page);
-  expect(s.game.rounds[0].results).toEqual({ 0: { pts: 18, rolls: 2 }, 1: { pts: 0, rolls: 2 } });
-  expect(s.game.players.map(p => p.score)).toEqual([0, 1]);
+  expect(s.game.rounds[0].results).toEqual({ 0: { pts: 18, rolls: 2 }, 1: { pts: 0, rolls: 2 }, 2: { pts: 15, rolls: 1 } });
+  expect(s.game.players.map(p => p.score)).toEqual([0, 1, 0]);
+  expect(s.game.players[0].out).toBe(1);
   expect(s.game.starter).toBe(1); // the loser starts the next round
+  expect(s.game.order).toEqual([1, 2]); // without Anna
   await expect(page.locator('#app .who')).toContainText('Ben');
-  await expect(page.locator('#app .scorechip')).toHaveAttribute('aria-label', 'Coasters: Ben 1, Anna 0');
+  await expect(page.locator('#app .scorechip')).toHaveAttribute('aria-label', 'Coasters: Ben 1, Cleo 0');
   await openScores(page);
   await expect(page.locator('#app .scores-pop .bhead')).toContainText('3 coasters lose');
+  await expect(page.locator('#app .scores-pop .pl').last()).toHaveAttribute('data-id', '0');
+  await expect(page.locator('#app .scores-pop .pl[data-id="0"] .dl')).toHaveText('out');
   await closeScores(page);
   await openMenu(page, 'sheet');
   await expect(page.locator('.sheet-layer table td.lc')).toHaveText('no 422×');
@@ -155,6 +164,42 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   await expect(page.locator('#app .lede')).toHaveText('Anna wins with 0 coasters.');
   // 42/18 games aren't sent to the statistics yet
   expect(await page.evaluate(() => localStorage.getItem('sevens-out-reports'))).toBeNull();
+});
+
+test('real dice: a 42/18 puts the player out, it can only be undone, and the last player left loses', async ({ page }) => {
+  await start42(page, { names: ['Anna', 'Ben', 'Cleo'], mode: 'score' });
+  for (const k of ['1', '8']) await page.click(`[data-act=key][data-id="${k}"]`);
+  await expect(page.locator('#app .mat .hint')).toHaveText('42/18, three 6s: out and safe for the rest of the game.');
+  await page.click('[data-act=rolls][data-id="3"]');
+  await page.click('[data-act=commit]');
+  await enterThrow(page, 5); await enterThrow(page, 7); // Ben lowest
+  await skipRace(page);
+  let s = await live(page);
+  expect(s.game.order).toEqual([1, 2]);
+  // Anna's 42/18 can't be corrected: the row is fixed, without steppers
+  await openScores(page);
+  await page.click('#app .board .pl[data-act=edit][data-id="0"]');
+  await expect(page.locator('#app .erow .efixed')).toHaveText('42 + 18');
+  await expect(page.locator('#app #edit-1')).toHaveCount(0);
+  await page.click('[data-act=ecancel]');
+  // Ben corrects his 5 up: the steppers stop at 17
+  await openScores(page);
+  await page.click('#app .board .pl[data-act=edit][data-id="1"]');
+  await page.fill('#edit-1', '17');
+  await page.click('#app [data-act=estep][data-id="1"][data-d="1"]');
+  await expect(page.locator('#edit-1')).toHaveValue('17');
+  await page.click('[data-act=ecancel]');
+  // round 2: Ben 10, then Cleo 42/18: Ben is the only one left and loses at once
+  await enterThrow(page, 10); await enterThrow(page, 18);
+  await idle(page);
+  await expect(page.locator('.verdict')).toContainText('Ben loses');
+  await expect(page.locator('#app .panel .sub')).toHaveText('Ben is the last one left: all the others threw 42/18.');
+  await expect(page.locator('#app .board .pl[data-id="0"] .dl')).toHaveText('out');
+  // Undo brings Cleo back in
+  await page.click('#app [data-act=undo]');
+  s = await live(page);
+  expect(s.phase).toBe('play');
+  expect(s.game.players[2].out).toBeUndefined();
 });
 
 test.describe('online', () => {

@@ -470,10 +470,12 @@ dialog h3,#usage h3{margin-top:16px}
     const ft = g.kind === '4218'; // 42/18: a throw is "42 + N" or "no 42", the totals are coasters
     const sk = g.kind === 'schocken'; // Schocken: a throw is its three dice (blind ones under the cup), the totals are coasters
     const pts = r => ft ? (r.pts ? `42 + ${r.pts}` : 'no 42') : sk ? (r.dice ? r.dice.join('-') : 'blind') : `+${r.pts}`;
-    const rows = g.order.map(i => {
+    // 42/18: players out (they threw 42/18 in an earlier round) come last
+    const ids = ft ? g.order.concat(g.players.map((_, i) => i).filter(i => !g.order.includes(i))) : g.order;
+    const rows = ids.map(i => {
       const res = rd.results[i], seat = seats.find(s => s.id === (g.seats || [])[i]);
       return `<tr class="${i === cur ? 'now' : ''}"><td><span class="dot${seat && seat.connected ? ' on' : ''}"></span>${esc(g.players[i].name)}${i === g.starter ? ' <span class="meta">▸</span>' : ''}</td>
-        <td>${res ? pts(res) : i === cur ? 'now' : '–'}</td><td><strong>${g.players[i].score}</strong></td></tr>`;
+        <td>${res ? pts(res) : i === cur ? 'now' : g.order.includes(i) ? '–' : 'out'}</td><td><strong>${g.players[i].score}</strong></td></tr>`;
     }).join('');
     let turn = '';
     if (v.state.phase === 'over') turn = `<p class="note">${g.players[g.loser] ? `${esc(g.players[g.loser].name)} lost.` : 'Game over.'}</p>`;

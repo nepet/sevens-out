@@ -117,10 +117,10 @@
     const reason = { kind: t.tied.length === 1 ? 'highest' : t.early.length === 1 ? 'first' : 'turn', score: t.max };
     return { round: rd.no, next: g.rounds[fin + 1].starter, order, pts, before, after, best, reason };
   }
-  // the highest score loses; on a tie the player later in this round's order loses
-  function highestLater(g) {
+  // the highest score loses; on a tie the player later in this round's order loses (only `among` can: 42/18 skips who is out)
+  function highestLater(g, among = g.order) {
     let L = null;
-    for (const i of g.order) if (L === null || g.players[i].score >= g.players[L].score) L = i;
+    for (const i of g.order) if (among.includes(i) && (L === null || g.players[i].score >= g.players[L].score)) L = i;
     return L;
   }
 
@@ -131,6 +131,8 @@
   // Without a 4 and a 2 it is "no 42" (0 points), the worst. The lowest throw loses the round and takes a coaster
   // (a tie: more rolls lose, then the later player); the round's loser starts the next one. The first to COASTERS loses.
   // A player's `score` is their coasters, so higher is worse in both games.
+  // Whoever throws 42/18 is out at once: safe for the rest of the game (`players[i].out`, the round it was thrown in);
+  // the others play on without them, and the last player left loses.
   const FT = '4218', FT_DICE = 5, FT_ROLLS = FT_DICE, COASTERS = 3, FT_MIN = 3, FT_MAX = 18;
   const isFT = g => !!g && g.kind === FT;
   const ftPts = v => v === 0 || intIn(v, FT_MIN, FT_MAX);
@@ -144,6 +146,13 @@
     v.splice(b, 1);
     return v.reduce((s, x) => s + (x || 0), 0);
   }
+  // who plays round `no`: everyone not out before it (a player out in this round played in it)
+  const ftPlays = (g, no) => g.players.map((_, i) => i).filter(i => g.players[i].out == null || g.players[i].out >= no);
+  const ftOrder = (g, starter, no) => { const inn = ftPlays(g, no); return orderFrom(starter, g.players.length).filter(i => inn.includes(i)); };
+  const ftDone = (g, rd) => Object.keys(rd.results).length === ftPlays(g, rd.no).length;
+  const ftLeft = g => g.players.map((_, i) => i).filter(i => g.players[i].out == null);
+  // the dice show 42/18: the turn can only end (the player is out)
+  const ftPerfect = t => t.rolls > 0 && throwPts(t.dice.map(d => d.value)) === FT_MAX;
   // the round's loser: the lowest throw; on a tie the one who needed more rolls, then the later player in the round's order
   function roundLoser(rd, n) {
     let L = null;
@@ -158,7 +167,7 @@
   // most coasters loses; normally the player who just took the last one, else (ended early, corrections) as in Sevens Out
   function ftGameLoser(g, last) {
     const max = Math.max(...g.players.map(p => p.score));
-    return last != null && g.players[last].score === max ? last : highestLater(g);
+    return last != null && g.players[last].score === max ? last : highestLater(g, ftLeft(g));
   }
   // what the round just finished did, in the shape of roundRecap (the totals are coasters: the loser's goes up by one);
   // results: the round's throws, reason: why the loser lost (and so starts)
@@ -169,7 +178,7 @@
     const after = Array(n).fill(0);
     for (let k = 0; k <= fin; k++) {
       const r = g.rounds[k];
-      if (Object.keys(r.results).length === n) after[r.loser != null ? r.loser : roundLoser(r, n)]++;
+      if (ftDone(g, r)) after[r.loser != null ? r.loser : roundLoser(r, n)]++;
     }
     const pts = after.map((_, i) => (i === L ? 1 : 0)), before = after.map((a, i) => a - pts[i]);
     const res = rd.results, low = res[L];
@@ -347,8 +356,8 @@
   // shots paid in the empty round move to the finished one, so the sheet never points at a missing round
   function dropEmptyRound(g) {
     const gone = g.rounds.pop(), rd = g.rounds[g.rounds.length - 1];
-    g.round = rd.no; g.starter = rd.starter; g.order = orderFrom(rd.starter, g.players.length);
-    g.mark = rd.mark; g.pos = g.players.length;
+    g.round = rd.no; g.starter = rd.starter; g.order = isFT(g) ? ftOrder(g, rd.starter, rd.no) : orderFrom(rd.starter, g.players.length);
+    g.mark = rd.mark; g.pos = g.order.length;
     g.shots = (g.shots || []).map(x => x.round === gone.no ? { player: x.player, round: rd.no } : x);
   }
   // book a finished turn and move on (both modes)
@@ -399,9 +408,15 @@
     const g = s.game, p = current(g), rd = g.rounds[g.rounds.length - 1];
     rd.results[p] = { pts, rolls };
     g.last = { player: p, pts, rolls, total: g.players[p].score };
-    if (pts === FT_MAX) ev.push({ type: 'perfect', player: p });
+    if (pts === FT_MAX) { g.players[p].out = rd.no; ev.push({ type: 'perfect', player: p }); }
     ev.push({ type: 'turn', player: p, pts, rolls });
     g.pos++;
+    const left = ftLeft(g);
+    if (left.length === 1) { // everyone else is out: the last player left loses, without finishing the round
+      g.ending = true; g.loser = left[0]; g.left = true; s.phase = 'over';
+      ev.push({ type: 'gameOver', loser: g.loser });
+      return;
+    }
     if (g.pos < g.order.length) { g.turn = ftTurn(); return; }
     const L = roundLoser(rd, g.players.length);
     rd.loser = L; g.players[L].score++;
@@ -413,7 +428,7 @@
   function ftNextRound(s, starter, ev) {
     const g = s.game, done = g.round;
     g.round++; g.starter = starter; g.next = null;
-    g.order = orderFrom(starter, g.players.length); g.pos = 0; g.mark = null; g.last = null;
+    g.order = ftOrder(g, starter, g.round); g.pos = 0; g.mark = null; g.last = null;
     g.rounds.push({ no: g.round, starter, results: {} });
     g.turn = ftTurn();
     s.phase = 'play';
@@ -426,15 +441,16 @@
     if (between) dropEmptyRound(g);
     g.players.forEach(pl => { pl.score = 0; });
     for (const rd of g.rounds) {
-      if (Object.keys(rd.results).length === n) { rd.loser = roundLoser(rd, n); g.players[rd.loser].score++; }
+      if (ftDone(g, rd)) { rd.loser = roundLoser(rd, n); g.players[rd.loser].score++; }
       else delete rd.loser;
     }
     g.last = null;
-    const out = g.players.some(pl => pl.score >= COASTERS);
-    if (s.phase === 'play' && !between) { g.ending = out; return; }
-    if (s.phase === 'over' && g.early) { g.loser = highestLater(g); return; }
+    const full = g.players.some(pl => pl.score >= COASTERS);
+    if (s.phase === 'play' && !between) { g.ending = full; return; }
+    if (s.phase === 'over' && g.early) { g.loser = highestLater(g, ftLeft(g)); return; }
+    if (s.phase === 'over' && g.left) return; // the last player left still loses (a 42/18 can't be corrected)
     const L = g.rounds[g.rounds.length - 1].loser;
-    if (out) { g.ending = true; g.loser = ftGameLoser(g, L); s.phase = 'over'; }
+    if (full) { g.ending = true; g.loser = ftGameLoser(g, L); s.phase = 'over'; }
     else {
       g.ending = false; g.loser = null;
       if (between) g.shots = shots;
@@ -448,6 +464,7 @@
       case 'roll': {
         if (!inPlay || isScore(g)) return fail('phase');
         if (!canRoll(t)) return fail('no_rolls');
+        if (ftPerfect(t)) return fail('perfect');
         if (t.rolls > 0 && !t.dice.some(d => d.held === t.rolls)) return fail('keep_one');
         active(t).forEach(d => { d.value = rng(); });
         t.rolls++;
@@ -492,6 +509,7 @@
           const r = rd.results[p], v = action.values[rd.no];
           if (!r || v == null) continue;
           if (!ftPts(v)) return fail('pts');
+          if (v !== r.pts && (v === FT_MAX || r.pts === FT_MAX)) return fail('perfect_fixed'); // who is out stays: Undo instead
           if (v !== r.pts) changes.push([rd, v]);
         }
         if (!changes.length) return fail('no_change');
@@ -820,7 +838,7 @@
       case 'endearly': {
         if (!g || (s.phase !== 'play' && s.phase !== 'roundEnd')) return fail('phase');
         if (betweenRounds(s)) dropEmptyRound(g);   // the last round is the one just finished
-        g.loser = highestLater(g); g.early = true; s.phase = 'over';
+        g.loser = highestLater(g, isFT(g) ? ftLeft(g) : g.order); g.early = true; s.phase = 'over';   // 42/18: never a player who is out
         ev.push({ type: 'ended', loser: g.loser });
         break;
       }
@@ -835,7 +853,7 @@
     apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
     active, sumActive, maxPairs, finalPenalty, pairable, canRoll, matchPairs, current,
     reachedAt, tiedForStart, nextStarter, highestLater, roundRecap,
-    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser,
+    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser, ftPlays, ftLeft, ftPerfect,
     SK, SK_DICE, SK_POT, isSK, skThrow, skBetter, skExtremes, skInPlay, skHand, canFlip
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

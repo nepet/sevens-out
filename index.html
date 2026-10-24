@@ -601,8 +601,9 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 /* correcting past scores (scoreboard mode) */
 .elist{display:flex;flex-direction:column}
 .erow{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:8px;border-bottom:1px solid var(--line)}
-.erow label{display:flex;flex-direction:column;font-weight:600}
-.erow label small{font-weight:400;font-size:.78rem;color:var(--ink-soft)}
+.erow :is(label,.elabel){display:flex;flex-direction:column;font-weight:600}
+.erow :is(label,.elabel) small{font-weight:400;font-size:.78rem;color:var(--ink-soft)}
+.erow .efixed{font-weight:700;padding-inline:12px;min-height:44px;display:flex;align-items:center}
 .estep{display:flex;align-items:center;gap:6px}
 .edit-in{width:4.2rem;height:44px;text-align:center;border-radius:10px;border:1.5px solid var(--line);background:var(--card);font:800 1.4rem/1 var(--font-display);font-variant-numeric:tabular-nums;-moz-appearance:textfield}
 .edit-in::-webkit-inner-spin-button,.edit-in::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
@@ -1549,7 +1550,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 
   // Sevens Out's clearing all six, 42/18's perfect throw (game 'ft') or Schocken's Schock out ('sk')
   function celebrate(name, game = false){
-    const [head, line] = game === 'ft' ? ['42/18!', `${name} threw a 4, a 2 and three 6s`] : game === 'sk' ? ['Schock out!', `${name} threw three 1s`] : ['Sevens out!', `${name} cleared all six dice`];
+    const [head, line] = game === 'ft' ? ['42/18!', `${name} is out: safe for the rest of the game`] : game === 'sk' ? ['Schock out!', `${name} threw three 1s`] : ['Sevens out!', `${name} cleared all six dice`];
     fx.banner(head, line);
     playSound();
     if (!reduceMotion) fx.burst(document.querySelector('#app .mat')); // from the mat of either turn screen
@@ -2359,16 +2360,18 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
 
   // ---------- correcting past scores (scoreboard mode) ----------
   // a round's points: 0 to 36 pips in Sevens Out; in 42/18 0 (no 42) or 3 to 18
-  const okPts = (g, v) => isFT(g) ? v === 0 || (v >= 3 && v <= FT_MAX) : v >= 0 && v <= MAX_PIPS;
-  const ptsRule = g => isFT(g) ? 'Each round needs 0 (no 42) or 3 to 18.' : 'Each round needs a whole number from 0 to 36.';
+  // a correction can't make or take back a 42/18 (it decides who is out), so corrected throws go up to 17; Undo can
+  const okPts = (g, v, edit = false) => isFT(g) ? v === 0 || (v >= 3 && v <= (edit ? FT_MAX - 1 : FT_MAX)) : v >= 0 && v <= MAX_PIPS;
+  const ptsRule = g => isFT(g) ? 'Each round needs 0 (no 42) or 3 to 17. A 42/18 puts a player out, so only Undo takes one back.' : 'Each round needs a whole number from 0 to 36.';
+  const ftFixed = (g, r) => isFT(g) && r.pts === FT_MAX;
   function editState(){
     const g = state.game, p = ui.edit;
     let total = 0, ok = true, changed = false;
     for (const rd of g.rounds){
-      const r = rd.results[p]; if (!r) continue;
+      const r = rd.results[p]; if (!r || ftFixed(g, r)) continue;
       const raw = ui.editVals[rd.no];
       const v = raw == null ? r.pts : (/^\d{1,2}$/.test(String(raw).trim()) ? +raw : NaN);
-      if (!okPts(g, v)){ ok = false; continue; }
+      if (!okPts(g, v, true)){ ok = false; continue; }
       if (v !== r.pts) changed = true;
       total += v;
     }
@@ -2381,7 +2384,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const err = document.getElementById('edit-err'); if (err) err.textContent = s.ok ? '' : ptsRule(state.game);
     $app.querySelectorAll('.edit-in').forEach(inp => {
       const raw = inp.value.trim();
-      inp.setAttribute('aria-invalid', String(!(/^\d{1,2}$/.test(raw) && okPts(state.game, +raw))));
+      inp.setAttribute('aria-invalid', String(!(/^\d{1,2}$/.test(raw) && okPts(state.game, +raw, true))));
     });
   }
   function saveEdits(){
@@ -2430,11 +2433,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function board(g, cur){
     const over = state.phase === 'over', rd = g.rounds[g.rounds.length - 1], turn = over ? -1 : current(g);
     const edit = editable(g); // then every line is a button, so the list drops its list role (role="none")
-    // Schocken: the players sitting out the half (no coasters once the pot is empty, or not in the final) come last
-    const out = isSK(g) && !over ? g.players.map((_, i) => i).filter(i => !g.order.includes(i)) : [];
+    // Schocken: the players sitting out the half (no coasters once the pot is empty, or not in the final) come last;
+    // 42/18: so do the players who threw 42/18 in an earlier round (out, safe for the rest of the game)
+    const out = (isSK(g) || isFT(g)) && !over ? g.players.map((_, i) => i).filter(i => !g.order.includes(i)) : [];
     const ids = over ? g.players.map((_, i) => i).sort((a, b) => g.players[b].score - g.players[a].score || a - b) : g.order.concat(out);
     const lines = ids.map(i => {
-      const r = rd.results[i], lost = over && i === g.loser, sat = out.includes(i);
+      const r = rd.results[i], lost = over && i === g.loser, sat = out.includes(i) || (over && isFT(g) && g.players[i].out != null && !r);
       return lineHtml(g, i, { now:i === cur, wait:!over && !r && i !== turn && !sat, played:!!r, starter:i === g.starter, pts:r ? r.pts : 0, res:r,
         tag:lost ? 'Loses' : sat ? 'out' : over && !r ? '–' : null, lost, edit });
     }).join('');
@@ -2494,11 +2498,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const rows = g.rounds.filter(rd => rd.results[p]);
     const list = rows.length ? rows.map(rd => {
       const r = rd.results[p], raw = ui.editVals[rd.no], v = raw != null ? raw : String(r.pts);
+      if (ftFixed(g, r)) return `<div class="erow"><span class="elabel">Round ${rd.no}<small>Out with 42/18 · only Undo changes it</small></span><span class="efixed">42 + 18</span></div>`;
       return `<div class="erow">
           <label for="edit-${rd.no}">Round ${rd.no}${rd.starter === p ? `<small>Started${r.rolls ? ` · ${plural(r.rolls, 'roll')}` : ''}</small>` : ''}</label>
           <div class="estep">
             <button class="iconbtn" data-act="estep" data-id="${rd.no}" data-d="-1" aria-label="One less in round ${rd.no}">−</button>
-            <input type="number" inputmode="numeric" min="0" max="${ft ? FT_MAX : 36}" step="1" id="edit-${rd.no}" class="edit-in" data-round="${rd.no}" value="${esc(v)}"${ft ? ' aria-describedby="edit-sub"' : ''}>
+            <input type="number" inputmode="numeric" min="0" max="${ft ? FT_MAX - 1 : 36}" step="1" id="edit-${rd.no}" class="edit-in" data-round="${rd.no}" value="${esc(v)}"${ft ? ' aria-describedby="edit-sub"' : ''}>
             <button class="iconbtn" data-act="estep" data-id="${rd.no}" data-d="1" aria-label="One more in round ${rd.no}">+</button>
           </div>
         </div>`;
@@ -2506,7 +2511,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return header(g) + board(g, p) + `
       <section class="panel" aria-labelledby="edit-h">
         <div><p class="eyebrow">Correct scores</p><h2 class="who" id="edit-h">${esc(pname(p))}</h2></div>
-        <p class="sub" id="edit-sub">${ft ? 'Change the throw for any round: the points besides the 4 and the 2, 3 to 18, or 0 for no 42. Then save. The coasters, the next starter and the end of the game are worked out again from the corrected sheet.'
+        <p class="sub" id="edit-sub">${ft ? 'Change the throw for any round: the points besides the 4 and the 2, 3 to 17, or 0 for no 42. Then save. The coasters, the next starter and the end of the game are worked out again from the corrected sheet.'
           : `Change the points for any round, then save. Totals, the next starter and the ${LIMIT} rule are worked out again from the corrected sheet.`}</p>
         <div class="elist">${list}</div>
         ${ft ? '' : `<p class="etotal">Total <b id="edit-total">${s.ok ? s.total : '–'}</b><span>was ${g.players[p].score}</span></p>`}
@@ -2729,7 +2734,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function viewPlayFT(){
     const g = state.game, t = g.turn, p = current(g), act = canAct();
-    const rolled = t.rolls > 0, done = rolled && !canRoll(t), nAct = active(t).length;
+    // a 42/18 can only end the turn: the player is out, safe for the rest of the game
+    const rolled = t.rolls > 0, perfect = rolled && typeof E.ftPerfect === 'function' && E.ftPerfect(t), done = rolled && (!canRoll(t) || perfect), nAct = active(t).length;
     const kept = t.dice.filter(d => d.held !== null).sort((a, b) => a.held - b.held || a.id - b.id);
     const mustKeep = rolled && !done && !kept.some(d => d.held === t.rolls);
     const pts = rolled ? E.throwPts(t.dice.map(d => d.value)) : 0;
@@ -2738,8 +2744,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (hint == null){
       if (!act) hint = '';
       else if (!rolled) hint = ui.rolling ? '' : firstRollHint(p);
+      else if (perfect) hint = '42/18! Out and safe for the rest of the game: end the turn.';
       else if (done) hint = `${throwLabel(pts)}. ${nAct ? 'No rolls left' : 'All five are kept'}: end your turn.`;
-      else if (pts === FT_MAX) hint = '42/18, the best throw. Stop now!';
       else if (mustKeep) hint = 'Keep at least one die: tap it, then roll.';
       else hint = pts ? `Stop for ${throwLabel(pts)}, or roll the rest.` : 'No 42 yet. Roll the rest, or keep more first.';
     }
@@ -2790,7 +2796,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const low = toBeat(g), win = ok && low ? beats(low, val, ui.rolls) : null;
     const last = g.pos === g.order.length - 1;
     const versus = !ok || !low ? '' : win ? `Beats ${pname(low.player)}.` : win === false ? (last ? 'The lowest: that takes the coaster.' : 'The lowest so far.') : `Tied with ${pname(low.player)}: fewer rolls beat it.`;
-    let hint = ui.hint != null ? ui.hint : versus || (val === 0 ? 'No 42: there was no 4 and 2 among the five dice.' : val === FT_MAX ? '42/18, three 6s: the best throw.' : '');
+    let hint = ui.hint != null ? ui.hint : val === FT_MAX ? '42/18, three 6s: out and safe for the rest of the game.'
+      : versus || (val === 0 ? 'No 42: there was no 4 and 2 among the five dice.' : '');
     if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the throw for them.`;
     const foot = `<div class="hintrow"><p class="hint" aria-live="polite">${esc(hint)}</p>${undoLink(g)}</div>`;
     const shown = val === null ? '<span class="ph">–</span>' : val === 0 ? '<span class="ftno">No 42</span>' : `<span class="ftpre">42 +</span>${val}`;
@@ -2930,7 +2937,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
     else if (isFT(g)){ // 42/18: the most coasters lose, normally the player who just took the third
       const rd = [...g.rounds].reverse().find(r => r.loser != null), r = rd && rd.loser === L ? rd.results[L] : null;
-      if (tiedWith.length) why = `Tied on ${coasterWord(ls)} with ${listNames(tiedWith)}. ${pname(L)} played later in the last round, so ${pname(L)} loses.`;
+      const outs = g.players.map((_, i) => i).filter(i => g.players[i].out != null);
+      if (g.left){ // everyone else threw 42/18
+        why = `${pname(L)} is the last one left: ${outs.length === 1 ? `${pname(outs[0])} threw 42/18` : 'all the others threw 42/18'}.`;
+        winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(outs[0]))}</b> wins with 42/18.</p>` : '';
+      }
+      else if (tiedWith.length) why = `Tied on ${coasterWord(ls)} with ${listNames(tiedWith)}. ${pname(L)} played later in the last round, so ${pname(L)} loses.`;
       else if (g.early) why = `The game was ended early. ${pname(L)} has the most coasters, ${ls}.`;
       else why = r ? `${pname(L)} took coaster number ${ls} with ${r.pts ? `42 + ${r.pts}` : 'no 42'}, the lowest throw of round ${rd.no}.` : `${pname(L)} took ${coasterWord(ls)}.`;
     }
@@ -3205,7 +3217,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       <li>Your throw needs a 4 and a 2: that's the 42. The other three dice are your points, 3 to 18. With three 6s it's 42/18, the best throw. Without a 4 and a 2 it's "no 42", the worst.</li>
       <li>Everyone plays one turn a round. The lowest throw loses the round and takes a coaster. On a tie, whoever needed more rolls loses; still tied, whoever played later.</li>
       <li>The players choose who starts the first round. After that, the round's loser starts the next one.</li>
-      <li>The first to take ${COASTERS} coasters loses the game.</li>
+      <li>Throw 42/18 and you're out at once: safe for the rest of the game. The others play on without you.</li>
+      <li>The first to take ${COASTERS} coasters loses the game, and so does the last player left when everyone else is out.</li>
     </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the points of their throw (or No 42) and the rolls they used.' : 'Tap a die to keep it. Tap a kept die from this roll to put it back before rolling again.'}</p></details>`;
   }
 
@@ -3636,7 +3649,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const WHY = { highest:s => `Highest score: ${s}`, first:s => `Tied on ${s}, got there first`, turn:s => `Tied on ${s}, next in turn` };
   // 42/18: the round's best moment, and why its loser (who took the coaster) starts the next one
   const BADGE_FT = {
-    perfect: n => ['42/18', `${n} threw three 6s`],
+    perfect: n => ['42/18', `${n} is out, safe for the game`],
     shots: n => ['Shots', `${n} paid a round`],
     lastCoaster: n => ['On the edge', `${n} is one coaster from losing`],
     no42: n => ['No 42', `${n} found no 4 and 2`]
@@ -3853,6 +3866,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const g = state.game;
     if (!g || state.phase !== 'play' || E.isScore(g) || ui.rolling || ui.busy || !canRoll(g.turn) || !canAct()) return;
     // 42/18: after a roll, at least one die is kept before the next
+    if (isFT(g) && E.ftPerfect && E.ftPerfect(g.turn)) return; // 42/18: the turn can only end
     if (isFT(g) && g.turn.rolls && !g.turn.dice.some(d => d.held === g.turn.rolls)){ ui.hint = 'Keep at least one die first: tap it.'; sound.cue('nope'); render(); return; }
     resetInputs();
     if (!reduceMotion){ ui.rolling = true; ui.rollStart = Date.now(); sound.cue('roll', active(g.turn).length); }
@@ -3963,7 +3977,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         let v = parseInt(inp.value, 10); if (isNaN(v)) v = 0;
         const d = +el.dataset.d || 0;
         // 42/18 steps over 1 and 2: from no 42 (0) one more is 3, and one less than 3 is no 42
-        if (isFT(g)) v = v + d < 3 ? (d > 0 ? 3 : 0) : Math.min(FT_MAX, v + d);
+        if (isFT(g)) v = v + d < 3 ? (d > 0 ? 3 : 0) : Math.min(FT_MAX - 1, v + d); // and never onto a 42/18
         else v = Math.max(0, Math.min(MAX_PIPS, v + d));
         inp.value = String(v); ui.editVals[id] = String(v);
         refreshEdit();

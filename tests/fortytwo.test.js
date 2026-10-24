@@ -51,7 +51,7 @@ test('a 42/18 game starts with five dice and no pairs; Sevens Out games stay as 
 });
 
 test('after a roll at least one die is kept before the next; a die kept in this roll can go back', () => {
-  let s = start(2);
+  let s = start(3);
   assert.equal(E.apply(s, { type: 'keep', id: 0 }).error, 'phase');
   s = must(s, { type: 'roll' }, { rng: faces([4, 1, 3, 5, 6]) }).state;
   assert.equal(E.apply(s, { type: 'roll' }).error, 'keep_one');
@@ -69,6 +69,10 @@ test('after a roll at least one die is kept before the next; a die kept in this 
   assert.deepEqual(s.game.turn.dice.map(d => d.value), [4, 2, 6, 6, 6]);
   // dice kept in an earlier roll stay kept
   assert.equal(E.apply(s, { type: 'unkeep', id: 0 }).error, 'locked');
+  // 42/18 can only end the turn
+  assert.ok(E.ftPerfect(s.game.turn));
+  s = must(s, { type: 'keep', id: 1 }).state;
+  assert.equal(E.apply(s, { type: 'roll' }).error, 'perfect');
   const stop = must(s, { type: 'stop' });
   assert.deepEqual(stop.events.map(e => e.type), ['perfect', 'turn']);
   assert.deepEqual(stop.state.game.rounds[0].results[0], { pts: 18, rolls: 2 });
@@ -159,6 +163,38 @@ test('corrections count the coasters again and restart the round with the right 
   assert.equal(back.game.starter, 0);
 });
 
+test('whoever throws 42/18 is out for the rest of the game; the last player left loses', () => {
+  let s = start(4, 0, 'score');
+  const p = scored(s, 18, 3);
+  assert.deepEqual(p.events.map(e => e.type), ['perfect', 'turn']);
+  s = p.state;
+  assert.equal(s.game.players[0].out, 1);
+  assert.deepEqual(E.ftLeft(s.game), [1, 2, 3]);
+  s = score(s, 7); s = score(s, 5); s = score(s, 9); // P3 lost round 1 and starts round 2, without P1
+  assert.deepEqual(s.game.players.map(pl => pl.score), [0, 0, 1, 0]);
+  assert.deepEqual(s.game.order, [2, 3, 1]);
+  assert.deepEqual(E.ftPlays(s.game, 1), [0, 1, 2, 3]);
+  assert.deepEqual(E.ftPlays(s.game, 2), [1, 2, 3]);
+  // a 42/18 can't be corrected into or out of (Undo can)
+  assert.equal(E.apply(s, { type: 'edit', player: 0, values: { 1: 17 } }).error, 'perfect_fixed');
+  assert.equal(E.apply(s, { type: 'edit', player: 1, values: { 1: 18 } }).error, 'perfect_fixed');
+  // ending early never picks a player who is out, even with the most coasters
+  s = score(s, 4); s = score(s, 18, 2); s = score(s, 10); // P3 lost again; P4 is out
+  assert.deepEqual(s.game.order, [2, 1]);
+  const early = must(s, { type: 'endearly' }).state;
+  assert.equal(early.game.loser, 2);
+  // the third 42/18 leaves P3 alone: P3 loses at once, mid-round
+  const last = scored(s, 18, 1);
+  assert.deepEqual(last.events.map(e => e.type), ['perfect', 'turn', 'gameOver']);
+  assert.equal(last.state.phase, 'over');
+  assert.equal(last.state.game.loser, 1);
+  assert.equal(last.state.game.left, true);
+  assert.equal(last.state.game.players[1].score, 0); // no third coaster needed
+  const back = must(last.state, { type: 'undo' }).state;
+  assert.equal(back.phase, 'play');
+  assert.equal(back.game.players[2].out, undefined);
+});
+
 test('ending early: the most coasters lose', () => {
   let s = start(3, 0, 'score');
   s = score(s, 10); s = score(s, 0); s = score(s, 5);
@@ -169,25 +205,40 @@ test('ending early: the most coasters lose', () => {
 });
 
 test('random 42/18 games follow every rule', () => {
+  let lefts = 0;
   for (let seed = 1; seed <= 80; seed++) {
-    const rng = seeded(seed), n = 2 + (seed % 11);
-    let s = start(n, seed % n), guard = 0;
+    const rng = seeded(seed), n = 2 + (seed % 11), real = seed % 2 === 0;
+    let s = start(n, seed % n, real ? 'score' : 'dice'), guard = 0;
     while (s.phase !== 'over' && guard++ < 20000) {
+      if (real) { // real dice: a 42/18 now and then, so players go out and some games end with one player left
+        const pts = rng() === 6 && rng() > 3 ? 18 : rng() === 1 ? 0 : 2 + rng() + rng();
+        s = score(s, pts, rng() % 5 + 1);
+        continue;
+      }
       const t = s.game.turn;
-      if (t.rolls && (!E.canRoll(t) || rng() === 6)) { s = must(s, { type: 'stop' }).state; continue; }
+      if (t.rolls && (!E.canRoll(t) || E.ftPerfect(t) || rng() === 6)) { s = must(s, { type: 'stop' }).state; continue; }
       if (t.rolls) {
         // keep one to three dice from this roll, the 4s and 2s first
         const table = E.active(t).sort((a, b) => [4, 2].includes(b.value) - [4, 2].includes(a.value));
         const keep = Math.min(table.length, 1 + (rng() % 3));
         for (const d of table.slice(0, keep)) s = must(s, { type: 'keep', id: d.id }).state;
-        if (!E.canRoll(s.game.turn)) { s = must(s, { type: 'stop' }).state; continue; }
+        if (!E.canRoll(s.game.turn) || E.ftPerfect(s.game.turn)) { s = must(s, { type: 'stop' }).state; continue; }
       }
       s = must(s, { type: 'roll' }, { rng }).state;
     }
     assert.equal(s.phase, 'over', `seed ${seed} finished`);
-    const g = s.game, coasters = Array(n).fill(0);
+    const g = s.game, coasters = Array(n).fill(0), last = g.rounds.length - 1;
     g.rounds.forEach((rd, ri) => {
-      assert.equal(Object.keys(rd.results).length, n, `round ${rd.no} complete`);
+      const plays = g.players.map((_, i) => i).filter(i => g.players[i].out == null || g.players[i].out >= rd.no);
+      for (const i of Object.keys(rd.results)) assert.ok(plays.includes(+i), 'nobody out plays on');
+      g.players.forEach((pl, i) => { if (pl.out === rd.no) assert.equal(rd.results[i].pts, 18, 'out with a 42/18'); });
+      for (const [i, r] of Object.entries(rd.results)) if (r.pts === 18) assert.equal(g.players[i].out, rd.no, 'a 42/18 puts the player out');
+      if (ri === last && g.left) { // the game ended mid-round: one player was left
+        assert.deepEqual(g.players.map((_, i) => i).filter(i => g.players[i].out == null), [g.loser]);
+        assert.equal(rd.loser, undefined);
+        return;
+      }
+      assert.equal(Object.keys(rd.results).length, plays.length, `round ${rd.no} complete`);
       for (const r of Object.values(rd.results)) {
         assert.ok(r.rolls >= 1 && r.rolls <= 5, 'rolls within 5');
         assert.ok(r.pts === 0 || (r.pts >= 3 && r.pts <= 18), 'points of a throw');
@@ -199,7 +250,9 @@ test('random 42/18 games follow every rule', () => {
       if (ri < g.rounds.length - 1) assert.ok(Math.max(...coasters) < 3, 'the game should have ended earlier');
     });
     assert.deepEqual(coasters, g.players.map(p => p.score), 'coasters match the sheet');
+    if (g.left) { lefts++; continue; }
     assert.equal(g.players[g.loser].score, 3);
     assert.equal(g.loser, g.rounds.at(-1).loser);
   }
+  assert.ok(lefts > 0, 'some games end with one player left');
 });
