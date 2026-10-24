@@ -1791,7 +1791,7 @@ test.describe('home and the Play sheet', () => {
     await expect(sheet).toBeVisible();
     await expect(sheet).toHaveAttribute('role', 'dialog');
     await expect(play).toHaveAttribute('aria-expanded', 'true');
-    await expect(sheet.locator('legend')).toHaveText(['Where is everyone?', 'Dice']);
+    await expect(sheet.locator('legend')).toHaveText(['Game', 'Where is everyone?', 'Dice']);
     await expect(page.locator('[data-act=where][data-id="0"]')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-act=mode][data-id="0"]')).toHaveAttribute('aria-pressed', 'true');
     const sw = page.locator('.sheet-layer [role=switch][data-act=pairing]');
@@ -1848,7 +1848,7 @@ test.describe('home and the Play sheet', () => {
     await expect(page.locator('.home-head [data-act=settings]')).toBeVisible();
     await expect(page.locator('.code-row, #ocode, [data-act=ojoin]')).toHaveCount(0); // no room code row without online
     await page.click('[data-act=play]');
-    await expect(page.locator('.sheet-layer legend')).toHaveText(['Dice']);
+    await expect(page.locator('.sheet-layer legend')).toHaveText(['Game', 'Dice']);
     await expect(page.locator('[data-act=where]')).toHaveCount(0);
     await expect(page.locator('[data-act=players]')).toBeVisible();
   });
@@ -1876,7 +1876,7 @@ test.describe("Who's playing", () => {
     await expect(page.locator('[data-act=home][aria-label=Back]')).toBeVisible();
     await expect(page.locator('.pcard .prow')).toHaveCount(2);
     await expect(page.locator('.hint')).toHaveText('The die marks who starts round 1.');
-    await expect(page.locator('[data-act=play]')).toContainText('Dice in the app · You find the 7s');
+    await expect(page.locator('[data-act=play]')).toContainText('Sevens Out · Dice in the app · You find the 7s');
     await page.fill('#name-0', 'Anna'); await page.fill('#name-1', 'Ben');
     await expect(page.locator('#starter-0')).toHaveAttribute('aria-label', 'Anna starts');
     await expect(page.locator('#starter-1')).toHaveAttribute('aria-label', 'Let Ben start');
@@ -1904,7 +1904,7 @@ test.describe("Who's playing", () => {
     await expect(page.locator('.sheet-layer .sheet')).toBeVisible();
     await page.click('[data-act=mode][data-id="1"]');
     await page.keyboard.press('Escape');
-    await expect(page.locator('[data-act=play]')).toContainText('Real dice · Scores here');
+    await expect(page.locator('[data-act=play]')).toContainText('Sevens Out · Real dice');
     await expect(page.locator('[data-act=play]')).toBeFocused();
     await page.click('[data-act=home]');
     await expect(page.locator('[data-act=play].play')).toBeVisible();

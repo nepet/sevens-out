@@ -116,6 +116,12 @@ html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
 .pl.editable:hover{background:color-mix(in srgb,var(--ink) 6%,transparent)}
 .pl.editable.now:hover{background:color-mix(in srgb,var(--brass) 24%,transparent)}
 .bfoot{margin:2px 0 0;font-size:.72rem;color:var(--ink-soft)}
+/* 42/18: the totals are coasters (one digit) and the round's column holds the throw ("42+15", "no 42"); the bar's
+   hatched end is the last coaster */
+:is(.board,.race-card).ft .pl{grid-template-columns:12px minmax(0,6.5rem) minmax(0,1fr) 1.4rem 3.3rem}
+.race-card.grow.ft .pl{grid-template-columns:12px minmax(0,7.5rem) minmax(0,1fr) 1.8rem 4.4rem}
+.ft .trk::after{width:33.4%}
+td.lc{color:var(--danger);font-weight:700}
 /* without color-mix() (Safari before 16.2): plain tokens. A plain declaration placed before a color-mix() one wouldn't
    help: a declaration with var() is checked only after the tokens are filled in, and an invalid one falls back to unset.
    For the same reason the feature test names plain colours: with var() in it, it would always pass */
@@ -298,6 +304,21 @@ html:root[data-look="vegas"] .rollbtn small{text-transform:none;letter-spacing:0
 .rackcell.full .pair .die.mini,.rackcell.full button.pair .die.mini{--die:16px}
 .rackcell .pair.landing .die.mini{visibility:hidden}
 .rackcell .racklabel{font-size:12px;line-height:1.2;opacity:.8;text-align:center}
+/* 42/18 (viewPlayFT()): the kept dice lie in a tray at the mat's foot, above the hint (a die kept in this roll is a
+   44 px button that puts it back); the bar's right cell shows the throw so far */
+.tray{display:flex;justify-content:center;align-items:center;gap:8px;width:100%;min-height:44px}
+.tray .die{--die:44px;flex:none;padding:calc(var(--die) * .14);box-shadow:0 3px 0 var(--bone-edge)}
+.tray button.die{box-shadow:0 3px 0 var(--bone-edge),0 0 0 2px var(--stitch)}
+.tray-empty{font-size:13px;opacity:.7}
+.throwcell b{font:800 24px/1 var(--font-display);font-variant-numeric:tabular-nums;white-space:nowrap}
+html:root[data-look="vegas"] .throwcell b{font-size:16px}
+.btn.rollbtn.keepfirst{opacity:.8}
+/* 42/18 with real dice: the entry reads "42 + 15" or "No 42"; No 42 is one tap */
+.entry .ftpre{font-size:.45em;opacity:.75;margin-right:.2em;vertical-align:middle}
+.entry .ftno{font-size:.6em}
+.ftrow{display:flex;justify-content:center}
+.ftrow .no42{min-width:9rem}
+.ftrow .no42.on{background:var(--brass);color:var(--brass-ink);border-color:var(--brass)}
 #app.racing-c4 .scorechip{opacity:0}
 @supports not (color:color-mix(in srgb,red 50%,blue)){
   .scorechip{background:var(--card)}
@@ -642,7 +663,7 @@ html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
 .race-card.grow.denser .num{font-size:1.4rem}
 /* from 7 players the grown lines share the screen, tappable (44 px) ones too: every line stays on screen */
 .race-card.grow.crowd{--rowh:var(--row)}
-@media (max-width:359px){.race-card.grow .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 2.6rem 2.6rem}}
+@media (max-width:359px){.race-card.grow .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 2.6rem 2.6rem}.race-card.grow.ft .pl{grid-template-columns:12px minmax(0,6rem) minmax(0,1fr) 1.6rem 3.8rem}}
 .race-card.grow.denser .nm{font-size:.95rem}
 .race-card.grow .dl{font-size:1.15rem}
 .race-card.grow .bfoot{opacity:0}
@@ -882,7 +903,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   let state = blank();
   const ui = { scoresOpen:false, selected:null, hint:null, armed:null, rolling:false, nope:null, confirmNew:false, confirmEnd:false, open:{}, celebrate:null, entry:'', rolls:null, busy:false, race:false, doom:null, missed:null, edit:null, editVals:{}, sheet:null, sheetFrom:null };
 
-  function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, mode:'dice', pairing:'manual' }, game:null }; }
+  function blank(){ return { phase:'setup', setup:{ names:['',''], starter:0, kind:'sevens', mode:'dice', pairing:'manual' }, game:null }; }
   const isScore = g => !!g && g.mode === 'score';
 
   // ---------- helpers ----------
@@ -1504,8 +1525,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     setTimeout(() => { try { ok.focus({ preventScroll:true }); } catch (e) {} }, 2400);
   }
 
-  function celebrate(name){
-    fx.banner('Sevens out!', `${name} cleared all six dice`);
+  // Sevens Out's clearing all six, or 42/18's perfect throw (ft)
+  function celebrate(name, ft = false){
+    fx.banner(ft ? '42/18!' : 'Sevens out!', ft ? `${name} threw a 4, a 2 and three 6s` : `${name} cleared all six dice`);
     playSound();
     if (!reduceMotion) fx.burst(document.querySelector('#app .mat')); // from the mat of either turn screen
   }
@@ -1547,6 +1569,19 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const E = window.SevensEngine;
   const { active, finalPenalty, pairable, canRoll, tiedForStart, MAX_PIPS } = E;
   const current = g => g.order[g.pos];
+  // ----- the two games: Sevens Out (the default; saves and rooms without a kind) and 42/18 (kind '4218') -----
+  // In 42/18 a player's score is their coasters (3 lose) and a throw's points are the three dice besides the 4 and the 2.
+  // An old engine.js in the cache has no 42/18: then the choice doesn't show and every game is Sevens Out
+  const FT = '4218', hasFT = () => typeof E.isFT === 'function';
+  const isFT = g => !!g && g.kind === FT;
+  const COASTERS = E.COASTERS || 3, FT_MAX = E.FT_MAX || 18;
+  const kindOf = s => s && s.kind === FT && hasFT() ? FT : 'sevens';
+  const KINDS = [['sevens', 'Sevens Out', 'Pairs of 7, to 101', 'sevens'], [FT, '42/18', 'A 4, a 2 and three 6s', 'fortytwo']];
+  const gameName = k => k === FT ? '42/18' : 'Sevens Out';
+  const throwLabel = pts => pts ? `42 + ${pts}` : 'No 42';   // a throw in words
+  const throwShort = pts => pts ? `42+${pts}` : 'no 42';     // in the score list
+  const limitOf = g => isFT(g) ? COASTERS : LIMIT;
+  const coasterWord = n => plural(n, 'coaster');
   Object.assign(ui, { reveal:null, rollStart:0, layout:{}, screen:null, confirmLeave:false, joinCode:'', online:{}, showLink:false, chatDraft:'', chatHint:null, feed:{ items:[], held:[], last:0 } });
 
   // ---------- online play: one WebSocket per phone to the room server ----------
@@ -1935,12 +1970,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function onNet(m){
     switch (m.t){
       case 'welcome':
-        // welcome on a room this phone just created: send the chosen dice and 7s where they differ from the server's defaults
+        // welcome on a room this phone just created: send the chosen game, dice and 7s where they differ from the server's defaults
         if (net.creating && net.createWith){
           const w = net.createWith, set = { t:'lobby', op:'settings' };
+          if (w.kind && w.kind !== 'sevens') set.kind = w.kind;
           if (w.mode !== 'dice') set.mode = w.mode;
           if (w.pairing !== 'manual') set.pairing = w.pairing;
-          if (set.mode || set.pairing) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
+          if (set.kind || set.mode || set.pairing) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
         }
         net.seat = m.seat || null; net.viewer = m.viewer || null; if (m.token) net.token = m.token; net.creating = false; net.createWith = null; saveOnline();
         if (net.seat) net.chat.mine.add(net.seat);
@@ -2197,7 +2233,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     stopTumble(); ui.rolling = false; ui.race = true;
     // leaving the room (or being removed) before the swap drops this change: the phone's own game stays
     const ses = net.session, left = () => ses !== net.session;
-    const so = events.find(e => e.type === 'sevensOut'), miss = events.find(e => e.type === 'missed');
+    const so = events.find(e => e.type === 'sevensOut' || e.type === 'perfect'), miss = events.find(e => e.type === 'missed');
     let rest = events.filter(e => e !== so && e !== miss), swapped = false;
     const swap = () => {
       if (swapped || left()) return;
@@ -2215,7 +2251,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     try {
       if (!online()) write(next); // saved at once, so a reload during the race can't lose the last turn
       const g = next.game;
-      if (so){ celebrate(g.players[so.player].name); await wait(2900); }
+      if (so){ celebrate(g.players[so.player].name, so.type === 'perfect'); await wait(2900); }
       if (miss){ showMissed({ name:g.players[miss.player].name, me:isMe(miss.player), how:miss.how, pairs:miss.pairs }); await wait(3200); }
       if (left()) return;
       const recap = typeof E.roundRecap === 'function' ? E.roundRecap(g) : null;
@@ -2241,7 +2277,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
             sound.cue('roll', active(g.turn).length + 2 * e.auto.length, true);
             e.auto.forEach((p, i) => sound.cue('pair', g.turn.pairs.length - e.auto.length + i, { delay:0.25 + 0.15 * i }));
           }
-          if (E.byHand(g)){ ui.hint = null; break; }
+          if (E.byHand(g) || isFT(g)){ ui.hint = null; break; }
           const t = g.turn, n = e.auto.length, left = active(t).length;
           if (!left) ui.hint = 'All six dice are out. Nothing counts against you.';
           else ui.hint = (n ? `${plural(n, 'pair')} of 7 set aside.` : 'No 7s in this roll.') + (t.rolls >= t.maxRolls ? ' No rolls left.' : '');
@@ -2255,13 +2291,16 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         }
         case 'unpaired': sound.cue('unpair'); ui.selected = null; ui.hint = `${e.values[0]} and ${e.values[1]} are back on the table and will be rolled again.`; break;
         case 'sevensOut': ui.celebrate = nm(e.player); break;
+        case 'perfect': ui.celebrate = { name:nm(e.player), ft:true }; break;
+        case 'kept': sound.cue('pair', g.turn.dice.filter(d => d.held !== null).length - 1); ui.hint = null; break;
+        case 'unkept': sound.cue('unpair'); ui.hint = `The ${e.value} goes back into the next roll.`; break;
         case 'missed': ui.missed = { name:nm(e.player), me:isMe(e.player), how:e.how, pairs:e.pairs }; break;
         case 'dropped': sound.cue('floor'); ui.hint = `${nm(e.player)} dropped a die. ${e.drops} of 3 on the floor.`; break;
         case 'shots': ui.doom = nm(e.player); ui.hint = `${nm(e.player)} pays a round of shots.`; break;
         case 'undone': sound.cue('undo'); resetInputs(); ui.hint = e.msg || `${nm(current(g))}'s entry was removed. Enter it again.`; break;
         case 'edited': ui.hint = `${nm(e.player)}'s scores were corrected.`; break;
         case 'gameOver': case 'ended':
-          sound.cue('over', { delay:events.some(x => x.type === 'sevensOut' || x.type === 'missed') ? 3 : 0.35 }); // after the fanfare or the trombone
+          sound.cue('over', { delay:events.some(x => x.type === 'sevensOut' || x.type === 'perfect' || x.type === 'missed') ? 3 : 0.35 }); // after the fanfare or the trombone
           ui.open.sheet = true; ui.confirmEnd = false; ui.scoresOpen = false; break;
       }
     }
@@ -2270,6 +2309,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function resetUi(){ resetInputs(); ui.edit = null; ui.editVals = {}; ui.reveal = null; ui.scoresOpen = false; ui.layout = {}; } // a new game: new spots
 
   // ---------- correcting past scores (scoreboard mode) ----------
+  // a round's points: 0 to 36 pips in Sevens Out; in 42/18 0 (no 42) or 3 to 18
+  const okPts = (g, v) => isFT(g) ? v === 0 || (v >= 3 && v <= FT_MAX) : v >= 0 && v <= MAX_PIPS;
+  const ptsRule = g => isFT(g) ? 'Each round needs 0 (no 42) or 3 to 18.' : 'Each round needs a whole number from 0 to 36.';
   function editState(){
     const g = state.game, p = ui.edit;
     let total = 0, ok = true, changed = false;
@@ -2277,7 +2319,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       const r = rd.results[p]; if (!r) continue;
       const raw = ui.editVals[rd.no];
       const v = raw == null ? r.pts : (/^\d{1,2}$/.test(String(raw).trim()) ? +raw : NaN);
-      if (!(v >= 0 && v <= MAX_PIPS)){ ok = false; continue; }
+      if (!okPts(g, v)){ ok = false; continue; }
       if (v !== r.pts) changed = true;
       total += v;
     }
@@ -2287,10 +2329,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const s = editState();
     const t = document.getElementById('edit-total'); if (t) t.textContent = s.ok ? s.total : '–';
     const b = $app.querySelector('[data-act=esave]'); if (b) b.disabled = !s.ok || !s.changed;
-    const err = document.getElementById('edit-err'); if (err) err.textContent = s.ok ? '' : 'Each round needs a whole number from 0 to 36.';
+    const err = document.getElementById('edit-err'); if (err) err.textContent = s.ok ? '' : ptsRule(state.game);
     $app.querySelectorAll('.edit-in').forEach(inp => {
       const raw = inp.value.trim();
-      inp.setAttribute('aria-invalid', String(!(/^\d{1,2}$/.test(raw) && +raw <= MAX_PIPS)));
+      inp.setAttribute('aria-invalid', String(!(/^\d{1,2}$/.test(raw) && okPts(state.game, +raw))));
     });
   }
   function saveEdits(){
@@ -2310,10 +2352,19 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // at the right end, and the 101 alert as one line. With the chat button the room chip shows only while not connected
   // (as in the lobby): the button's dot shows the connection
   function header(g){
-    const lim = state.phase === 'over' ? 'Game over'
+    const lim = state.phase === 'over' ? 'Game over' : isFT(g) ? `${plural(MAX_ROLLS, 'roll')} max`
       : g.mark != null ? `${plural(g.mark, 'roll')} max` : `${esc(pname(g.starter))} sets the limit (max ${MAX_ROLLS})`;
     return `<header class="top slim">${feedBox()}<div class="top-l">${menuButton()}<p class="rnd"><b>Round ${g.round}</b> <span>· ${lim}</span></p></div>${net.chat.ready && net.status === 'open' ? '' : netChip()}${chatButton()}</header>
-      ${g.ending && state.phase !== 'over' ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}`;
+      ${state.phase !== 'over' ? endingAlert(g) : ''}`;
+  }
+  // someone is at 101 (Sevens Out), or after a correction someone has 3 coasters (42/18): the last round
+  function endingAlert(g){
+    if (!g.ending) return '';
+    if (isFT(g)){
+      const i = g.order.find(k => g.players[k].score >= COASTERS);
+      return i == null ? '' : `<p class="alert"><strong>${esc(pname(i))} has ${coasterWord(g.players[i].score)}.</strong> Last round: then the most coasters lose.</p>`;
+    }
+    return `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>`;
   }
   function netChip(){
     if (!online()) return '';
@@ -2335,8 +2386,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         tag:lost ? 'Loses' : over && !r ? '–' : null, lost, edit });
     }).join('');
     const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
-    const cls = listClass(g);
-    return `<section class="board${cls ? ` ${cls}` : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>to ${LIMIT}</span></div>
+    const cls = listClass(g) + (isFT(g) ? ' ft' : '');
+    return `<section class="board${cls.trim() ? ` ${cls.trim()}` : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>${isFT(g) ? `${COASTERS} coasters lose` : `to ${LIMIT}`}</span></div>
       <ol class="lines"${edit ? ' role="none"' : ''}>${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
   }
   // one line: turn marker, name (a die mark for the round's starter), bar towards 101 with the last 15 hatched,
@@ -2348,18 +2399,19 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const away = online() && g.seats && !seatOnline(g.seats[i]);
     const me = online() && g.seats && g.seats[i] === net.seat;
     const user = online() && g.seats && !me && seatInfo(g.seats[i]) ? seatInfo(g.seats[i]).user : null;
-    const dl = tag != null ? tag : played ? `+${pts}` : wait ? '–' : 'now';
+    // in 42/18 the round's column shows the throw ("42+15", "no 42") and the total is the coasters
+    const dl = tag != null ? tag : played ? (isFT(g) ? throwShort(pts) : `+${pts}`) : wait ? '–' : 'now';
     const attrs = edit ? ` role="button" tabindex="0" data-act="edit" aria-label="Correct ${esc(pl.name)}'s scores"` : '';
     const sub = (away ? '<span class="pl-away">Offline</span>' : '') + (shotsN ? `<span class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</span>` : '');
-    return `<li class="pl${now ? ' now' : ''}${wait ? ' wait' : ''}${tot >= LIMIT ? ' over' : ''}${lost ? ' lost' : ''}${edit ? ' editable' : ''}" data-id="${i}"${attrs}>`
+    return `<li class="pl${now ? ' now' : ''}${wait ? ' wait' : ''}${tot >= limitOf(g) ? ' over' : ''}${lost ? ' lost' : ''}${edit ? ' editable' : ''}" data-id="${i}"${attrs}>`
       + '<span class="mk" aria-hidden="true">▶</span>'
       + `<span class="nm">${starter ? '<i class="sd" role="img" aria-label="Starter"></i>' : ''}<span class="nt">${esc(pl.name)}</span>${user ? tagHtml(user) : ''}${me ? '<small class="you">you</small>' : ''}</span>`
-      + `<span class="trk" aria-hidden="true"><span class="fill" style="width:${barWidth(tot)}"></span></span>`
+      + `<span class="trk" aria-hidden="true"><span class="fill" style="width:${barWidth(tot, limitOf(g))}"></span></span>`
       + `<span class="num">${tot}</span><span class="dl${played && tag == null ? '' : ' off'}">${dl}</span>`
       + (sub ? `<span class="pl-sub">${sub}</span>` : '') + '</li>';
   }
 
-  const barWidth = total => `${(Math.min(total / LIMIT, 1) * 100).toFixed(1)}%`;
+  const barWidth = (total, lim = LIMIT) => `${(Math.min(total / lim, 1) * 100).toFixed(1)}%`;
 
   // the turn as it should look right now: pairs that haven't flown out yet are still on the table
   function displayTurn(t){
@@ -2384,7 +2436,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const undoLink = g => isScore(g) && seated() && g.history && g.history.length ? '<button class="link" data-act="undo">Undo last entry</button>' : '';
 
   function viewEdit(){
-    const g = state.game, p = ui.edit, s = editState();
+    const g = state.game, p = ui.edit, s = editState(), ft = isFT(g);
     const rows = g.rounds.filter(rd => rd.results[p]);
     const list = rows.length ? rows.map(rd => {
       const r = rd.results[p], raw = ui.editVals[rd.no], v = raw != null ? raw : String(r.pts);
@@ -2392,7 +2444,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           <label for="edit-${rd.no}">Round ${rd.no}${rd.starter === p ? `<small>Started${r.rolls ? ` · ${plural(r.rolls, 'roll')}` : ''}</small>` : ''}</label>
           <div class="estep">
             <button class="iconbtn" data-act="estep" data-id="${rd.no}" data-d="-1" aria-label="One less in round ${rd.no}">−</button>
-            <input type="number" inputmode="numeric" min="0" max="36" step="1" id="edit-${rd.no}" class="edit-in" data-round="${rd.no}" value="${esc(v)}">
+            <input type="number" inputmode="numeric" min="0" max="${ft ? FT_MAX : 36}" step="1" id="edit-${rd.no}" class="edit-in" data-round="${rd.no}" value="${esc(v)}"${ft ? ' aria-describedby="edit-sub"' : ''}>
             <button class="iconbtn" data-act="estep" data-id="${rd.no}" data-d="1" aria-label="One more in round ${rd.no}">+</button>
           </div>
         </div>`;
@@ -2400,10 +2452,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return header(g) + board(g, p) + `
       <section class="panel" aria-labelledby="edit-h">
         <div><p class="eyebrow">Correct scores</p><h2 class="who" id="edit-h">${esc(pname(p))}</h2></div>
-        <p class="sub">Change the points for any round, then save. Totals, the next starter and the ${LIMIT} rule are worked out again from the corrected sheet.</p>
+        <p class="sub" id="edit-sub">${ft ? 'Change the throw for any round: the points besides the 4 and the 2, 3 to 18, or 0 for no 42. Then save. The coasters, the next starter and the end of the game are worked out again from the corrected sheet.'
+          : `Change the points for any round, then save. Totals, the next starter and the ${LIMIT} rule are worked out again from the corrected sheet.`}</p>
         <div class="elist">${list}</div>
-        <p class="etotal">Total <b id="edit-total">${s.ok ? s.total : '–'}</b><span>was ${g.players[p].score}</span></p>
-        <p class="hint" id="edit-err" aria-live="polite">${s.ok ? '' : 'Each round needs a whole number from 0 to 36.'}</p>
+        ${ft ? '' : `<p class="etotal">Total <b id="edit-total">${s.ok ? s.total : '–'}</b><span>was ${g.players[p].score}</span></p>`}
+        <p class="hint" id="edit-err" aria-live="polite">${s.ok ? '' : ptsRule(g)}</p>
       </section>` + bar(`<div class="row"><button class="btn two cancel" data-act="ecancel">Cancel</button><button class="btn two primary go" data-act="esave"${s.ok && s.changed ? '' : ' disabled'}>Save changes</button></div>`);
   }
 
@@ -2476,7 +2529,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       const nm = [...g.players[i].name], mid = nm.slice(1, 3).join(''), rest = nm.slice(3).join('');
       return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm[0] || '')}${mid ? `<span class="sc-mid">${esc(mid)}</span>` : ''}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''} <b>${g.players[i].score}</b></span>`;
       }).join('');
-    const label = `Scores: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
+    const label = `${isFT(g) ? 'Coasters' : 'Scores'}: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
     // online with chat, the chat button shows a lost connection (its red dot); an old server without chat keeps the dot in the chip
     const dot = online() && !net.chat.ready ? `<i class="sc-dot${net.status === 'open' ? '' : ' warn'}" aria-hidden="true"></i>` : '';
     const open = !!ui.scoresOpen;
@@ -2490,7 +2543,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // online the chat feed (its area always two lines high, so the mat and the keypad never move)
   function turnHead(g, cur, eyebrow){
     return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who">${nameOf(cur)}</h2>
-        ${g.ending ? `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>` : ''}${feedArea()}</div>`;
+        ${endingAlert(g)}${feedArea()}</div>`;
   }
   // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
   // in two steps (the second drops the chevron), then the names shorten to their first letter (six 3-digit totals on
@@ -2578,15 +2631,106 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </section>` + `<div class="bar leather c4bar${act ? '' : ' wait'}">${actions}</div>`;
   }
 
+  // 42/18's dice turn, in the same frame: the mat with the dice on the table, at its foot the tray of kept dice (a die
+  // kept in this roll is a button that puts it back) and the hint; the bar Stop | Roll (End) | the throw so far
+  function firstRollHint(p){
+    return coveringFor() ? `${pname(p)} is offline. As the host you can play for them.`
+      : shakeActive() ? `${online() ? 'Your turn. ' : `${pname(p)}, `}tap Roll or shake the phone.` : online() ? 'Your turn. Roll when you\'re ready.' : `${pname(p)}, roll when you're ready.`;
+  }
+  function viewPlayFT(){
+    const g = state.game, t = g.turn, p = current(g), act = canAct();
+    const rolled = t.rolls > 0, done = rolled && !canRoll(t), nAct = active(t).length;
+    const kept = t.dice.filter(d => d.held !== null).sort((a, b) => a.held - b.held || a.id - b.id);
+    const mustKeep = rolled && !done && !kept.some(d => d.held === t.rolls);
+    const pts = rolled ? E.throwPts(t.dice.map(d => d.value)) : 0;
+    const eyebrow = `Round ${g.round} · ${rolled ? `Roll ${t.rolls} of ${t.maxRolls}` : `Up to ${plural(t.maxRolls, 'roll')}`}`;
+    let hint = ui.hint;
+    if (hint == null){
+      if (!act) hint = '';
+      else if (!rolled) hint = ui.rolling ? '' : firstRollHint(p);
+      else if (done) hint = `${throwLabel(pts)}. ${nAct ? 'No rolls left' : 'All five are kept'}: end your turn.`;
+      else if (pts === FT_MAX) hint = '42/18, the best throw. Stop now!';
+      else if (mustKeep) hint = 'Keep at least one die: tap it, then roll.';
+      else hint = pts ? `Stop for ${throwLabel(pts)}, or roll the rest.` : 'No 42 yet. Roll the rest, or keep more first.';
+    }
+    const can = new Set(); // nothing is highlighted: the player picks what to keep
+    const tray = kept.map(d => act && !done && d.held === t.rolls && !ui.rolling
+      ? `<button class="die" data-act="unkeep" data-id="${d.id}" aria-label="Put the ${d.value} back on the table">${face(d.value)}</button>`
+      : `<span class="die" role="img" aria-label="Kept ${d.value}">${face(d.value)}</span>`).join('');
+    const trayHtml = `<div class="tray" aria-label="Kept dice">${tray || (rolled ? '<span class="tray-empty">Kept dice go here</span>' : '')}</div>`;
+
+    const busy = ui.rolling || ui.busy, val = rolled ? throwShort(pts) : '–';
+    let left = '', mid;
+    if (!rolled) left = `<p class="barnote">Up to ${plural(t.maxRolls, 'roll')}</p>`;
+    else if (!done) left = busy ? `<button class="btn stopc" disabled><b>Stop</b> <small>${val}</small></button>`
+      : ui.armed === 'stop' ? `<button class="btn stopc armed" data-act="stop"><b>Confirm<span class="sr"> stop</span></b> <small>${val}</small></button>`
+      : `<button class="btn stopc" data-act="stop"><b>Stop</b> <small>${val}</small></button>`;
+    if (busy) mid = '<button class="btn primary rollbtn" disabled><b aria-hidden="true">…</b><span class="sr">Rolling</span></button>';
+    else if (done) mid = `<button class="btn primary rollbtn" data-act="end"><b>End<span class="sr"> turn</span></b> <small>${val}</small></button>`;
+    else mid = `<button class="btn primary rollbtn${mustKeep ? ' keepfirst' : ''}" data-act="roll"><b>Roll</b> <small>${mustKeep ? 'keep one' : diceWord(nAct)}</small></button>`;
+    const throwCell = `<div class="rackcell throwcell" role="img" aria-label="${rolled ? `Throw so far: ${throwLabel(pts)}` : 'No throw yet'}"><b aria-hidden="true">${val}</b><small class="racklabel" aria-hidden="true">${rolled ? 'your throw' : 'need 4 + 2'}</small></div>`;
+    const actions = act ? `<div class="c4cell c4left">${left}</div>${mid}${throwCell}` : waiting(pname(p), rolled ? 'finish their turn' : 'roll') + throwCell;
+
+    return chipHeader(g, p) + `
+      <section class="turn felt-turn diceturn ftturn" aria-label="${esc(pname(p))}'s turn">
+        ${turnHead(g, p, eyebrow)}
+        <div class="mat">
+          <div class="dice">${t.dice.map(d => dieView(d, can, act && !done)).join('')}</div>
+          <div class="mat-foot">${trayHtml}<p class="hint" aria-live="polite">${esc(hint)}</p></div>
+        </div>
+      </section>` + `<div class="bar leather c4bar${act ? '' : ' wait'}">${actions}</div>`;
+  }
+  // 42/18 with real dice: the points besides the 4 and the 2 (3–18) on the keypad, or No 42, and the rolls used
+  // (everyone gives them: on a tie for the lowest throw, more rolls lose)
+  function viewScoreFT(){
+    const g = state.game, p = current(g), act = canAct();
+    const eyebrow = `Round ${g.round} · Up to ${plural(MAX_ROLLS, 'roll')}`;
+    const val = ui.entry === '' ? null : +ui.entry, ok = val !== null && okPts(g, val);
+    const keys = [1,2,3,4,5,6,7,8,9].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
+      + `<button class="key fn" data-act="clear">Clear</button><button class="key" data-act="key" data-id="0">0</button><button class="key fn" data-act="back" aria-label="Delete last digit">⌫</button>`;
+    const rollPick = `<div class="rollpick"><span class="h3" id="rolls-h">Rolls used</span><div class="seg" role="group" aria-labelledby="rolls-h">${[1,2,3].map(k => `<button class="segbtn${ui.rolls === k ? ' on' : ''}" data-act="rolls" data-id="${k}" aria-pressed="${ui.rolls === k}">${k}</button>`).join('')}</div></div>`;
+    let label, ready = false;
+    if (val === null) label = 'Enter the points';
+    else if (!ok) label = 'Points are 3 to 18';
+    else if (!ui.rolls) label = 'Choose the rolls used';
+    else { label = `Save · ${pname(p)} ${throwShort(val)}`; ready = true; }
+    let hint = ui.hint != null ? ui.hint : val === 0 ? 'No 42: there was no 4 and 2 among the five dice.' : val === FT_MAX ? '42/18, three 6s: the best throw.' : '';
+    if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the throw for them.`;
+    const foot = `<div class="hintrow"><p class="hint" aria-live="polite">${esc(hint)}</p>${undoLink(g)}</div>`;
+    const shown = val === null ? '<span class="ph">–</span>' : val === 0 ? '<span class="ftno">No 42</span>' : `<span class="ftpre">42 +</span>${val}`;
+    const entry = act ? `
+          <div class="entry-top"><span class="tlabels"><span class="tlabel">Points besides the 4 and 2</span><span class="tlabel">3–18</span></span>
+            <div class="entry" aria-live="polite">${shown}</div></div>
+          <div class="pad">${keys}</div>
+          <div class="ftrow"><button class="btn small no42${val === 0 ? ' on' : ''}" data-act="no42" aria-pressed="${val === 0}">No 42</button></div>
+          ${rollPick}`
+      : '';
+    const actions = act ? `<button class="btn primary save" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>` : waiting(pname(p), 'enter their throw');
+    return chipHeader(g, p) + `
+      <section class="turn felt-turn keyturn" aria-label="${esc(pname(p))}'s turn">
+        ${turnHead(g, p, eyebrow)}
+        <div class="mat keymat${act ? '' : ' watch'}">${entry}
+          ${floorRow(g)}
+          ${foot}
+        </div>
+      </section>` + `<div class="bar leather c4save">${actions}</div>`;
+  }
+
   function viewOver(){
     const g = state.game, L = g.loser, ls = g.players[L].score;
     const tiedWith = g.players.map((_, i) => i).filter(i => i !== L && g.players[i].score === ls);
     let why;
-    if (tiedWith.length) why = `Tied at ${ls} with ${listNames(tiedWith)}. ${pname(L)} played later in the last round, so ${pname(L)} loses.`;
+    if (isFT(g)){ // 42/18: the most coasters lose, normally the player who just took the third
+      const rd = [...g.rounds].reverse().find(r => r.loser != null), r = rd && rd.loser === L ? rd.results[L] : null;
+      if (tiedWith.length) why = `Tied on ${coasterWord(ls)} with ${listNames(tiedWith)}. ${pname(L)} played later in the last round, so ${pname(L)} loses.`;
+      else if (g.early) why = `The game was ended early. ${pname(L)} has the most coasters, ${ls}.`;
+      else why = r ? `${pname(L)} took coaster number ${ls} with ${r.pts ? `42 + ${r.pts}` : 'no 42'}, the lowest throw of round ${rd.no}.` : `${pname(L)} took ${coasterWord(ls)}.`;
+    }
+    else if (tiedWith.length) why = `Tied at ${ls} with ${listNames(tiedWith)}. ${pname(L)} played later in the last round, so ${pname(L)} loses.`;
     else if (g.early) why = `The game was ended early. ${pname(L)} has the highest score, ${ls}.`;
     else if (g.crosser !== L) why =`${pname(g.crosser)} reached ${LIMIT} first, but ${pname(L)} finished the round higher with ${ls}.`;
     else why = `${pname(L)} reached ${LIMIT} and finished with the highest score, ${ls}.`;
-    const winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(1 - L))}</b> wins with ${g.players[1 - L].score}.</p>` : '';
+    const winner = g.players.length === 2 ? `<p class="lede"><b>${esc(pname(1 - L))}</b> wins with ${isFT(g) ? coasterWord(g.players[1 - L].score) : g.players[1 - L].score}.</p>` : '';
     // one phone: Home leaves the finished game (to join or start a room), Play again goes to Who's playing
     const again = !online() ? '<div class="row"><button class="btn two cancel" data-act="home">Home</button><button class="btn two primary go" data-act="again">Play again</button></div>'
       : amHost() ? '<button class="btn primary" data-act="oreopen">Play again with this room</button>'
@@ -2620,7 +2764,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const ICONS = {
     play:'M4 4h16v16H4zM9 9h.01M15 15h.01M12 12h.01', online:'M2 6h7v12H2zM15 6h7v12h-7zM9 12h6',
     you:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21c1.5-4 4.5-6 8-6s6.5 2 8 6',
-    table:'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2', real:'M4 6h16M4 12h16M4 18h10'
+    table:'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2', real:'M4 6h16M4 12h16M4 18h10',
+    // the games: a 3 and a 4 (a 7), a 4 and a 2 (the 42)
+    sevens:'M2 7h9v9H2zM13 7h9v9h-9zM4.5 9.5h.01M6.5 11.5h.01M8.5 13.5h.01M15.5 9.5h.01M19.5 9.5h.01M15.5 13.5h.01M19.5 13.5h.01',
+    fortytwo:'M2 7h9v9H2zM13 7h9v9h-9zM4.5 9.5h.01M8.5 9.5h.01M4.5 13.5h.01M8.5 13.5h.01M15.5 9.5h.01M19.5 13.5h.01'
   };
   const icon = k => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${ICONS[k]}"/></svg>`;
   // which home screen shows: ui.screen null (or 'home', a ?join landing over a saved game) means home
@@ -2657,13 +2804,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // (where is optional: old saves have none and read as 'table')
   const playWhere = () => onlineAvailable() && state.setup.where === 'phones' ? 'phones' : 'table';
   function playBody(){
-    const s = state.setup, where = playWhere(), mode = s.mode === 'score' ? 'score' : 'dice', auto = s.pairing === 'auto';
+    const s = state.setup, where = playWhere(), mode = s.mode === 'score' ? 'score' : 'dice', auto = s.pairing === 'auto', kind = kindOf(s);
     const opt = (act, id, on, ic, title, sub) => `<button class="opt" data-act="${act}" data-id="${id}" aria-pressed="${on}">${icon(ic)}<span><b>${title}</b><small>${sub}</small></span></button>`;
     const whereSet = onlineAvailable() ? `<fieldset class="choice"><legend class="h3">Where is everyone?</legend><div class="cards">
         ${opt('where', 0, where === 'table', 'table', 'At this table', 'Pass one phone round')}${opt('where', 1, where === 'phones', 'online', 'Own phones', 'Online, with a code')}</div></fieldset>` : '';
+    const gameSet = hasFT() ? `<fieldset class="choice"><legend class="h3">Game</legend><div class="cards">
+        ${KINDS.map(([k, title, sub, ic], i) => opt('kind', i, kind === k, ic, title, sub)).join('')}</div></fieldset>` : '';
     const diceSet = `<fieldset class="choice"><legend class="h3">Dice</legend><div class="cards">
         ${opt('mode', 0, mode === 'dice', 'play', 'In the app', 'Tap to roll')}${opt('mode', 1, mode === 'score', 'real', 'Real dice', 'Enter scores here')}</div></fieldset>`;
-    const sw = mode === 'dice' ? pairSwitch(auto, 'pairing', 'autopair') : '';
+    const sw = mode === 'dice' && kind !== FT ? pairSwitch(auto, 'pairing', 'autopair') : '';
     let next;
     if (where === 'table') next = `<button class="btn primary" data-act="players">${homeScreen() === 'players' ? 'Done' : 'Next: who\'s playing'}</button>`;
     else {
@@ -2673,12 +2822,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="go"></label>` : '';
       next = field + '<button class="btn primary" data-act="ocreate">Create room</button>';
     }
-    return whereSet + diceSet + sw + `<div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${next}</div>`;
+    return gameSet + whereSet + diceSet + sw + `<div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${next}</div>`;
   }
   // Who's playing (one phone): the players card (a starter die, the name, You / This is me, remove), who starts
   // round 1, a compact row for the dice choices (it opens the Play sheet), and Start game pinned to the bottom
   function modeLine(s){
-    return s.mode === 'score' ? 'Real dice · Scores here' : `Dice in the app · ${s.pairing === 'auto' ? 'The app finds the 7s' : 'You find the 7s'}`;
+    if (kindOf(s) === FT) return `42/18 · ${s.mode === 'score' ? 'Real dice' : 'Dice in the app'}`;
+    return (hasFT() ? 'Sevens Out · ' : '') + (s.mode === 'score' ? 'Real dice' : `Dice in the app · ${s.pairing === 'auto' ? 'The app finds the 7s' : 'You find the 7s'}`);
   }
   function viewPlayers(){
     const s = state.setup, mine = myLine(s.names), many = s.names.length > 2;
@@ -2766,7 +2916,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the lobby: the room code and Share invite, the seats, the settings (only the host may change them),
   // and Start pinned to the bottom for the host (the others see who they wait for). Leave room is in the menu
   function viewLobby(){
-    const r = net.room, host = amHost(), seats = r.seats, mode = r.settings.mode === 'score' ? 'score' : 'dice';
+    const r = net.room, host = amHost(), seats = r.seats, mode = r.settings.mode === 'score' ? 'score' : 'dice', kind = kindOf(r.settings);
     const st = r.settings.starter, dis = host ? '' : ' disabled';
     const list = seats.map(s => `<li class="seat">
         <span class="dot${s.connected ? ' on' : ''}" role="img" aria-label="${s.connected ? 'Online' : 'Offline'}"></span>
@@ -2776,6 +2926,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </li>`).join('');
     const modeSeg = `<div class="seg small" role="group" aria-labelledby="omode-h">${[['dice', 'In the app'], ['score', 'Real dice']].map(([v, l]) =>
       `<button class="segbtn${mode === v ? ' on' : ''}" data-act="omode" data-id="${v === 'score' ? 1 : 0}" aria-pressed="${mode === v}"${dis}>${l}</button>`).join('')}</div>`;
+    const kindSeg = `<div class="seg small" role="group" aria-labelledby="okind-h">${KINDS.map(([v, l], i) =>
+      `<button class="segbtn${kind === v ? ' on' : ''}" data-act="okind" data-id="${i}" aria-pressed="${kind === v}"${dis}>${l}</button>`).join('')}</div>`;
     const starterSeg = `<div class="picks" role="group" aria-labelledby="ostart-h">${seats.map((s, i) =>
       `<button class="pickbtn${st === i ? ' on' : ''}" data-act="ostarter" data-id="${i}" aria-pressed="${st === i}"${dis}>${esc(s.name)}</button>`).join('')}<button class="pickbtn${st === 'random' ? ' on' : ''}" data-act="ostarter" data-id="-1" aria-pressed="${st === 'random'}"${dis}>Random</button></div>`;
     const share = canShare() ? 'oshare' : 'ocopy';
@@ -2797,8 +2949,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       <section class="panel" aria-labelledby="set-h">
         <h2 class="h3" id="set-h">Settings${host ? '' : ' · the host picks'}</h2>
         <div class="pcard setcard">
+          ${hasFT() ? `<div class="setrow"><span class="setlbl" id="okind-h">Game</span>${kindSeg}</div>` : ''}
           <div class="setrow"><span class="setlbl" id="omode-h">Dice</span>${modeSeg}</div>
-          ${mode === 'dice' ? pairSwitch(r.settings.pairing === 'auto', 'opairing', 'opair', host) : ''}
+          ${mode === 'dice' && kind !== FT ? pairSwitch(r.settings.pairing === 'auto', 'opairing', 'opair', host) : ''}
           <div class="setrow col"><span class="setlbl" id="ostart-h">Who starts</span>${starterSeg}</div>
         </div>
       </section>
@@ -2806,20 +2959,22 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
 
   function sheet(g){
-    const head = g.players.map(pl => `<th scope="col">${esc(pl.name)}</th>`).join('');
+    const ft = isFT(g), head = g.players.map(pl => `<th scope="col">${esc(pl.name)}</th>`).join('');
+    // 42/18: each throw, and the round's loser (who took the coaster) in red
     const body = g.rounds.map(rd => `<tr><th scope="row">${rd.no}</th>${g.players.map((_, i) => {
-      const r = rd.results[i];
-      return `<td${i === rd.starter ? ' class="st"' : ''}>${r ? `+${r.pts}${r.rolls != null ? `<small>${r.rolls}×</small>` : ''}` : '–'}</td>`;
+      const r = rd.results[i], cls = [i === rd.starter ? 'st' : '', ft && rd.loser === i ? 'lc' : ''].filter(Boolean).join(' ');
+      return `<td${cls ? ` class="${cls}"` : ''}>${r ? `${ft ? throwShort(r.pts) : `+${r.pts}`}${r.rolls != null ? `<small>${r.rolls}×</small>` : ''}` : '–'}</td>`;
     }).join('')}</tr>`).join('');
     const foot = g.players.map(pl => `<td>${pl.score}</td>`).join('');
     return `<details class="fold" data-fold="sheet"${ui.open.sheet !== false ? ' open' : ''}><summary>Score sheet</summary>
-      <div class="tablewrap"><table><thead><tr><th scope="col">Round</th>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr><th scope="row">Total</th>${foot}</tr></tfoot></table></div>
-      <p class="note"><span class="dot"></span> marks the round's starter. The small number is how many rolls were used.</p></details>`;
+      <div class="tablewrap"><table><thead><tr><th scope="col">Round</th>${head}</tr></thead><tbody>${body}</tbody><tfoot><tr><th scope="row">${ft ? 'Coasters' : 'Total'}</th>${foot}</tr></tfoot></table></div>
+      <p class="note"><span class="dot"></span> marks the round's starter. The small number is how many rolls were used.${ft ? ' Red marks who lost the round and took a coaster.' : ''}</p></details>`;
   }
 
   function rules(){
     const set = online() && net.room ? net.room.settings : state.setup;
     const mode = state.game ? state.game.mode : set.mode;
+    if (state.game ? isFT(state.game) : kindOf(set) === FT) return rulesFT(mode);
     const hand = state.game ? E.byHand(state.game) : mode !== 'score' && set.pairing !== 'auto';
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play</summary><ol>
       <li>On your turn you roll six dice. After each roll you may set aside any pairs that add up to 7 (1+6, 2+5, 3+4). Only such pairs can be set aside; every other die goes back into the next roll.</li>
@@ -2830,13 +2985,23 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     </ol>${mode === 'score' ? '' : `<p class="note">${hand ? 'Find the 7s yourself: tap two dice that add up to 7 to set them aside.' : 'The app sets pairs aside for you after each roll.'} Tap a pair from the current roll to put it back before rolling again.</p>`}</details>`;
   }
 
+  function rulesFT(mode){
+    return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play 42/18</summary><ol>
+      <li>On your turn you roll five dice, up to three times, and can stop after any roll. After each roll keep at least one die; the others go back into the next roll.</li>
+      <li>Your throw needs a 4 and a 2: that's the 42. The other three dice are your points, 3 to 18. With three 6s it's 42/18, the best throw. Without a 4 and a 2 it's "no 42", the worst.</li>
+      <li>Everyone plays one turn a round. The lowest throw loses the round and takes a coaster. On a tie, whoever needed more rolls loses; still tied, whoever played later.</li>
+      <li>The players choose who starts the first round. After that, the round's loser starts the next one.</li>
+      <li>The first to take ${COASTERS} coasters loses the game.</li>
+    </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the points of their throw (or No 42) and the rolls they used.' : 'Tap a die to keep it. Tap a kept die from this roll to put it back before rolling again.'}</p></details>`;
+  }
+
   function devBlock(){
     // End game now only where the game shows (the game menu), never in home's Settings sheet over a saved game
     const live = state.phase === 'play' && !!state.game && (!online() || amHost()) && !onHome();
     // only dice that are being rolled make a turn in progress; a real-dice turn is booked in one go
     const rolling = live && !E.isScore(state.game) && !!state.game.turn && state.game.turn.rolls > 0;
     const confirm = live && ui.confirmEnd
-      ? `<div class="confirm"><span>End the game now? The highest score loses${rolling ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
+      ? `<div class="confirm"><span>End the game now? ${isFT(state.game) ? 'The most coasters lose' : 'The highest score loses'}${rolling ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
     return `<details class="fold" data-fold="dev"${ui.open.dev ? ' open' : ''}><summary>Developer</summary>
       <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button><button class="btn ghost" data-act="devmiss">Play missed 7</button><button class="btn ghost" data-act="devround">Play round change</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
@@ -3088,8 +3253,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const zone = (w - 2 * MAT_EDGE) * (h - MAT_EDGE - bottom);
     return Math.round(Math.max(48, Math.min(92, w * 0.22, h / 4.2, Math.sqrt(Math.max(0, zone) * 0.3 / 6) - 6)));
   }
-  // the room kept for the hint line at the mat's foot: up to two lines; with automatic pairing "Set aside all 7s" too
-  const matFoot = g => 12 + 44 + 8 + (E.byHand(g) ? 0 : 50);
+  // the room kept for the hint line at the mat's foot: up to two lines; with automatic pairing "Set aside all 7s" too,
+  // in 42/18 the tray of kept dice
+  const matFoot = g => 12 + 44 + 8 + (E.byHand(g) ? 0 : 50); // 42/18: the tray of kept dice takes the second row (isFT: byHand is false)
   // the spots are kept per turn (round, player, rolls), so redraws, taps, a pair put back and the score list never move
   // the dice; a roll draws new spots for the rolled dice. A few recent turns are kept: a roll the server refuses falls
   // back to the old spots
@@ -3242,6 +3408,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     ouch: (n, v) => ['Ouch', `${n} took ${v}`]
   };
   const WHY = { highest:s => `Highest score: ${s}`, first:s => `Tied on ${s}, got there first`, turn:s => `Tied on ${s}, next in turn` };
+  // 42/18: the round's best moment, and why its loser (who took the coaster) starts the next one
+  const BADGE_FT = {
+    perfect: n => ['42/18', `${n} threw three 6s`],
+    shots: n => ['Shots', `${n} paid a round`],
+    lastCoaster: n => ['On the edge', `${n} is one coaster from losing`],
+    no42: n => ['No 42', `${n} found no 4 and 2`]
+  };
+  const lowWord = s => s ? `42 + ${s}` : 'no 42';
+  const WHY_FT = { low:s => `Took a coaster with ${lowWord(s)}`, rolls:s => `Took a coaster: ${lowWord(s)}, more rolls`, later:s => `Took a coaster: ${lowWord(s)}, played later` };
   // the screen's usable band, inside the 16 px gutter and the safe areas
   function edges(){
     const root = getComputedStyle(document.documentElement);
@@ -3275,6 +3450,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     await listInView();
     return new Promise(resolve => {
       const nm = i => g.players[i].name, timers = [];
+      const ft = recap.kind === FT, lim = ft ? COASTERS : LIMIT; // 42/18: the totals are coasters and each line shows its throw
       let raf = 0, swapped = false, done = false, el = null, card = null;
       const doSwap = () => {
         if (swapped) return;
@@ -3297,17 +3473,18 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const from = list ? list.getBoundingClientRect() : chip ? chip.getBoundingClientRect() : null;
         const cls = list ? ['dense', 'denser', 'tall'].filter(c => list.classList.contains(c)).join(' ') : chip ? listClass(g) : '';
         const box = $app.getBoundingClientRect(), { minTop, maxBottom } = edges();
-        const best = recap.best && BADGE[recap.best.kind] ? BADGE[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
-        const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = WHY[recap.reason.kind](recap.reason.score);
+        const badges = ft ? BADGE_FT : BADGE;
+        const best = recap.best && badges[recap.best.kind] ? badges[recap.best.kind](nm(recap.best.player), recap.best.value) : null;
+        const starts = isMe(recap.next) ? 'You start' : `${nm(recap.next)} starts`, why = (ft ? WHY_FT : WHY)[recap.reason.kind](recap.reason.score);
         const foot = list && list.querySelector('.bfoot');
         const slam = t => [...t].map((c, i) => c === ' ' ? ' ' : `<span class="ch" style="--i:${i}">${esc(c)}</span>`).join('');
         el = document.createElement('div');
         el.className = 'race';
         // from the chip or the list over the mat, the card is solid like that list (it passes over the menu button and the dice)
         const solid = chip || list && list.closest('.scores-pop');
-        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${recap.order.length > CHIP_ALL ? ' crowd' : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
-            <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>to ${LIMIT}</span></div>
-            <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
+        el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${ft ? ' ft' : ''}${recap.order.length > CHIP_ALL ? ' crowd' : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
+            <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>${ft ? `${COASTERS} coasters lose` : `to ${LIMIT}`}</span></div>
+            <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:ft ? recap.results[i].pts : recap.pts[i], total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
             ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
             ${best ? `<p class="race-badge"><b>${esc(best[0])}</b> <span>${esc(best[1])}</span></p>` : ''}</div>
           <div class="race-curtain" aria-hidden="true"><p class="race-round">${slam(`Round ${recap.round + 1}`)}</p>
@@ -3339,9 +3516,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const grow = () => {
           card.classList.add('grow'); card.style.top = `${top1}px`;
           if (chip){ card.style.left = `${box.left + 16}px`; card.style.width = `${box.width - 32}px`; card.style.clipPath = 'inset(0 0 0 0 round 14px)'; }
-          card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>Race to ${LIMIT}</b></span>`;
+          card.querySelector('.bhead').innerHTML = `<span>After round ${recap.round}</span><span><b>${ft ? 'Coasters' : `Race to ${LIMIT}`}</b></span>`;
         };
-        const bars = () => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.fill').style.width = barWidth(recap.after[i]); li.classList.toggle('over', recap.after[i] >= LIMIT); });
+        const bars = () => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.fill').style.width = barWidth(recap.after[i], lim); li.classList.toggle('over', recap.after[i] >= lim); });
         const count = k => lines.forEach(li => { const i = +li.dataset.id; li.querySelector('.num').textContent = Math.round(recap.before[i] + recap.pts[i] * k); });
         const countUp = () => {
           const t0 = performance.now();
@@ -3389,6 +3566,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function devRecap(){
     const g = state.game, recap = g && E.roundRecap(g);
     if (recap) return { g, recap };
+    if (isFT(g)){ // made-up throws: the second player in order found no 42
+      const n = g.players.length, order = E.orderFrom(g.starter, n), results = {}, L = order[1];
+      order.forEach((i, k) => { results[i] = { pts:k === 1 ? 0 : [9, 0, 15, 18, 4, 12][k] || 3 + k, rolls:1 + k % 3 }; });
+      const before = g.players.map(p => p.score), pts = before.map((_, i) => (i === L ? 1 : 0)), after = before.map((b, i) => b + pts[i]);
+      return { g, recap:{ kind:FT, round:g.round, next:L, order, pts, before, after, results, best:{ kind:'no42', player:L, value:null }, reason:{ kind:'low', score:0 } } };
+    }
     const players = g ? g.players : state.setup.names.map((nm, i) => ({ name:nm.trim() || `Player ${i + 1}`, score:0 }));
     const n = players.length, order = E.orderFrom(g ? g.starter : 0, n), pts = Array(n).fill(0);
     order.forEach((i, k) => { pts[i] = [14, 0, 26, 5, 18, 3][k]; });
@@ -3401,6 +3584,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function tapDie(id){
     const t = state.game.turn, d = t.dice[id];
     if (!d || d.held !== null || d.value === null || ui.rolling || !canAct()) return;
+    if (isFT(state.game)){ if (canRoll(t)) dispatch({ type:'keep', id }); return; } // 42/18: a tap keeps the die
     if (ui.selected === null){
       const hand = E.byHand(state.game);
       if (!hand && !pairable(t).has(id)){ ui.hint = `There is no ${7 - d.value} on the table to go with this ${d.value}.`; ui.nope = id; sound.cue('nope'); return; }
@@ -3414,6 +3598,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function startRoll(){
     const g = state.game;
     if (!g || state.phase !== 'play' || E.isScore(g) || ui.rolling || ui.busy || !canRoll(g.turn) || !canAct()) return;
+    // 42/18: after a roll, at least one die is kept before the next
+    if (isFT(g) && g.turn.rolls && !g.turn.dice.some(d => d.held === g.turn.rolls)){ ui.hint = 'Keep at least one die first: tap it.'; sound.cue('nope'); render(); return; }
     resetInputs();
     if (!reduceMotion){ ui.rolling = true; ui.rollStart = Date.now(); sound.cue('roll', active(g.turn).length); }
     dispatch({ type:'roll' }); // roll first, then show the tumbling dice until the result is revealed
@@ -3478,7 +3664,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         state.stats = { id:randomId(), startedAt:Date.now() }; // for the owner's statistics (see queueReport)
         const mine = myLine(names);
         if (mine >= 0){ state.stats.owner = mine; state.stats.ownerId = account.id; } // the signed-in player's line; the report credits it to them
-        dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' });
+        dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), kind:kindOf(s), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' });
         return;
       }
       case 'me': {
@@ -3510,6 +3696,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'roll': startRoll(); return;
       case 'die': tapDie(id); break;
       case 'unpair': if (canAct()) dispatch({ type:'unpair', index:id }); break;
+      case 'unkeep': if (canAct()) dispatch({ type:'unkeep', id }); break;
       case 'takeall': if (canAct()){ ui.selected = null; dispatch({ type:'takeall' }); } break;
       case 'drop': if (state.phase === 'play' && E.isScore(g) && seated()) dispatch({ type:'drop' }); break;
       case 'edit':
@@ -3520,7 +3707,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'estep': {
         const inp = document.getElementById(`edit-${id}`); if (!inp || !el) return;
         let v = parseInt(inp.value, 10); if (isNaN(v)) v = 0;
-        v = Math.max(0, Math.min(MAX_PIPS, v + (+el.dataset.d || 0)));
+        const d = +el.dataset.d || 0;
+        // 42/18 steps over 1 and 2: from no 42 (0) one more is 3, and one less than 3 is no 42
+        if (isFT(g)) v = v + d < 3 ? (d > 0 ? 3 : 0) : Math.min(FT_MAX, v + d);
+        else v = Math.max(0, Math.min(MAX_PIPS, v + d));
         inp.value = String(v); ui.editVals[id] = String(v);
         refreshEdit();
         return;
@@ -3533,7 +3723,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         if (canRoll(t) && ui.armed !== 'stop'){
           ui.armed = 'stop';
           const left = t.maxRolls - t.rolls;
-          ui.hint = g.pos === 0
+          ui.hint = g.pos === 0 && !isFT(g)
             ? `Everyone gets ${plural(t.rolls, 'roll')}. Tap again to stop.`
             : `${coveringFor() ? `${pname(current(g))} has` : 'You have'} ${plural(left, 'roll')} left. Tap again to stop.`;
           break;
@@ -3577,12 +3767,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         break;
       }
       case 'mode': state.setup.mode = id === 1 ? 'score' : 'dice'; break;
+      case 'kind': state.setup.kind = id === 1 && hasFT() ? FT : 'sevens'; break;
       // the sheet's switch toggles; data-id 0/1 sets manual/auto
       case 'pairing': state.setup.pairing = (id == null ? state.setup.pairing !== 'auto' : id === 1) ? 'auto' : 'manual'; break;
       case 'key': {
         if (state.phase !== 'play' || !E.isScore(g) || !canAct()) return;
         ui.hint = null;
         const s = ui.entry === '0' ? String(id) : ui.entry + id;
+        if (isFT(g) && (s.length > 2 || +s > FT_MAX)){ ui.hint = 'The most is 18: three 6s.'; break; }
         if (s.length > 2 || +s > MAX_PIPS){ ui.hint = 'The most you can have left is 36 (six 6s).'; break; }
         ui.entry = String(+s);
         break;
@@ -3590,8 +3782,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'back': ui.hint = null; ui.entry = (ui.entry || '').slice(0, -1); break;
       case 'clear': ui.hint = null; ui.entry = ''; break;
       case 'rolls': ui.hint = null; ui.rolls = id; break;
+      case 'no42': if (state.phase === 'play' && isFT(g) && E.isScore(g) && canAct()){ ui.hint = null; ui.entry = ui.entry === '0' ? '' : '0'; } break;
       case 'commit': {
         if (state.phase !== 'play' || !E.isScore(g) || !canAct() || ui.entry === '') break;
+        if (isFT(g)){ if (okPts(g, +ui.entry) && ui.rolls) dispatch({ type:'score', pts:+ui.entry, rolls:ui.rolls }); break; }
         const isStarter = g.pos === 0;
         if (isStarter && !ui.rolls) break;
         dispatch({ type:'score', pts:+ui.entry, rolls:isStarter ? ui.rolls : undefined });
@@ -3624,7 +3818,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         storeName(name);
         ui.hint = null;
         // a new room starts with the server's defaults; the remembered dice and 7s follow right after welcome
-        const s = state.setup, settings = { mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' };
+        const s = state.setup, settings = { kind:kindOf(s), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' };
         netStart({ create:true, name, settings });
         return;
       }
@@ -3642,6 +3836,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         return;
       }
       case 'omode': if (amHost()) netSend({ t:'lobby', op:'settings', mode:id === 1 ? 'score' : 'dice' }); break;
+      case 'okind': if (amHost() && hasFT()) netSend({ t:'lobby', op:'settings', kind:id === 1 ? FT : 'sevens' }); break;
       case 'opairing': { // the switch toggles; data-id 0/1 sets
         if (!amHost()) break;
         const auto = id == null ? net.room.settings.pairing !== 'auto' : id === 1;
@@ -3679,7 +3874,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // ---------- render / persistence ----------
   function gameView(){
     return (ui.edit != null && E.isScore(state.game)) ? viewEdit()
-      : state.phase === 'play' ? (E.isScore(state.game) ? viewScore() : viewPlay())
+      : state.phase === 'play' ? (E.isScore(state.game) ? (isFT(state.game) ? viewScoreFT() : viewScore()) : (isFT(state.game) ? viewPlayFT() : viewPlay()))
       : viewOver();
   }
   function render(){
@@ -3734,7 +3929,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (focusNext){ const el = document.getElementById(focusNext); focusNext = null; if (el) el.focus({ preventScroll:true }); }
     if (toBar){ const el = $app.querySelector(':scope > .bar .btn.primary:not(:disabled)'); if (el) el.focus({ preventScroll:true }); }
     save();
-    if (ui.celebrate){ const nm = ui.celebrate; ui.celebrate = null; celebrate(nm); }
+    if (ui.celebrate){ const c = ui.celebrate; ui.celebrate = null; celebrate(c.name || c, !!c.ft); }
     if (ui.doom){ const nm = ui.doom; ui.doom = null; showDoom(nm); }
     if (ui.missed){ const m = ui.missed; ui.missed = null; showMissed(m); }
   }
@@ -3745,7 +3940,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (online() || ui.race) return;
     // statistics never break playing; queueReport runs first because it may give an old save its id, which is saved with it
     let report = false;
-    if (state.phase === 'over'){ try { queueReport(); report = true; } catch (e) {} }
+    if (state.phase === 'over' && !isFT(state.game)){ try { queueReport(); report = true; } catch (e) {} } // 42/18 isn't in the statistics yet
     write(state);
     if (report){ try { flushReports(); } catch (e) {} }
   }

@@ -599,7 +599,7 @@ test('sessions: the room keeps its row and timeline up to date through a game', 
   await send(room, a, { t: 'lobby', op: 'start' });
   const started = sessions.events.at(-1);
   assert.equal(started.kind, 'started');
-  assert.deepEqual(started.detail, { game: stats.records.at(-1).game.id, players: 2, mode: 'score', pairing: 'manual' });
+  assert.deepEqual(started.detail, { game: stats.records.at(-1).game.id, players: 2, kind: 'sevens', mode: 'score', pairing: 'manual' });
   assert.deepEqual([sessions.row().phase, sessions.row().round, sessions.row().games_started, sessions.row().game_id],
     ['playing', 1, 1, started.detail.game]);
   assert.ok(sessions.row().first_start_at >= sessions.row().created_at);
@@ -724,4 +724,33 @@ test('sessions: a room saved before the admin page\'s rooms gets its id on its f
   assert.match(sessions.row().id, /^[0-9a-f]{16}$/);
   await send(r.room, c, { t: 'lobby', op: 'rename', name: 'Anne' });
   assert.equal(r.stored().rid, sessions.row().id, 'kept with the next save');
+});
+
+test('42/18: the host picks the game, keep and unkeep are the player\'s moves, and the stats skip it', async () => {
+  const stats = recorder();
+  const { room, a, b } = await lobbyOf2({ stats });
+  assert.equal(last(a, 'room').room.settings.kind, 'sevens');
+  await send(room, b, { t: 'lobby', op: 'settings', kind: '4218' });
+  assert.equal(last(b, 'error').code, 'host_only');
+  await send(room, a, { t: 'lobby', op: 'settings', kind: 'yahtzee' });
+  assert.equal(last(b, 'room').room.settings.kind, 'sevens');
+  await send(room, a, { t: 'lobby', op: 'settings', kind: '4218' });
+  assert.equal(last(b, 'room').room.settings.kind, '4218');
+  await send(room, a, { t: 'lobby', op: 'start' });
+  const g = last(b, 'room').state.game;
+  assert.equal(g.kind, '4218');
+  assert.equal(g.turn.dice.length, 5);
+  assert.equal(stats.records.length, 0, '42/18 games are not recorded');
+  await send(room, a, { t: 'act', action: { type: 'roll' } });
+  await send(room, b, { t: 'act', action: { type: 'keep', id: 0 } });
+  assert.equal(last(b, 'error').code, 'not_your_turn');
+  await send(room, a, { t: 'act', action: { type: 'keep', id: 0 } });
+  let msg = last(b, 'room');
+  assert.deepEqual(msg.events, [{ type: 'kept', id: 0, value: msg.state.game.turn.dice[0].value }]);
+  await send(room, a, { t: 'act', action: { type: 'unkeep', id: 0 } });
+  assert.equal(last(b, 'room').state.game.turn.dice[0].held, null);
+  await send(room, a, { t: 'act', action: { type: 'stop' } });
+  msg = last(b, 'room');
+  assert.equal(msg.state.game.pos, 1);
+  assert.equal(msg.state.game.rounds[0].results[0].rolls, 1);
 });

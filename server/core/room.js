@@ -37,7 +37,7 @@ export const TRACK_EVERY_MS = 60_000; // moves and chat alone update the admin p
 const MAX_EVENTS = 500; // timeline events per room
 
 // actions only the player whose turn it is may make (or the host, when that player is offline)
-const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'stop', 'end', 'score']);
+const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'keep', 'unkeep', 'stop', 'end', 'score']);
 // actions any seated player may make
 const TABLE_ACTIONS = new Set(['drop', 'undo', 'edit', 'nextround']);
 // actions only the host may make
@@ -171,7 +171,7 @@ export class Room {
       if (!CODE_RE.test(code || '')) return this.error(conn, 'bad_message', 'Bad room code.');
       d = this.data = {
         v: 1, rid: hex(8), code, created: this.now(), updated: this.now(), rev: 1,
-        phase: 'lobby', host: null, settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: [], state: null
+        phase: 'lobby', host: null, settings: { kind: 'sevens', mode: 'dice', pairing: 'manual', starter: 0 }, seats: [], state: null
       };
       const seat = this.addSeat(m.name, user);
       d.host = seat.id;
@@ -289,6 +289,7 @@ export class Room {
       case 'settings': {
         if (!isHost) return this.error(conn, 'host_only', 'Only the host can change the settings.');
         if (d.phase !== 'lobby') return this.error(conn, 'phase', 'The game has started.');
+        if (m.kind === 'sevens' || m.kind === '4218') d.settings.kind = m.kind;
         if (m.mode === 'dice' || m.mode === 'score') d.settings.mode = m.mode;
         if (m.pairing === 'manual' || m.pairing === 'auto') d.settings.pairing = m.pairing;
         if (m.starter === 'random' || (Number.isInteger(m.starter) && m.starter >= 0 && m.starter < MAX_SEATS)) d.settings.starter = m.starter;
@@ -302,13 +303,13 @@ export class Room {
         let starter = d.settings.starter;
         if (starter === 'random') { const b = new Uint8Array(1); do crypto.getRandomValues(b); while (b[0] >= 256 - (256 % n)); starter = b[0] % n; } // no modulo bias
         if (!(starter >= 0 && starter < n)) starter = 0;
-        const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, mode: d.settings.mode, pairing: d.settings.pairing });
+        const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, kind: d.settings.kind || 'sevens', mode: d.settings.mode, pairing: d.settings.pairing });
         if (r.error) return this.error(conn, r.error, 'Could not start.');
         d.state = r.state; d.phase = 'game'; d.rev++;
         d.stats = { id: hex(8), startedAt: this.now() };
         this.count('games');
         if (!d.tally.firstStart) d.tally.firstStart = d.stats.startedAt;
-        this.note('started', { game: d.stats.id, players: n, mode: d.settings.mode, pairing: d.settings.pairing });
+        this.note('started', { game: d.stats.id, players: n, kind: d.settings.kind || 'sevens', mode: d.settings.mode, pairing: d.settings.pairing });
         await this.save();
         this.broadcast(r.events);
         await this.recordStats('playing');
@@ -453,6 +454,7 @@ export class Room {
   statsRecord(status) {
     const d = this.data;
     if (!this.stats || !d || !d.stats || !d.state || !d.state.game) return null;
+    if (this.E.isFT(d.state.game)) return null; // the statistics are Sevens Out's for now: 42/18 games aren't recorded
     try {
       const seats = d.state.game.seats || [];
       return summarize(d.state, {
