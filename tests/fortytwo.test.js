@@ -87,15 +87,22 @@ test('after a roll at least one die is kept before the next; a die kept in this 
 
 test('a turn rolls on while dice are left, one kept each time: five rolls at most', () => {
   let s = start(2);
-  for (let r = 0; r < 5; r++) {
-    s = must(s, { type: 'roll' }, { rng: faces([1]) }).state;
-    if (r < 4) s = must(s, { type: 'keep', id: r }).state;
+  let r;
+  for (let k = 0; k < 5; k++) {
+    r = must(s, { type: 'roll' }, { rng: faces([1]) }); s = r.state;
+    if (k < 4) { assert.deepEqual(r.events.map(e => e.type), ['rolled']); s = must(s, { type: 'keep', id: k }).state; }
   }
-  assert.equal(E.active(s.game.turn).length, 1);
-  assert.equal(E.apply(s, { type: 'roll' }).error, 'no_rolls');
-  const r = must(s, { type: 'end' });
+  // the fifth roll is the throw: it ends the turn by itself
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'turn']);
   assert.deepEqual(r.state.game.rounds[0].results[0], { pts: 0, rolls: 5 });
   assert.equal(r.state.game.pos, 1);
+  // a roll that leaves one die can't be rolled on (a die from it must be kept): it is the throw too
+  let u = start(2);
+  u = must(u, { type: 'roll' }, { rng: faces([4, 2, 6, 6, 5]) }).state;
+  for (let id = 0; id < 4; id++) u = must(u, { type: 'keep', id }).state;
+  r = must(u, { type: 'roll' }, { rng: faces([3]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'turn']);
+  assert.deepEqual(r.state.game.rounds[0].results[0], { pts: 15, rolls: 2 });
   // keeping all five ends the rolling earlier
   let t = start(2);
   t = must(t, { type: 'roll' }, { rng: faces([4, 2, 6, 6, 5]) }).state;

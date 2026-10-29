@@ -126,7 +126,8 @@ test('a long, low-scoring game of 12 fits in one report', () => {
 test('a dice game ended early in the middle of a round is accepted', () => {
   const rng = () => 3; // all threes: no 7-pairs, 18 points per turn
   let s = must(E.blank(), { type: 'start', names: ['Anna', 'Ben', 'Cleo'], starter: 0, mode: 'dice' });
-  for (let i = 0; i < 3; i++) { s = must(s, { type: 'roll' }, { rng }); s = must(s, { type: 'stop' }); }
+  s = must(s, { type: 'roll' }, { rng }); s = must(s, { type: 'stop' }); // the starter stops after one roll ...
+  for (let i = 0; i < 2; i++) s = must(s, { type: 'roll' }, { rng }); // ... so the others' one roll ends their turn
   s = must(s, { type: 'roll' }, { rng }); s = must(s, { type: 'stop' });
   s = must(s, { type: 'endearly' });
   const r = checkReport(reportOf(s), E, NOW);

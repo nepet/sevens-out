@@ -20,6 +20,19 @@ export async function skipRace(page) {
   await idle(page);
 }
 
+// a dice turn with no rolls left: End while a 7 is still on the table (you find the 7s); otherwise the roll ended the
+// turn by itself, and while the throw lies on the mat the bar says who is next: a tap on it goes on at once. When the
+// page is idle without either, the turn has already moved on. Online the roll goes to the server first: until its
+// answer (the next revision) the page isn't busy yet, so it waits for that too
+export async function endTurn(page) {
+  const end = page.locator('.bar [data-act=end]'), hand = page.locator('.bar .handoff');
+  const rev = await page.evaluate(() => window.SevensDebug.net.code ? window.SevensDebug.net.rev : null);
+  await expect.poll(async () => (await end.count()) + (await hand.count()) > 0
+    || (await page.evaluate(r => !window.SevensDebug.busy && (r === null || window.SevensDebug.net.rev > r), rev))).toBe(true);
+  if (await end.count()) await end.click();
+  else if (await hand.count()) await hand.click({ timeout: 2000 }).catch(() => {}); // it may just have gone on by itself
+}
+
 // make the first dice the page rolls come up as `faces` (1-6); byte b gives face b % 6 + 1
 export async function fixDice(context, faces) {
   const bytes = JSON.stringify(faces.map(f => f - 1));

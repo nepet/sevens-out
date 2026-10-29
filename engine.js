@@ -48,6 +48,12 @@
     return s;
   }
   const canRoll = t => t.rolls < t.maxRolls && active(t).length > 0;
+  // nothing left to do on a dice turn: no roll left and no 7-pair left on the table to set aside (the player's last
+  // chance to choose is gone), so the roll or the pair that leaves the player there books the turn by itself
+  const spent = t => t.rolls > 0 && !canRoll(t) && !matchPairs(t).length;
+  // 42/18: rolling again needs a die kept from this roll and one left to roll, so a roll that leaves one die (or the
+  // last roll) is the throw
+  const ftSpent = t => t.rolls > 0 && (!canRoll(t) || active(t).length < 2);
   function matchPairs(t) {
     const act = active(t).filter(d => d.value), used = new Set(), out = [];
     for (const d of act) {
@@ -339,6 +345,14 @@
       ev.push({ type: 'sevensOut', player: current(g) });
     }
   }
+  // Sevens Out: the player stops; a pair the player missed counts against them when they find the 7s by hand
+  function stopTurn(s, ev) {
+    const g = s.game, t = g.turn;
+    if (!byHand(g)) matchPairs(t).forEach(([a, b]) => hold(t, a, b));
+    else checkMissed(g, ev, 'stop');
+    checkCleared(s, ev);
+    recordTurn(s, sumActive(t), t.rolls, ev);
+  }
   // the round is complete and nobody is at 101: the next round starts at once, with the starter the
   // score sheet gives; with `ev` (a turn finished the round) the change is announced as roundEnd + started
   function startNextRound(s, ev) {
@@ -470,6 +484,7 @@
         t.rolls++;
         ev.push({ type: 'rolled', player: current(g), roll: t.rolls, values: t.dice.map(d => d.value), auto: [] });
         if (ftPerfect(t)) ftRecord(s, FT_MAX, t.rolls, ev); // 42/18: out at once, so the roll ends the turn
+        else if (ftSpent(t)) ftRecord(s, throwPts(t.dice.map(d => d.value)), t.rolls, ev); // no roll left: this is the throw
         break;
       }
       case 'keep': {
@@ -541,6 +556,10 @@
     if (skLift(g, ev)) return;
     skEndRound(s, rng, ev);
   }
+  function skStop(s, rng, ev) {
+    const t = s.game.turn;
+    skRecord(s, { dice: t.dice.map(d => d.value).sort((x, y) => y - x), hand: skHand(t), rolls: t.rolls }, rng, ev);
+  }
   // real dice: once every turn is booked, the blind cups come up one by one in the round's order, and each blind
   // player enters the throw (g.lifting; the current player is the one lifting). False when no cup is left down
   function skLift(g, ev) {
@@ -611,6 +630,7 @@
         t.rolls++;
         active(t).forEach(d => { d.value = rng(); d.from = t.rolls; });
         ev.push({ type: 'rolled', player: current(g), roll: t.rolls, values: t.dice.map(d => d.value), auto: [] });
+        if (!canRoll(t)) skStop(s, rng, ev); // the last roll (no 6s can turn on it) is the throw
         break;
       }
       case 'keep': {
@@ -649,7 +669,7 @@
       case 'stop': case 'end': {
         if (!dice || !t.rolls) return fail('phase');
         if (t.flip && t.flip.roll === t.rolls) return fail('flip_roll'); // a turned 6 means rolling the other one again
-        skRecord(s, { dice: t.dice.map(d => d.value).sort((x, y) => y - x), hand: skHand(t), rolls: t.rolls }, rng, ev);
+        skStop(s, rng, ev);
         break;
       }
       case 'blind': {
@@ -726,6 +746,8 @@
    * A Schocken game starts with `start {kind:'schocken'}` and plays with roll, keep {id}, unkeep {id}, flip, blind, stop and
    * score {dice, rolls, hand?, blind?}; its own events are flipped, revealed, schockOut and halfOver.
    * The turn that completes a round also starts the next one: roundEnd is always followed by started.
+   * A dice turn that leaves nothing to do (no roll left, no 7-pair left to set aside; in 42/18 also one die left) ends
+   * with the action that got there: roll (or pair, takeall) emits its own event, then the stop's (sevensOut, turn, …).
    */
   function apply(state, action, opts) {
     const rng = (opts && opts.rng) || rnd6;
@@ -762,6 +784,7 @@
         auto.forEach(([a, b]) => hold(t, a, b));
         ev.push({ type: 'rolled', player: current(g), roll: t.rolls, values: t.dice.map(d => d.value), auto });
         checkCleared(s, ev);
+        if (spent(t)) stopTurn(s, ev); // nothing left to do: the turn ends with this roll
         break;
       }
       case 'pair': {
@@ -771,6 +794,7 @@
         hold(t, a.id, b.id);
         ev.push({ type: 'paired', pairs: [[a.id, b.id]] });
         checkCleared(s, ev);
+        if (spent(t)) stopTurn(s, ev); // the last pair after the last roll (or all six out) ends the turn
         break;
       }
       case 'takeall': {
@@ -781,6 +805,7 @@
         ps.forEach(([a, b]) => hold(t, a, b));
         ev.push({ type: 'paired', pairs: ps });
         checkCleared(s, ev);
+        if (spent(t)) stopTurn(s, ev);
         break;
       }
       case 'unpair': {
@@ -793,11 +818,7 @@
       }
       case 'stop': case 'end': {
         if (!inPlay || isScore(g) || !t.rolls) return fail('phase');
-        // a pair the player missed counts against them when they find the 7s by hand
-        if (!byHand(g)) matchPairs(t).forEach(([a, b]) => hold(t, a, b));
-        else checkMissed(g, ev, 'stop');
-        checkCleared(s, ev);
-        recordTurn(s, sumActive(t), t.rolls, ev);
+        stopTurn(s, ev);
         break;
       }
 
@@ -877,7 +898,7 @@
   root.SevensEngine = Object.freeze({
     MAX_ROLLS, LIMIT, DICE, MAX_PLAYERS, MAX_PIPS,
     apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
-    active, sumActive, maxPairs, finalPenalty, pairable, canRoll, matchPairs, current,
+    active, sumActive, maxPairs, finalPenalty, pairable, canRoll, spent, ftSpent, matchPairs, current,
     reachedAt, tiedForStart, nextStarter, highestLater, roundRecap,
     FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser, ftPlays, ftLeft, ftPerfect, ftGameLoser,
     SK, SK_DICE, SK_POT, isSK, skThrow, skBetter, skExtremes, skInPlay, skHand, canFlip

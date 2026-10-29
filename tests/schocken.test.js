@@ -81,9 +81,15 @@ test('dice are set aside and rolled again freely; a die set aside in this roll c
   assert.equal(stop.state.game.turn.maxRolls, 2);
   s = must(stop.state, { type: 'roll' }, { rng: faces([2, 3, 4]) }).state;
   s = must(s, { type: 'keep', id: 0 }).state;
-  s = must(s, { type: 'roll' }, { rng: faces([5, 6]) }).state;
-  assert.equal(E.apply(s, { type: 'roll' }).error, 'no_rolls');
-  assert.equal(E.apply(s, { type: 'unkeep', id: 0 }).error, 'locked'); // set aside in an earlier roll
+  // the second roll is the last one under the limit: it is the throw and ends the turn
+  const last = must(s, { type: 'roll' }, { rng: faces([5, 6]) });
+  assert.deepEqual(last.events.slice(0, 2).map(e => e.type), ['rolled', 'turn']);
+  assert.deepEqual(last.state.game.rounds[0].results[1], { dice: [6, 5, 2], hand: false, rolls: 2, pts: 1 });
+  // a die set aside in an earlier roll stays
+  let k = must(start(2), { type: 'roll' }, { rng: faces([2, 3, 4]) }).state;
+  k = must(k, { type: 'keep', id: 0 }).state;
+  k = must(k, { type: 'roll' }, { rng: faces([5, 6]) }).state;
+  assert.equal(E.apply(k, { type: 'unkeep', id: 0 }).error, 'locked');
 });
 
 test('two 6s turn into a 1 and the other 6 goes back into the cup; three 6s into two 1s; never on the last roll', () => {
@@ -114,11 +120,12 @@ test('two 6s turn into a 1 and the other 6 goes back into the cup; three 6s into
   s = must(start(2), { type: 'roll' }, { rng: faces([6, 6, 6]) }).state;
   s = must(s, { type: 'flip' }).state;
   assert.deepEqual(s.game.turn.dice.map(d => d.value), [1, 1, 6]);
-  // the last roll can't turn a 6
+  // the last roll can't turn a 6: it is the throw, and ends the turn
   s = must(start(2), { type: 'roll' }, { rng: faces([1]) }).state;
   s = must(s, { type: 'roll' }, { rng: faces([1]) }).state;
-  s = must(s, { type: 'roll' }, { rng: faces([6, 6, 2]) }).state;
-  assert.equal(E.apply(s, { type: 'flip' }).error, 'no_sixes');
+  const last = must(s, { type: 'roll' }, { rng: faces([6, 6, 2]) });
+  assert.deepEqual(last.events.map(e => e.type), ['rolled', 'turn']);
+  assert.deepEqual(last.state.game.rounds[0].results[0].dice, [6, 6, 2]);
   // 6s from an earlier roll don't turn
   s = must(start(2), { type: 'roll' }, { rng: faces([6, 2, 3]) }).state;
   s = must(s, { type: 'keep', id: 0 }).state;
@@ -135,8 +142,7 @@ test('a General from one roll is a General; built from dice set aside it is a nu
   s = must(s, { type: 'stop' }).state;
   assert.deepEqual(s.game.rounds[0].results[0], { dice: [5, 5, 5], hand: false, rolls: 2, pts: 1 });
   s = must(s, { type: 'roll' }, { rng: faces([1, 2, 3]) }).state;
-  s = must(s, { type: 'roll' }, { rng: faces([4, 4, 4]) }).state;
-  const r = must(s, { type: 'stop' });
+  const r = must(s, { type: 'roll' }, { rng: faces([4, 4, 4]) }); // the limit is 2: this roll is the throw
   // P2's General (from the hand, in its second roll) beats P1's 555: P1 takes 3 from the pot
   assert.deepEqual(r.state.game.rounds[0].results[1], { dice: [4, 4, 4], hand: true, rolls: 2, pts: 3 });
   assert.deepEqual(r.state.game.players.map(p => p.score), [3, 0]);
@@ -227,18 +233,19 @@ test('blind: the turn ends at once with no dice in the state; the cups come up w
   s = must(s, { type: 'roll' }, { rng: faces([6, 5, 3]) }).state;
   s = must(s, { type: 'stop' }).state;
   s = must(s, { type: 'roll' }, { rng: faces([4, 2, 2]) }).state;
-  s = must(s, { type: 'roll' }, { rng: faces([4, 2, 1]) }).state;
-  const r = must(s, { type: 'stop' }, { rng: faces([1, 4]) }); // the blind dice: 1 and 4, with the kept 1: Schock 4
-  assert.deepEqual(r.events.map(e => e.type), ['turn', 'revealed', 'roundEnd', 'started']);
-  assert.deepEqual(r.events[1], { type: 'revealed', player: 0, values: [4, 1, 1] });
+  // the limit is 2, so this roll is the throw: it books the round's last turn, and the blind dice are 1 and 4,
+  // with the kept 1: Schock 4
+  const r = must(s, { type: 'roll' }, { rng: faces([4, 2, 1, 1, 4]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'turn', 'revealed', 'roundEnd', 'started']);
+  assert.deepEqual(r.events[2], { type: 'revealed', player: 0, values: [4, 1, 1] });
   const rd = r.state.game.rounds[0];
   assert.deepEqual([rd.results[0].dice, rd.results[0].pts, rd.high, rd.loser, rd.take], [[4, 1, 1], 4, 0, 2, 8]); // 4, doubled
   assert.deepEqual(E.roundRecap(r.state.game).best, { kind: 'blind', player: 0, value: 8 });
   // a blind first roll: everyone gets one roll
   s = must(start(2), { type: 'blind' }).state;
   assert.deepEqual([s.game.mark, s.game.turn.maxRolls, s.game.rounds[0].results[0].hand], [1, 1, true]);
-  s = must(s, { type: 'roll' }, { rng: faces([2]) }).state;
-  assert.equal(E.apply(s, { type: 'blind' }).error, 'no_rolls');
+  const one = must(s, { type: 'roll' }, { rng: faces([2]) }); // one roll is all: the roll ends the turn
+  assert.ok(one.events.some(e => e.type === 'turn' && e.player === 1));
 });
 
 test('real dice: three dice and the rolls used, within the limit; blind and from the hand are flags; undo works', () => {

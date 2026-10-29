@@ -120,6 +120,25 @@ test('a missed 7-pair is shown on every phone', async () => {
   for (const c of [a, b]) assert.deepEqual(last(c, 'room').events[0], { type: 'missed', player: 0, how: 'stop', pairs: [[2, 5]] });
 });
 
+test('a roll that leaves nothing to do books the turn on every phone, and the turn passes on', async () => {
+  const { room, a, b } = await lobbyOf2();
+  await send(room, a, { t: 'lobby', op: 'start' });
+  await send(room, a, { t: 'act', action: { type: 'roll' } });
+  await send(room, a, { t: 'act', action: { type: 'stop' } }); // Anna sets the limit at one roll
+  // Ben has one roll; all 2s leave no 7-pair, so the roll ends his turn and the round
+  const orig = crypto.getRandomValues;
+  crypto.getRandomValues = arr => { arr[0] = 1; return arr; };
+  try { await send(room, b, { t: 'act', action: { type: 'roll' } }); } finally { crypto.getRandomValues = orig; }
+  for (const c of [a, b]) {
+    const m = last(c, 'room');
+    assert.deepEqual(m.events.map(e => e.type).slice(0, 2), ['rolled', 'turn']);
+    assert.deepEqual(m.state.game.rounds[0].results[1], { pts: 12, rolls: 1 });
+    assert.equal(m.state.game.round, 2);
+  }
+  await send(room, b, { t: 'act', action: { type: 'stop' } }); // nothing to stop: Ben's turn is over
+  assert.ok(last(b, 'error'));
+});
+
 test('a full online game reaches the end with both phones in sync', async () => {
   const { room, a, b } = await lobbyOf2({ mode: 'score' });
   await send(room, a, { t: 'lobby', op: 'start' });

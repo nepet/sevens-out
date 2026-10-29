@@ -4,7 +4,7 @@
 import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { checkReport } from '../../server/core/stats.js';
-import { url, live, idle, skipRace, fixDice, noSideScroll, openMenu, closeMenu, openScores, closeScores } from './helpers.js';
+import { url, live, idle, skipRace, endTurn, fixDice, noSideScroll, openMenu, closeMenu, openScores, closeScores } from './helpers.js';
 
 test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
@@ -211,8 +211,8 @@ test.describe('online', () => {
     const sb = await live(b);
     expect(sb.game.rounds[0].results[0]).toEqual({ dice: null, kept: [], hand: true, rolls: 1, blind: true });
     expect(sb.game.turn.maxRolls).toBe(1); // a blind first roll: one roll for everyone
-    await b.click('[data-act=roll]');
-    await b.click('[data-act=end]');
+    await b.click('[data-act=roll]');                                // one roll is all: it ends the turn and the round
+    await endTurn(b);
     await expect.poll(async () => (await live(a)).game.round).toBe(2);
     const sa = await live(a), sb2 = await live(b);
     expect(sa.game.rounds[0].results[0].dice).toHaveLength(3);

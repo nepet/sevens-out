@@ -64,9 +64,8 @@ test('the dice turn: keep at least one, put one back, 42/18 puts Anna out, and t
   await expect(page.locator('#app .throwcell b')).toHaveText('42+18');
   await expect(page.locator('#app .eyebrow')).toHaveText('Round 1 · Roll 2 of 5');
   await expect(page.locator('#app .mat-foot .hint')).toHaveText('42/18! Out and safe for the rest of the game.');
-  await expect(page.locator('#app .rollbtn')).toBeDisabled();
-  await expect(page.locator('#app .rollbtn b')).toHaveText('Out');
-  await expect(page.locator('#app [data-act=stop]')).toHaveCount(0);
+  await expect(page.locator('#app .bar .handoff')).toHaveText('Next upBen');
+  await expect(page.locator('#app :is([data-act=stop], [data-act=roll], [data-act=end])')).toHaveCount(0);
   await expect(page.locator('#app button.die')).toHaveCount(0);
   await expect(page.locator('.fx-banner')).toContainText('42/18!');
   await expect(page.locator('.fx-banner')).toContainText('Anna is out: safe for the rest of the game');

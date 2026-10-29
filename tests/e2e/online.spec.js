@@ -1,7 +1,7 @@
 // Online play: separate browser contexts are separate phones. Runs against the Node server,
 // or against `wrangler dev` with TARGET=worker (npm run test:worker).
 import { test, expect } from '@playwright/test';
-import { SERVER, url, live, net, idle, skipRace, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine, fakeRoom, seedRandom, chipFits } from './helpers.js';
+import { SERVER, url, live, net, idle, skipRace, endTurn, enterScore, noSideScroll, openMenu, openSettings, toPlayers, openScores, closeScores, editLine, fakeRoom, seedRandom, chipFits } from './helpers.js';
 import '../../engine.js';
 
 const phone = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 };
@@ -119,7 +119,7 @@ test.describe('dice in the app', () => {
     await B.page.reload();
     await expect(B.page.locator('[data-act=roll]')).toBeVisible();
     await B.page.click('[data-act=roll]');
-    await B.page.click('[data-act=end]');                         // one roll is Ben's limit, so his turn always ends here
+    await endTurn(B.page);                                        // one roll is Ben's limit, so his turn always ends here
     await expect.poll(async () => (await live(A.page)).game.round).toBe(2); // the next round starts by itself
     await expect.poll(async () => (await live(B.page)).game.round).toBe(2);
     expect((await live(A.page)).game).toEqual((await live(B.page)).game);
@@ -219,7 +219,7 @@ test.describe('dice in the app', () => {
     await expect(B.page.locator('[data-act=roll]')).toBeVisible();
     await openMenu(A.page);                                                         // Anna looks at the menu meanwhile
     await B.page.click('[data-act=roll]');
-    await B.page.click('[data-act=end]');
+    await endTurn(B.page);
     await expect(A.page.locator('.race')).toBeVisible();
     await expect(A.page.locator('.sheet-layer')).toBeHidden();
     await skipRace(A.page);
@@ -1622,7 +1622,7 @@ test.describe('chat feed', () => {
     await A.page.click('[data-act=stop]'); await A.page.click('[data-act=stop]');
     await expect(B.page.locator('[data-act=roll]')).toBeVisible();
     await B.page.click('[data-act=roll]');
-    await B.page.click('[data-act=end]');                          // one roll is Ben's limit: the round ends, the race plays
+    await endTurn(B.page);                                         // one roll is Ben's limit: the round ends, the race plays
     await expect(A.page.locator('.race')).toBeVisible();
     await B.page.locator('.race').click();                         // Ben taps his own race away and says something
     await openChat(B.page);
@@ -1641,8 +1641,7 @@ test.describe('chat feed', () => {
     const names = ['Anna', 'Ben'];
     let s = begin(names);
     s = play(s, { type: 'roll' }).state; s = play(s, { type: 'stop' }).state;   // Anna's turn
-    s = play(s, { type: 'roll' }).state;                                          // Ben rolled; his end closes the round
-    const end = play(s, { type: 'end' });
+    const end = play(s, { type: 'roll' });                                        // Ben's one roll ends his turn and the round
     expect(end.events.some(e => e.type === 'roundEnd')).toBe(true);
     const room = roomOf(names);
     const fake = await fakeRoom(page, { room, state: s, seat: 's1', log: [] });

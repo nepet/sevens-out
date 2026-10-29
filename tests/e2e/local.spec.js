@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 import '../../engine.js';
 import { legacyRoundEnd, must } from '../games.js';
 import { checkReport } from '../../server/core/stats.js';
-import { saved, live, idle, skipRace, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, closeScores, editLine, stopPts, seedRandom, chipFits } from './helpers.js';
+import { saved, live, idle, skipRace, endTurn, fixDice, startLocal, enterScore, checkSheet, noSideScroll, openMenu, closeMenu, openSettings, toPlayers, openScores, closeScores, editLine, stopPts, seedRandom, chipFits } from './helpers.js';
 
 test.describe('dice mode', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
@@ -18,9 +18,9 @@ test.describe('dice mode', () => {
       const s = await saved(page);
       if (s.phase === 'over') break;
       const t = s.game.turn, canRoll = t.rolls < t.maxRolls && t.dice.some(d => d.held === null);
-      if (t.rolls === 0 || (canRoll && coin())) await page.click('[data-act=roll]');
+      if (t.rolls === 0 || (canRoll && coin())) { await page.click('[data-act=roll]'); await skipRace(page); }   // a roll may end the turn
       else if (canRoll) { await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); await skipRace(page); }
-      else { await page.click('[data-act=end]'); await skipRace(page); }
+      else { await endTurn(page); await skipRace(page); }
     }
     const s = await saved(page);
     expect(s.phase).toBe('over');
@@ -106,9 +106,12 @@ test('after a roll the dice lie still, then the 7-pairs fly out one by one and S
   await expect(page.locator('[data-act=roll]')).toHaveCount(0); // locked while pairs fly
   await expect(page.locator('.rack .pair')).toHaveCount(3, { timeout: 5000 });
   await expect(page.locator('.fx-banner')).toContainText('Anna cleared all six dice');
+  await expect(page.locator('.bar .handoff')).toHaveText('Next upBen');      // nothing left to roll: the turn ends by itself
+  await expect(page.locator('.mat .hint')).toHaveText('All six dice are out. Nothing counts against you.');
   await idle(page);
   await expect(page.locator('.die.fly')).toHaveCount(0);
-  await expect(page.locator('[data-act=end]')).toContainText('+0');
+  await expect(page.locator('.turnhead h2.who')).toHaveText('Ben');
+  expect((await saved(page)).game.rounds[0].results[0]).toEqual({ pts: 0, rolls: 1 });
 });
 
 test.describe('scoreboard mode', () => {
@@ -232,7 +235,7 @@ test.describe('on a phone', () => {
     await startLocal(page);
     await page.click('[data-act=roll]'); await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
     await idle(page);
-    await page.click('[data-act=roll]'); await page.click('[data-act=end]');  // Ben has Anna's one roll
+    await page.click('[data-act=roll]'); await endTurn(page);  // Ben has Anna's one roll
     await expect(page.locator('.race')).toBeVisible();
     const jolt = x => page.evaluate(v => window.dispatchEvent(new DeviceMotionEvent('devicemotion', { acceleration: { x: v, y: 0, z: 0 } })), x);
     for (let k = 0; k < 4; k++) { await jolt(k % 2 ? -22 : 22); await page.waitForTimeout(110); }
@@ -498,7 +501,7 @@ test.describe('between rounds', () => {
     await page.click('[data-act=roll]');
     expect(await askEnd()).toBe("End the game now? The highest score loses, and the turn in progress isn't counted.");
     await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
-    await page.click('[data-act=roll]'); await page.click('[data-act=end]');   // Ben ends round 1
+    await page.click('[data-act=roll]'); await endTurn(page);   // Ben ends round 1
     await skipRace(page);
     expect((await saved(page)).game.round).toBe(2);
     expect(await askEnd()).toBe(plain);                                // between rounds
@@ -1063,29 +1066,36 @@ test.describe('the dice turn screen', () => {
     await onScreen(page, '.bar .rackcell');
   });
 
-  test('three pairs fit in the rack cell at 375 px, each one put back with a 44 px button', async ({ page, context }) => {
-    await fixDice(context, [1, 6, 2, 5, 3, 4]);
+  test('pairs fit in the rack cell at 375 px: each one from this roll put back with a 44 px button, and three of them', async ({ page, context }) => {
+    await fixDice(context, [1, 6, 2, 5, 3, 3, 3, 4]);                    // two pairs, then the last one
     await page.setViewportSize({ width: 375, height: 667 });
     await startLocal(page, { names: ['Anna', 'Ben'], pairing: 'auto' });
     await page.click('.bar [data-act=roll]');
     await idle(page);
     const cell = await page.locator('.bar .rackcell').boundingBox();
+    const inCell = b => {
+      expect(b.x).toBeGreaterThanOrEqual(cell.x - 0.5); expect(b.x + b.width).toBeLessThanOrEqual(cell.x + cell.width + 0.5);
+      expect(b.y).toBeGreaterThanOrEqual(cell.y - 0.5); expect(b.y + b.height).toBeLessThanOrEqual(cell.y + cell.height + 0.5);
+    };
     const pairs = page.locator('.bar .rackcell button.pair[data-act=unpair]');
-    await expect(pairs).toHaveCount(3);
+    await expect(pairs).toHaveCount(2);
     for (const p of await pairs.all()) {
       const b = await p.boundingBox();
       expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44 - 0.5);
-      expect(b.x).toBeGreaterThanOrEqual(cell.x - 0.5); expect(b.x + b.width).toBeLessThanOrEqual(cell.x + cell.width + 0.5);
-      expect(b.y).toBeGreaterThanOrEqual(cell.y - 0.5); expect(b.y + b.height).toBeLessThanOrEqual(cell.y + cell.height + 0.5);
+      inCell(b);
     }
-    // three pairs use the small minis, the put-back buttons too
+    // the third pair clears the table, which ends the turn: three pairs use the small minis while the throw lies there
+    await page.click('.bar [data-act=roll]');
+    await expect(page.locator('.bar .handoff')).toHaveText('Next upBen');
+    await expect(page.locator('.bar .rackcell.full .pair')).toHaveCount(3);
+    for (const p of await page.locator('.bar .rackcell .pair').all()) inCell(await p.boundingBox());
     expect(await page.locator('.bar .rackcell .die.mini').evaluateAll(ms => ms.map(m => m.getBoundingClientRect().width))).toEqual(Array(6).fill(16));
-    await expect(page.locator('.bar [data-act=end]')).toHaveText('End turn +0');   // all six out: End, in the middle
     await onScreen(page, '.bar .rackcell');
+    await onScreen(page, '.bar .handoff');
     expect(await noSideScroll(page)).toBe(true);
   });
 
-  test('Stop arms first, then confirms; with no rolls left the round button says End', async ({ page, context }) => {
+  test('Stop arms first, then confirms; a roll that leaves nothing to do ends the turn by itself', async ({ page, context }) => {
     await fixDice(context, [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6]);       // no 7s: Anna 12, then Ben 30
     await startLocal(page);
     const eyebrow = page.locator('.turnhead .eyebrow');
@@ -1115,16 +1125,52 @@ test.describe('the dice turn screen', () => {
     await expect(page.locator('.scorechip .sc-p.now')).toHaveText('Ben 0');
     await expect(page.locator('.scorechip .sc-p').first()).toHaveText('Anna 12');
     await page.click('[data-act=roll]');
-    await expect(page.locator('.bar [data-act=stop], .bar [data-act=roll]')).toHaveCount(0);
-    const end = page.locator('.bar [data-act=end]');
-    await expect(end).toHaveText('End turn +30');
+    // one roll is Ben's limit and no 7s came up: the roll books his turn, and the throw lies on the mat for a moment
+    const hand = page.locator('.bar .handoff');
+    await expect(hand).toHaveText('End of round 1Scores next');
+    await expect(page.locator('.mat .hint')).toHaveText('No rolls left: +30 for Ben.');
+    await expect(page.locator('.mat .dice .die')).toHaveCount(6);
+    await expect(page.locator('.bar :is([data-act=stop], [data-act=roll], [data-act=end])')).toHaveCount(0);
+    s = await saved(page);
+    expect([s.game.round, s.game.players.map(p => p.score)]).toEqual([2, [12, 30]]);   // saved at once
+    await skipRace(page);
+    await expect(page.locator('.turnhead h2.who')).toHaveText('Ben');                  // the highest score starts round 2
+  });
+
+  test('a turn with nothing left to do moves on by itself: the bar says who is next, and a tap goes on at once', async ({ page, context }) => {
+    // Anna stops after one roll; Ben's one roll leaves a 1 + 6 on the table, which he must find himself
+    await fixDice(context, [1, 1, 2, 2, 3, 3, 1, 6, 2, 2, 3, 3, 2, 2, 2, 2, 2, 2]);   // then Cleo: all 2s
+    await startLocal(page, { names: ['Anna', 'Ben', 'Cleo'] });
+    await page.click('[data-act=roll]');
+    await page.click('[data-act=stop]'); await page.click('[data-act=stop]');
+    await page.click('[data-act=roll]');
+    await idle(page);
+    const end = page.locator('.bar [data-act=end]');                   // a 7 still to set aside: the turn waits for him
+    await expect(end).toHaveText('End turn +17');
     await expect(page.locator('.bar .c4left')).toBeEmpty();             // nothing left to stop
     const box = await end.boundingBox();
     expect(box.width).toBeCloseTo(104, 0); expect(box.height).toBeCloseTo(104, 0);
-    await end.click();
+    // setting it aside leaves nothing to do: the turn ends, and the bar says who is next while the line under it fills
+    await page.click('.dice .die[data-id="0"]'); await page.click('.dice .die[data-id="1"]');
+    const hand = page.locator('.bar .handoff');
+    await expect(hand).toHaveText('Next upCleo');
+    await expect(hand).toHaveAttribute('aria-label', 'Next up: Cleo. Go on now');
+    await expect(page.locator('.mat .hint')).toHaveText('No rolls left: +10 for Ben.');
+    await expect(page.locator('.bar .rackcell .pair')).toHaveCount(1);
+    await expect(page.locator('.turnhead h2.who')).toHaveText('Ben');
+    expect((await saved(page)).game.players.map(p => p.score)).toEqual([12, 10, 0]);
+    await onScreen(page, '.bar .handoff');
+    expect(await noSideScroll(page)).toBe(true);
+    await hand.click();                                                 // no need to wait
+    await expect(hand).toHaveCount(0);
+    await expect(page.locator('.turnhead h2.who')).toHaveText('Cleo');
+    await expect(page.locator('.bar [data-act=roll]')).toHaveText('Roll 6 dice');
+    expect(await page.evaluate(() => window.SevensDebug.busy)).toBe(false);
+    // without a tap it goes on by itself: Cleo's one roll ends the round
+    await page.click('[data-act=roll]');
+    await expect(hand).toHaveText('End of round 1Scores next');
     await skipRace(page);
-    s = await saved(page);
-    expect([s.game.round, s.game.players.map(p => p.score)]).toEqual([2, [12, 30]]);
+    expect((await saved(page)).game.round).toBe(2);
   });
 
   test('a pair from this roll sits in the rack cell and can be put back; the app finds them on request', async ({ page, context }) => {
@@ -1237,7 +1283,7 @@ test.describe('the dice turn screen', () => {
           seen.add(JSON.stringify(spots(d)));
           expect(d.scrolled).toBe(0);
         } else {
-          await page.click('.bar [data-act=end]');
+          await endTurn(page);
           await skipRace(page);
         }
       }
@@ -1245,7 +1291,8 @@ test.describe('the dice turn screen', () => {
     });
   }
 
-  test('six players at 375×667 with the 101 alert: the chip on one line, six dice apart inside the mat, Stop, Roll and the rack on screen', async ({ page }) => {
+  test('six players at 375×667 with the 101 alert: the chip on one line, six dice apart inside the mat, Stop, Roll and the rack on screen', async ({ page, context }) => {
+    await fixDice(context, [2, 2, 3, 3, 4, 4, 2, 2, 3, 3, 4, 4, 1, 6, 2, 2, 3, 3]);   // the last roll leaves a 7 to find: End waits
     await page.setViewportSize({ width: 375, height: 667 });
     await seedRandom(page, 375);
     await load(page, saveWith(['Anna', 'Benjamin', 'Cleo', 'Dan', 'Eve', 'Maximilian Long'], [88, 104, 95, 100, 79, 99]));
@@ -1433,15 +1480,15 @@ for (const motion of ['reduce', 'no-preference']) for (const open of [false, tru
     for (const who of [0, 1]) {
       await page.click('[data-act=roll]'); await idle(page);
       if (who === 0) { await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); }
-      else await page.click('[data-act=end]');
+      else await endTurn(page);                                         // with motion the dice aren't fixed: a 7 may wait for End
       await idle(page);
     }
-    await page.click('[data-act=roll]'); await idle(page);              // Cleo has the last turn of the round
     if (open) await openScores(page);
     await page.evaluate(() => { document.activeElement.blur(); scrollTo(0, 0); });
     const from = await page.locator(open ? '.board' : '.scorechip').boundingBox();
     await recordRaceStart(page);
-    await page.click('.bar [data-act=end]');
+    await page.click('[data-act=roll]');                                 // Cleo has the last turn of the round
+    await endTurn(page);
     const start = await raceStart(page);
     expect(start.from).toBe(open ? 'list' : 'chip');
     expect(start.app).toMatch(/\bracing-c4\b/);                         // the rest of the screen fades
@@ -1508,7 +1555,7 @@ test.describe('the real-dice turn, corrections and game over', () => {
         await expect(alert).toHaveCount(0);
         if (mode === 'score') await enterScore(page, 36, who ? undefined : 1);
         else if (who === 0) { await page.click('[data-act=roll]'); await idle(page); await page.click('[data-act=stop]'); await page.click('[data-act=stop]'); }
-        else { await page.click('[data-act=roll]'); await idle(page); await page.click('[data-act=end]'); }
+        else { await page.click('[data-act=roll]'); await endTurn(page); }
         if (who === 1) await skipRace(page);
       }
       await expect(alert).toHaveText('Anna is at 108. Last round: the highest score loses.');
@@ -1516,7 +1563,7 @@ test.describe('the real-dice turn, corrections and game over', () => {
       expect(box.y).toBeGreaterThanOrEqual(who.y + who.height - 0.5);              // under the big name
       expect(box.y + box.height).toBeLessThanOrEqual(await page.evaluate(() => innerHeight));
       if (mode === 'score') await enterScore(page, 0);
-      else { await page.click('[data-act=roll]'); await idle(page); await page.click('[data-act=end]'); }
+      else { await page.click('[data-act=roll]'); await endTurn(page); }
       await idle(page);
       expect((await live(page)).phase).toBe('over');
       await expect(page.locator('#app .alert')).toHaveCount(0);                      // game over says who lost instead
@@ -1993,9 +2040,11 @@ test.describe("Who's playing", () => {
     await expect(page.locator('.bar [data-act=stop]')).toHaveText('Stop +16');
     await expect(page.locator('.bar [data-act=roll]')).toHaveText('Roll 4 dice');
     await expect(page.locator('nav.tabbar')).toHaveCount(0);
-    await page.click('.bar [data-act=roll]');
-    await expect.poll(async () => (await saved(page)).game.turn.rolls).toBe(2);
-    await expect(page.locator('.bar [data-act=end]')).toBeVisible();
+    await page.click('.bar [data-act=roll]');                         // Ben's last roll ends the round by itself
+    await expect(page.locator('.bar .handoff')).toHaveText('End of round 1Scores next');
+    await skipRace(page);
+    const g = (await saved(page)).game;
+    expect([g.round, g.rounds[0].results[1].rolls]).toEqual([2, 2]);
     expect(errors).toEqual([]);
   });
 
@@ -2074,9 +2123,8 @@ test.describe('twelve players', () => {
       // a round of twelve: Anna sets the limit at one roll, everyone else ends after one roll
       for (let k = 0; k < 12; k++) {
         await page.click('.bar [data-act=roll]');
-        await idle(page);
-        if (k === 0) { await page.click('.bar [data-act=stop]'); await page.click('.bar [data-act=stop]'); }
-        else await page.click('.bar [data-act=end]');
+        if (k === 0) { await idle(page); await page.click('.bar [data-act=stop]'); await page.click('.bar [data-act=stop]'); }
+        else await endTurn(page);
         if (k < 11) {
           await idle(page);
           if (k === 0 || k === 10) await crowdChip(page, (await saved(page)).game);  // Ben with Anna leading; Lou level with everyone
@@ -2140,7 +2188,7 @@ test.describe('twelve players', () => {
     await page.setViewportSize({ width: 375, height: 667 });
     const E = globalThis.SevensEngine;
     let s = must(E.blank(), { type: 'start', names: twelve, starter: 0, mode: 'dice', pairing: 'manual' });
-    while (s.phase !== 'over') { s = must(s, { type: 'roll' }, { rng: () => 3 }); s = must(s, { type: 'stop' }); }
+    while (s.phase !== 'over') { s = must(s, { type: 'roll' }, { rng: () => 3 }); if (s.phase === 'play' && s.game.turn.rolls) s = must(s, { type: 'stop' }); }   // after the starter's one roll, a roll ends the turn
     await page.addInitScript(x => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', x); } catch (e) {} }, JSON.stringify(s));
     await page.goto('/');
     const lines = page.locator('#app .board li.pl');

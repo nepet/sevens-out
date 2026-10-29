@@ -83,7 +83,9 @@ test('the app can set 7-pairs aside automatically, and clearing all six is a Sev
   assert.equal(r.events[0].type, 'rolled');
   assert.equal(r.events[0].auto.length, 3);
   assert.ok(r.events.some(e => e.type === 'sevensOut' && e.player === 0));
-  s = must(r.state, { type: 'stop' }).state;
+  // no dice left to roll: the roll ends the turn by itself
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'sevensOut', 'turn']);
+  s = r.state;
   assert.equal(s.game.rounds[0].results[0].pts, 0);
   assert.equal(s.game.mark, 1, 'starter used one roll, so the limit is 1');
   assert.equal(s.game.turn.maxRolls, 1);
@@ -145,9 +147,51 @@ test('by hand, setting aside all three pairs is a Sevens Out', () => {
   s = must(s, { type: 'pair', a: 0, b: 1 }).state;
   s = must(s, { type: 'pair', a: 3, b: 2 }).state;
   const r = must(s, { type: 'pair', a: 4, b: 5 });
-  assert.ok(r.events.some(e => e.type === 'sevensOut' && e.player === 0));
-  s = must(r.state, { type: 'stop' }).state;
-  assert.equal(s.game.rounds[0].results[0].pts, 0);
+  // the last pair leaves nothing to roll: it ends the turn
+  assert.deepEqual(r.events.map(e => e.type), ['paired', 'sevensOut', 'turn']);
+  assert.equal(r.state.game.rounds[0].results[0].pts, 0);
+});
+
+test('a turn with nothing left to do ends with the action that got there', () => {
+  // the starter's third roll, with the app finding the 7s: booked at once
+  let s = start(2, 0, 'dice', 'auto');
+  s = must(s, { type: 'roll' }, { rng: faces([1, 1, 2, 2, 3, 3]) }).state;
+  s = must(s, { type: 'roll' }, { rng: faces([1, 1, 2, 2, 3, 3]) }).state;
+  let r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 2, 3, 3]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'turn']);
+  assert.deepEqual(r.state.game.rounds[0].results[0], { pts: 10, rolls: 3 });
+  assert.equal(E.current(r.state.game), 1);
+  // the next player's last roll (the limit is 3) also ends the round: roundEnd and started follow
+  s = r.state;
+  s = must(s, { type: 'roll' }, { rng: faces([2]) }).state;
+  s = must(s, { type: 'roll' }, { rng: faces([2]) }).state;
+  r = must(s, { type: 'roll' }, { rng: faces([2]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'turn', 'roundEnd', 'started']);
+  // by hand: a 7-pair left after the last roll waits for the player, and setting it aside ends the turn
+  s = start(2, 0, 'dice', 'manual');
+  s = must(s, { type: 'roll' }, { rng: faces([1]) }).state;
+  s = must(s, { type: 'roll' }, { rng: faces([1]) }).state;
+  r = must(s, { type: 'roll' }, { rng: faces([1, 6, 2, 2, 3, 3]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled']);
+  assert.equal(E.spent(r.state.game.turn), false);
+  r = must(r.state, { type: 'pair', a: 0, b: 1 });
+  assert.deepEqual(r.events.map(e => e.type), ['paired', 'turn']);
+  assert.deepEqual(r.state.game.rounds[0].results[0], { pts: 10, rolls: 3 });
+  // ... and with no 7-pair after the last roll it ends at once, nothing missed
+  s = start(2, 0, 'dice', 'manual');
+  for (let i = 0; i < 2; i++) s = must(s, { type: 'roll' }, { rng: faces([1]) }).state;
+  r = must(s, { type: 'roll' }, { rng: faces([2]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled', 'turn']);
+  // rolling away a 7-pair on the last roll is still missed, then the turn ends
+  s = start(2, 0, 'dice', 'manual');
+  s = must(s, { type: 'roll' }, { rng: faces([1]) }).state;
+  s = must(s, { type: 'roll' }, { rng: faces([1, 6, 1, 1, 1, 1]) }).state;
+  r = must(s, { type: 'roll' }, { rng: faces([2]) });
+  assert.deepEqual(r.events.map(e => e.type), ['missed', 'rolled', 'turn']);
+  // a roll with rolls left never ends the turn
+  s = start(2, 0, 'dice', 'manual');
+  r = must(s, { type: 'roll' }, { rng: faces([2]) });
+  assert.deepEqual(r.events.map(e => e.type), ['rolled']);
 });
 
 test('a game saved before the 7s could be found by hand keeps setting them aside automatically', () => {
