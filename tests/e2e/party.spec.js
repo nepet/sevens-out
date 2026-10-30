@@ -70,6 +70,9 @@ test('preview changes only this phone; a release reaches the chosen phone when i
   await owner.page.click('.sheet-layer [data-act=partyon]');
   await expect(owner.page.locator('.sheet-layer [data-act=partyon]')).toHaveAttribute('aria-checked', 'true');
   await expect(owner.page.locator('.sheet-layer .party-hint')).toHaveText('Released.');
+  await owner.page.waitForTimeout(500);
+  expect(await look(owner.page), "the owner's phone isn't the party phone").toBe(null);
+  await expect(owner.page.locator('.party-reveal')).toHaveCount(0);
   // outside a room, the chosen phone asks again when it becomes visible
   await expect.poll(async () => {
     await chosen.page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -382,5 +385,25 @@ test.describe('every phone in the room', () => {
     await closeReveal(page);
     await expect(page.locator('li.seat').nth(1)).toContainText('Aldo\u{1F388}');
     await expect(page.locator('li.seat').nth(0)).not.toContainText('\u{1F388}');
+  });
+});
+
+test.describe('only once on the party phone', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const names = ['Peter', 'Aldo', 'Zed'];
+
+  test('a withdraw and a new release never play the reveal again on the party phone', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's2', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+    fake.push(ALDO);
+    await closeReveal(page);
+    fake.push({ t: 'party', seat: null, viewer: null, name: null, age: null });
+    await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe(null);
+    fake.push(ALDO);
+    await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe('party');
+    await page.waitForTimeout(800);
+    await expect(page.locator('.party-reveal')).toHaveCount(0);
   });
 });

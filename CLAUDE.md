@@ -198,6 +198,7 @@ Other storage keys, all per device:
 - `sevens-out-online`: `{code, token, name, server, seen}`, used to rejoin a room after a reload or a locked screen (`seen`: the last chat message id this phone has read)
 - `sevens-out-seats`: `{"<server> <code>": token}`, the seat tokens of the last 8 rooms this phone sat in, kept after Leave room, so joining a room again with its code takes the same seat back (mid-game the server keeps the seat of a player who leaves)
 - `sevens-out-reports`: `{queue, sent}`, finished one-phone games waiting to be sent to `POST /report` until the server accepts or refuses them
+- `sevens-out-party`: `seen` once this phone has played the party reveal for the current release (cleared when it is withdrawn); `sevens-out-party-me`: on the party phone, the player it played the reveal for (once ever, never cleared)
 - `sevens-out-account`: `{[authBase]: {token, id, name}}`, the signed-in player per server, so a `?server=` override never touches the real one (an old single `{token, id, name, server}` reads as one entry)
 
 ### The page (`index.html`)

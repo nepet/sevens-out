@@ -1000,12 +1000,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the party (the owner's switch, server/core/accounts.js): what /auth/me says (me), what the room says (seat or viewer),
   // and the owner's preview on this phone. It shows as its own look without touching the stored one
   const PARTY_KEY = 'sevens-out-party'; // 'seen': this phone has played the reveal for the current release
+  const PARTY_ME_KEY = 'sevens-out-party-me'; // the party phone: the player it played the reveal for, once ever (never cleared)
   const party = { me:null, room:false, seat:null, viewer:null, name:null, age:null, preview:false, known:false, hint:null, busy:false, pokedAt:0, checkedAt:0, was:false };
   // released for this phone: the room decides while it has spoken, else the account
-  const partyReal = () => party.room ? !!((party.seat && party.seat === net.seat) || (party.viewer && party.viewer === net.viewer)) : !!(party.me && party.me.on);
+  // (the owner's own `on` is the switch, not a party for them)
+  const partyReal = () => party.room ? !!((party.seat && party.seat === net.seat) || (party.viewer && party.viewer === net.viewer)) : !!(party.me && party.me.on && !party.me.owner);
   const partyOn = () => party.preview || partyReal();
   // a party this phone takes part in: someone in its room (every phone there plays the reveal), or this player outside a room
-  const partyShown = () => party.room ? !!(party.seat || party.viewer) : !!(party.me && party.me.on);
+  const partyShown = () => party.room ? !!(party.seat || party.viewer) : partyReal();
   function applyLook(){
     const lk = partyOn() ? 'party' : look;
     if (lk !== 'pub') document.documentElement.setAttribute('data-look', lk);
@@ -3517,7 +3519,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   // the reveal plays once per release on this phone, after whatever is playing (a throw, a hand-over, the race)
   function partyRevealOnce(){
-    try { if (localStorage.getItem(PARTY_KEY) === 'seen') return; localStorage.setItem(PARTY_KEY, 'seen'); } catch (e) {}
+    // other phones: once per release; the party phone: once for its player, however often the switch goes off and on
+    const [key, val] = partyReal() ? [PARTY_ME_KEY, account ? account.id : 'me'] : [PARTY_KEY, 'seen'];
+    try { if (localStorage.getItem(key) === val) return; localStorage.setItem(key, val); } catch (e) {}
     const seat = net.room && party.seat ? net.room.seats.find(x => x.id === party.seat) : null;
     const name = party.name || (seat ? seat.name : partyReal() && account ? account.name : '');
     enqueue(async () => {
