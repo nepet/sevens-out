@@ -21,7 +21,7 @@ import { acceptUpgrade } from './ws.js';
 import { openDatabase } from './sqlite.js';
 import '../../engine.js';
 import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
-import { handleAuth, originsFrom, resolveSession, MAX_AUTH_BODY } from '../core/accounts.js';
+import { handleAuth, originsFrom, resolveSession, partyFor, MAX_AUTH_BODY } from '../core/accounts.js';
 
 const E = globalThis.SevensEngine;
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -59,7 +59,7 @@ function getRoom(code) {
     infoOf: ws => ws.info || null,
     close: (ws, code, reason) => { try { ws.close(code, reason); } catch {} }
   };
-  const accounts = { resolve: session => resolveSession(db, session) };
+  const accounts = { resolve: session => resolveSession(db, session), party: () => partyFor(db) };
   r = { room: new Room({ engine: E, storage: fileStorage(code), net, accounts }), sockets, chain: Promise.resolve() };
   rooms.set(code, r);
   return r;

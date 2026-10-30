@@ -23,7 +23,7 @@ import { Room, CODE_RE, ROOM_TTL_MS } from '../core/room.js';
 import { fromD1 } from '../d1/db.js';
 import { writeRecord, writeRoom } from '../d1/write.js';
 import { checkReport, summarize, nameKey, MAX_REPORT_BYTES } from '../core/stats.js';
-import { handleAuth, originsFrom, resolveSession } from '../core/accounts.js';
+import { handleAuth, originsFrom, resolveSession, partyFor } from '../core/accounts.js';
 
 const E = globalThis.SevensEngine;
 
@@ -138,7 +138,7 @@ export class GameRoom extends DurableObject {
       close: (ws, code, reason) => { try { ws.close(code, reason); } catch {} }
     };
     const stats = env && env.STATS ? { record: rec => this.recordStats(rec) } : null;
-    const accounts = env && env.STATS ? { resolve: session => resolveSession(fromD1(env.STATS), session) } : null;
+    const accounts = env && env.STATS ? { resolve: session => resolveSession(fromD1(env.STATS), session), party: () => partyFor(fromD1(env.STATS)) } : null;
     // writes run one after another, so an older row never lands after a newer one
     const sessions = env && env.STATS ? { track: (row, events) => this.serialRooms(() => writeRoom(fromD1(env.STATS), row, events)) } : null;
     this.room = new Room({ engine: E, storage, net, stats, accounts, sessions });

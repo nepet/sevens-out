@@ -17,7 +17,7 @@ server/core/stats.js       game summaries for the statistics, and the rule check
 server/core/accounts.js    player accounts: the /auth handler (Fetch API) and resolveSession for rooms (no runtime code)
 server/core/webauthn.js    passkey checks with WebCrypto only (registration, sign-in, DER, base64url)
 server/d1/                 schema.sql (stats + accounts + rooms), db.js (D1 adapter), write.js (store/replace/delete a game, write a room),
-                           accounts.js (account store), migrations/0001-accounts.sql, 0002-rooms.sql, 0003-kinds.sql (once each, for the live database)
+                           accounts.js (account store), migrations/0001-accounts.sql, 0002-rooms.sql, 0003-kinds.sql, 0004-flags.sql (once each, for the live database)
 server/admin/              the owner's admin page: worker.js, access.js (Access token check), queries.js, page.html, wrangler.jsonc
 server/cloudflare/         option 4: worker.js (Worker + Durable Object adapter), wrangler.jsonc
 server/node/               option 5 and local dev: server.js (HTTP + rooms + JSON files + /auth), ws.js (built-in WebSocket server),
@@ -56,6 +56,7 @@ npm run db:schema                 # load server/d1/schema.sql into the remote D1
 npm run db:accounts               # once: add the accounts tables and players.user_id to the live database
 npm run db:rooms                  # once: add the rooms tables (admin page's live and past rooms) to the live database
 npm run db:kinds                  # once: add games.kind and rooms.kind (42/18 and Schocken in the statistics) to the live database
+npm run db:flags                  # once: add the flags table (the owner's party switch) to the live database
 ```
 
 ## Deploy
@@ -355,12 +356,14 @@ One `Room` per room code holds the authoritative game.
 | client → server | `{t:'lobby', op:'settings'\|'start'\|'reopen'\|'rename'\|'kick'\|'leave', …}` |
 | client → server | `{t:'chat', text}` (seated phones and spectators; 1 to 140 characters, control characters and runs of spaces cleaned, bidi controls U+202A–U+202E and U+2066–U+2069 removed (from names too); nothing but zero-width characters counts as empty; more than 8 per 10 s per sender: `rate`; before hello: `not_seated`) |
 | client → server | `{t:'ping'}` |
+| client → server | `{t:'party'}` (after hello: read the party switch again, at most once per 2 s per room; no data, no answer) |
 | server → client | `{t:'welcome', seat, token, user?, viewer?}` (`viewer`: a spectator's own id, `w` + 8 hex, with `seat: null`; `user`: the player ID the server resolved; `null`: a guest, or the session has ended; left out: the accounts database couldn't be reached, or an old server. The page drops its account only on `null`) |
 | server → client | `{t:'room', rev, room:{code, phase:'lobby'\|'game', host, settings:{kind, mode, pairing, starter}, seats:[{id,name,connected,user}]}, state, events}` (`kind`: `'sevens'` \| `'4218'` \| `'schocken'`, missing in rooms saved before) |
 | server → client | `{t:'chat', msg:{id, at, from, seat, name, user, text}}` to every phone (`from`: the seat ID or the spectator's `viewer`; `seat`: `null` for a spectator; `id`: `data.chatSeq`, counting up) |
 | server → client | `{t:'chat', log:[msg..]}` right after `welcome`, to seated phones and spectators: the last 50 messages |
 | server → client | `{t:'error', code, message}` (`closed`: the owner closed the room from the admin page; the socket then closes with 4410 and the page goes home with "Room ABCDE was closed.") |
 | server → client | `{t:'pong'}` |
+| server → client | `{t:'party', seat, viewer}`: the seat (or, without one, the spectator's `viewer`) of the player the party is for; after the room message on hello only when there is one, and to every phone whenever it changes (both `null`: none). Never bumps `rev` |
 
 - **Chat:** the last 50 messages (`CHAT_KEEP`) live in `data.chat` with the counter `data.chatSeq`, saved with the room; the rate-limit times are kept in memory only. Chat never bumps `rev`, so it never triggers game animations. Spectators chat under the name they joined with (or their player name).
 - **Net interface:** `bind(conn, seatId, info?)` and `infoOf(conn)`. A spectator has no seat, so `bind(conn, null, {viewer, name, user})` keeps their identity with the connection: in the Worker's socket attachment (it survives hibernation), on the Node socket as `ws.info`.
@@ -385,7 +388,8 @@ One `Room` per room code holds the authoritative game.
 - `/auth/*` on both servers: `config` (probe), `options` → `create` | `signin` | `passkeys` (add), `me` (GET, PATCH name, DELETE), `passkeys/<id>` (DELETE; ends the player's other sessions), `signout[?everywhere=1]`. The route table is in the file header.
 - A passkey belongs to the page's hostname (RP ID). The server takes the allowed origins from `ALLOWED_ORIGINS` (empty or `*`: any, for development) and checks challenge, origin, RP ID hash, user presence, signature and the sign counter. Registration trusts the browser's `getPublicKey()` (attestation `none`).
 - Player IDs are 16 hex chars (8 random bytes, also the WebAuthn user handle), the tag is the first 4, the handle `<id>-<name>`. Sessions: 32 random bytes, only the SHA-256 is stored, 180 days sliding. Challenges: single use, 5 minutes.
-- Rooms get an `accounts` adapter (`{ resolve(session) }`); a failure counts as "unknown", never as signed out. Rate limit: 120 requests per minute per IP (`AUTH_LIMIT`), the probe excluded; `AUTH_NO_LIMIT=1` switches it off on localhost for the browser tests.
+- **The party switch** (`flags` table: `party_owner`, `party_for`, `party_age`, `party_on`, written by hand with `wrangler d1 execute`, never from the repo; no rows = no party anywhere): `GET /auth/me` adds `party` for the owner (`{owner, on, age}`) and, while on, for the player it is for (`{on, age}`); `PUT /auth/party {on}` is the owner's only, `404 not_found` for everyone else. Rooms read it through `accounts.party()` (`partyFor`) and send `{t:'party'}`; the page shows the party look (`data-look="party"`) on that player's phone.
+- Rooms get an `accounts` adapter (`{ resolve(session), party() }`); a failure counts as "unknown", never as signed out. Rate limit: 120 requests per minute per IP (`AUTH_LIMIT`), the probe excluded; `AUTH_NO_LIMIT=1` switches it off on localhost for the browser tests.
 
 **What `hello` does:**
 - A connection says `hello` once; another one gets `bad_message`.

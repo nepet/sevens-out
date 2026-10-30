@@ -309,6 +309,12 @@ test('auth: routed to the accounts handler on D1, limited per IP, off without a 
   const obj = new GameRoom(fakeCtx(), env), ws = await connect(obj, 'K7QPM');
   await say(obj, ws, { t: 'hello', session: created.body.token, create: true });
   assert.equal(last(ws, 'welcome').user, created.body.player.id);
+  // the party switch in the same database: the room names this seat
+  const row = env.STATS.raw.prepare('INSERT INTO flags (name, value, updated_at) VALUES (?, ?, 0)');
+  row.run('party_owner', 'f'.repeat(16)); row.run('party_for', created.body.player.id); row.run('party_on', '1');
+  const pws = await connect(obj, 'K7QPM');
+  await say(new GameRoom(obj.ctx, env), pws, { t: 'hello', session: created.body.token });
+  assert.deepEqual(last(pws, 'party'), { t: 'party', seat: last(ws, 'welcome').seat, viewer: null });
   assert.equal((await call('GET', '/auth/me')).status, 429, 'the fourth counted request from this IP');
   assert.equal((await call('GET', '/auth/config')).status, 200, 'the probe is not counted');
   env.AUTH_NO_LIMIT = '1';

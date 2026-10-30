@@ -801,3 +801,93 @@ test('Schocken: the host picks it, flip and blind are the player\'s moves, a bli
   assert.equal(g.rounds[0].results[0].dice.length, 3);
   assert.equal(g.starter, g.rounds[0].loser);
 });
+
+// the party: the accounts adapter says whose phone it is for (a player ID, or null), and the room tells every phone the seat
+function partyRoom() {
+  const p = { id: null, calls: 0, fail: false, t: 1_000_000 };
+  const acc = { resolve: async s => PLAYERS[s] || null, party: async () => { p.calls++; if (p.fail) throw new Error('down'); return p.id; } };
+  return { p, ...makeRoom(null, acc, () => p.t) };
+}
+const partyMsgs = c => c.inbox.filter(m => m.t === 'party');
+
+test('party: nothing without a party', async () => {
+  const { room, connect } = partyRoom(), a = connect(), b = connect();
+  await send(room, a, { t: 'hello', name: 'x', session: 'sess-anna', create: true });
+  await send(room, b, { t: 'hello', name: 'Ben' });
+  await send(room, b, { t: 'party' });
+  assert.deepEqual([...partyMsgs(a), ...partyMsgs(b)], []);
+});
+
+test("party: the chosen player's seat, also for a phone that joins later", async () => {
+  const { room, connect, p } = partyRoom(), a = connect(), b = connect(), c = connect();
+  p.id = 'aaaa000000000001';
+  await send(room, a, { t: 'hello', name: 'Gus', create: true });
+  assert.deepEqual(partyMsgs(a), [], 'not seated yet');
+  p.t += 3000;
+  await send(room, b, { t: 'hello', name: 'x', session: 'sess-anna' });
+  const seat = last(b, 'welcome').seat;
+  assert.deepEqual(last(a, 'party'), { t: 'party', seat, viewer: null });
+  assert.deepEqual(last(b, 'party'), { t: 'party', seat, viewer: null });
+  const rev = last(a, 'room').rev;
+  await send(room, c, { t: 'hello', name: 'Cleo' });
+  const order = c.inbox.map(m => m.t);
+  assert.ok(order.indexOf('party') > order.indexOf('room'), 'after the room message');
+  assert.deepEqual(last(c, 'party'), { t: 'party', seat, viewer: null });
+  assert.equal(partyMsgs(a).length, 1, 'no repeat for the others');
+  assert.equal(last(a, 'room').rev, rev + 1, 'only the join bumped rev');
+});
+
+test('party: a chosen player who only watches', async () => {
+  const r = partyRoom(), x = r.connect(), y = r.connect(), w = r.connect();
+  r.p.id = 'aaaa000000000001';
+  await send(r.room, x, { t: 'hello', name: 'Gus', create: true });
+  await send(r.room, y, { t: 'hello', name: 'Ben' });
+  await send(r.room, x, { t: 'lobby', op: 'start' });
+  r.p.t += 3000;
+  await send(r.room, w, { t: 'hello', name: 'x', session: 'sess-anna' });
+  const viewer = last(w, 'welcome').viewer;
+  assert.ok(viewer);
+  assert.deepEqual(last(x, 'party'), { t: 'party', seat: null, viewer });
+  assert.deepEqual(last(w, 'party'), { t: 'party', seat: null, viewer });
+  r.p.t += 3000;
+  await r.drop(w);
+  assert.deepEqual(last(x, 'party'), { t: 'party', seat: null, viewer: null }, 'gone when they leave');
+});
+
+test('party: a poke after the switch is flipped, on and off, never touching the game', async () => {
+  const { room, connect, p } = partyRoom(), a = connect(), b = connect();
+  await send(room, a, { t: 'hello', name: 'x', session: 'sess-anna', create: true });
+  await send(room, b, { t: 'hello', name: 'Ben' });
+  const seat = last(a, 'welcome').seat, rev = last(b, 'room').rev;
+  p.id = 'aaaa000000000001'; p.t += 2001;
+  await send(room, b, { t: 'party' });
+  assert.deepEqual(last(b, 'party'), { t: 'party', seat, viewer: null });
+  p.id = null; p.t += 2001;
+  await send(room, a, { t: 'party' });
+  assert.deepEqual(last(a, 'party'), { t: 'party', seat: null, viewer: null });
+  assert.equal(last(b, 'room').rev, rev);
+});
+
+test('party: a poke is throttled, ignored before hello, and never an error', async () => {
+  const { room, connect, p } = partyRoom(), a = connect(), s = connect();
+  await send(room, s, { t: 'party' });
+  assert.deepEqual(s.inbox, [], 'before hello: nothing');
+  await send(room, a, { t: 'hello', name: 'x', session: 'sess-anna', create: true });
+  const calls = p.calls;
+  p.t += 2001;
+  await send(room, a, { t: 'party' });
+  await send(room, a, { t: 'party' });
+  assert.equal(p.calls, calls + 1, 'one read per 2 s');
+  assert.equal(last(a, 'error'), undefined);
+});
+
+test('party: a failing party() keeps the last value', async () => {
+  const { room, connect, p } = partyRoom(), a = connect();
+  p.id = 'aaaa000000000001';
+  await send(room, a, { t: 'hello', name: 'x', session: 'sess-anna', create: true });
+  assert.equal(partyMsgs(a).length, 1);
+  p.fail = true; p.t += 3000;
+  await send(room, a, { t: 'party' });
+  assert.equal(partyMsgs(a).length, 1, 'no broadcast');
+  assert.equal(last(a, 'error'), undefined);
+});

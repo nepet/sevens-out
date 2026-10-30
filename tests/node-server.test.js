@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { softAuthenticator } from './authenticator.js';
 
 const PORT = 8800 + Math.floor(Math.random() * 100);
@@ -154,6 +155,18 @@ test('player accounts: create and sign in with a passkey, kept across a restart'
   assert.deepEqual((await c.next(m => m.t === 'room')).room.seats.map(x => [x.name, x.user]), [['Anna', created.body.player.id]]);
   c.ws.close();
   await c.closed;
+
+  // the party switch, read from the flags table: the room names the seat of the player it is for
+  const db = new DatabaseSync(path.join(dataDir, 'sevens-out.db'));
+  const row = db.prepare('INSERT INTO flags (name, value, updated_at) VALUES (?, ?, 0)');
+  row.run('party_owner', 'f'.repeat(16)); row.run('party_for', created.body.player.id); row.run('party_on', '1');
+  db.close();
+  const p = client('PARTY');
+  await p.send({ t: 'hello', name: 'x', session: back.body.token, create: true });
+  const seat = (await p.next(m => m.t === 'welcome')).seat;
+  assert.deepEqual(await p.next(m => m.t === 'party'), { t: 'party', seat, viewer: null });
+  p.ws.close();
+  await p.closed;
 });
 
 test('player accounts: CORS, body size and the per-IP limit', async () => {

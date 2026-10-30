@@ -10,7 +10,8 @@
  *            (a spectator has no seat: bind keeps their info {viewer, name, user} with the connection, so it outlives a restart of the room object)
  *   stats:   { record(rec) } (optional): gets a stats record (server/core/stats.js summarize) whenever a game starts, ends or is abandoned
  *   accounts: { resolve(session) -> Promise<{ id, name } | null> } (optional): the signed-in player behind hello.session
- *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user
+ *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user;
+ *            party() -> Promise<playerId | null> (optional): whose phone the owner's party is for, while it is on (partyFor)
  *   sessions: { track(row, events) } (optional): the admin page's view of the room (sessionRow) and its new timeline events,
  *            sent when seats, connections or the game change (at most once a minute for moves and chat alone);
  *            a failed call keeps the events for the next one
@@ -19,6 +20,9 @@
  * Table talk: a seated phone or a spectator sends {t:'chat', text}; everyone gets {t:'chat', msg:{id, at, from, seat, name, user, text}}
  * (seat is null for a spectator), and every phone that says hello gets {t:'chat', log:[msg..]} (the last CHAT_KEEP) right after
  * welcome. A spectator's welcome carries viewer, their own id. Chat never changes rev.
+ * The party: every phone gets {t:'party', seat, viewer} naming the seat (or, without one, the spectator's viewer id) of the
+ * player the party is for, after the room message on hello (only when there is one) and whenever it changes (also to none).
+ * Any phone may send {t:'party'} after hello: the room reads the switch again (at most once per PARTY_EVERY_MS). Never changes rev.
  */
 
 import { summarize } from './stats.js';
@@ -35,6 +39,7 @@ export const CHAT_WINDOW_MS = 10000;
 
 export const TRACK_EVERY_MS = 60_000; // moves and chat alone update the admin page's row at most this often
 const MAX_EVENTS = 500; // timeline events per room
+export const PARTY_EVERY_MS = 2000; // the party switch is read at most this often per room
 
 // actions only the player whose turn it is may make (or the host, when that player is offline)
 const TURN_ACTIONS = new Set(['roll', 'pair', 'unpair', 'takeall', 'keep', 'unkeep', 'flip', 'blind', 'stop', 'end', 'score']);
@@ -58,6 +63,7 @@ export class Room {
   constructor({ engine, storage, net, stats = null, accounts = null, sessions = null, now = () => Date.now() }) {
     this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.accounts = accounts; this.sessions = sessions; this.now = now;
     this.data = undefined; // undefined = not loaded yet, null = no room
+    this.partyId = null; this.partyAt = -Infinity; this.partySent = 'null'; // whose party, when last read, what phones last got
     this.greeted = new WeakSet(); // connections that have said hello (each looks a session up at most once)
     this.loading = null;
     this.chatTimes = new Map(); // sender -> recent message times (not saved)
@@ -105,9 +111,42 @@ export class Room {
   roomMessage(events = []) {
     return { t: 'room', rev: this.data.rev, room: this.publicRoom(), state: this.data.state, events };
   }
+  // true when the party message went out to every phone too
   broadcast(events = []) {
     const msg = this.roomMessage(events);
     for (const c of this.net.conns()) this.net.send(c, msg);
+    return this.partyUpdate();
+  }
+
+  // ----- the party: which seat (or spectator) the owner's party is for -----
+  async partyRead() {
+    if (!this.accounts || !this.accounts.party || this.now() - this.partyAt < PARTY_EVERY_MS) return;
+    this.partyAt = this.now();
+    try { this.partyId = (await this.accounts.party()) || null; } catch (err) { console.error('party', err); } // unknown: keep the last
+  }
+  partyTarget() {
+    const id = this.partyId;
+    if (!id || !this.data) return null;
+    const seat = this.data.seats.find(s => s.user === id);
+    if (seat) return { seat: seat.id, viewer: null };
+    for (const c of this.net.conns()) {
+      const info = !this.net.seatOf(c) && this.net.infoOf(c);
+      if (info && info.user === id) return { seat: null, viewer: info.viewer };
+    }
+    return null;
+  }
+  // tells every phone when the target changed; true when it did
+  partyUpdate() {
+    const t = this.partyTarget(), key = JSON.stringify(t);
+    if (key === this.partySent) return false;
+    this.partySent = key;
+    const msg = { t: 'party', seat: t ? t.seat : null, viewer: t ? t.viewer : null };
+    for (const c of this.net.conns()) this.net.send(c, msg);
+    return true;
+  }
+  partyTo(conn) {
+    const t = this.partyTarget();
+    if (t) this.net.send(conn, { t: 'party', ...t });
   }
   error(conn, code, message) { this.net.send(conn, { t: 'error', code, message }); }
 
@@ -124,12 +163,18 @@ export class Room {
       case 'lobby': return this.lobby(conn, m);
       case 'chat': return this.chat(conn, m.text);
       case 'ping': return this.net.send(conn, { t: 'pong' });
+      case 'party':
+        if (!this.greeted.has(conn) || !this.data) return;
+        await this.partyRead();
+        this.partyUpdate();
+        return;
       default: return this.error(conn, 'bad_message', 'Unknown message type.');
     }
   }
   async closed(conn) {
     await this.load();
     if (this.data && this.net.seatOf(conn)) this.broadcast();
+    else if (this.data) this.partyUpdate(); // a spectator the party is for has gone
     if (this.data) await this.track({ force: true });
   }
 
@@ -146,6 +191,7 @@ export class Room {
     if (this.greeted.has(conn)) return this.error(conn, 'bad_message', 'Already joined.');
     this.greeted.add(conn);
     const found = await this.player(m.session); // before reading the room: other messages may run meanwhile
+    await this.partyRead();
     const user = found || null, known = found !== undefined;
     let d = this.data;
     if (d && user) {
@@ -192,6 +238,7 @@ export class Room {
     this.net.send(conn, { t: 'welcome', seat: null, viewer, ...whoami(user, known) });
     this.net.send(conn, { t: 'chat', log: this.data.chat || [] });
     this.net.send(conn, this.roomMessage());
+    if (!this.partyUpdate()) this.partyTo(conn);
     this.count('connects'); this.count('spectators'); this.note('watching', { name });
     await this.track();
   }
@@ -213,7 +260,7 @@ export class Room {
     this.net.bind(conn, seat.id);
     this.net.send(conn, { t: 'welcome', seat: seat.id, token: seat.token, ...whoami(user, known) });
     this.net.send(conn, { t: 'chat', log: this.data.chat || [] });
-    this.broadcast();
+    if (!this.broadcast()) this.partyTo(conn);
     this.count('connects');
     if (how === 'back') this.count('rejoins');
     else this.note(how, { name: seat.name });
