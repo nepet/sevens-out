@@ -884,15 +884,17 @@ html:root[data-look="party"].felt #app{position:relative;z-index:1}
   .party-reveal .pr-sky i:nth-child(3){animation-delay:-4s}
   .party-reveal .pr-sky i:nth-child(4){animation-delay:-5.5s}
   .party-reveal svg.lord{animation:pr-ride 1.1s cubic-bezier(.2,.8,.3,1) .2s backwards}
+  .party-reveal svg.lord.away{animation:pr-away .7s cubic-bezier(.5,0,.8,.4) forwards}
 }
+@keyframes pr-away{to{transform:translateX(120vw)}}
 @keyframes pr-in{from{transform:translateY(100%)}}
 @keyframes pr-rise{to{transform:translateY(-110vh)}}
 @keyframes pr-ride{from{transform:translateX(-120vw)}}
-.party-banner{position:fixed;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));top:env(safe-area-inset-top,0px);height:44px;z-index:46;
-  pointer-events:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:12px;background:#1A0726;border:1px solid #FFD23F;color:#FFF4E3;font:700 .9rem/1.2 var(--font-body)}
-.party-banner svg.lord{width:52px;height:auto;flex:none}
-@media (prefers-reduced-motion:no-preference){.party-banner{animation:pb-in .15s ease-out}}
-@keyframes pb-in{from{transform:translateY(-100%);opacity:0}}
+.party-trike{position:fixed;left:0;top:38%;z-index:46;width:150px;padding:0;margin:0;border:0;background:none;cursor:pointer;transform:translateX(-170px);-webkit-tap-highlight-color:transparent}
+.party-trike svg.lord{display:block;width:150px;height:auto;filter:drop-shadow(0 4px 6px rgba(0,0,0,.45))}
+@media (prefers-reduced-motion:no-preference){.party-trike{animation:trike-cross 3.2s linear forwards}}
+@media (prefers-reduced-motion:reduce){.party-trike{left:50%;transform:translateX(-50%)}}
+@keyframes trike-cross{to{transform:translateX(calc(100vw + 20px))}}
 html:root[data-look="vegas"] body{background-color:var(--paper);background-image:radial-gradient(circle at 25% 25%,rgba(255,197,49,.08) 0 2px,transparent 2.5px),radial-gradient(circle at 75% 75%,rgba(215,19,46,.14) 0 3px,transparent 3.5px);background-size:30px 30px}
 /* marquee sign with chasing bulbs */
 html:root[data-look="vegas"] .marquee{position:relative;background:linear-gradient(180deg,var(--leather),var(--leather-deep));border-radius:16px;padding:18px 22px;box-shadow:inset 0 0 0 3px var(--chrome),0 0 26px rgba(255,60,90,.3)}
@@ -2528,7 +2530,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           if (events.some(x => x.type === 'roundEnd')) break; // the race's curtain says who starts
           if (e.blind && !events.some(x => x.type === 'lift')) ui.hint = `${nm(e.player)} rolled blind: the cup stays down until the round ends.`;
           if (state.phase === 'play' && myTurn()) sound.cue('yourturn');
-          if (state.phase === 'play' && online() && partySeatIdx(g) === current(g) && net.seat !== party.seat && !E.isScore(g) && !isFT(g) && !isSK(g)) partyBanner();
+          if (state.phase === 'play' && online() && partySeatIdx(g) === current(g) && net.seat !== party.seat && !E.isScore(g) && !isFT(g) && !isSK(g)) partyTrike();
           break;
         }
         case 'rolled': {
@@ -3573,10 +3575,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       let playing = tune.running, timer = null, over = false;
       // it shows when the player may be tapping the dice: taps and Enter or Space only close it after a moment
       const settled = () => performance.now() - opened > 1500;
+      // he drives off to the right, then the reveal fades
       const close = () => {
         if (over) return; over = true; clearTimeout(timer); tune.stop();
-        el.classList.add('out'); document.removeEventListener('keydown', key, true);
-        setTimeout(() => { el.remove(); done(); }, reduceMotion ? 0 : 350);
+        document.removeEventListener('keydown', key, true);
+        const lord = el.querySelector('svg.lord');
+        if (lord) lord.classList.add('away');
+        setTimeout(() => el.classList.add('out'), reduceMotion ? 0 : 550);
+        setTimeout(() => { el.remove(); done(); }, reduceMotion ? 0 : 900);
       };
       const ends = () => { timer = setTimeout(close, (tune.length || 8) * 1000 + 1000); };
       const starts = () => { if (playing || over) return; playing = true; tap.hidden = true; ends(); };
@@ -3596,17 +3602,24 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       void test;
     });
   }
-  // a friend's phone: the party player's turn starts. Over the header only, for a moment, taking no taps
-  function partyBanner(){
-    document.querySelectorAll('.party-banner').forEach(n => n.remove());
-    const el = document.createElement('div');
-    el.className = 'party-banner'; el.setAttribute('aria-hidden', 'true');
-    el.innerHTML = `${LORD}<span>The birthday boy rolls.</span>`;
-    const head = $app.querySelector('header.chiprow'), r = head && head.getBoundingClientRect();
-    if (r && r.height) { el.style.top = Math.max(0, r.top) + 'px'; el.style.height = Math.min(r.height, 52) + 'px'; }
+  // a friend's phone: the party player's turn starts. The trike rides across the screen; a tap on it sets off the
+  // confetti and the fanfare (the sound off too), once per ride
+  function partyTrike(){
+    document.querySelectorAll('.party-trike').forEach(n => n.remove());
+    const el = document.createElement('button');
+    el.type = 'button'; el.className = 'party-trike'; el.tabIndex = -1; el.setAttribute('aria-label', 'Happy birthday');
+    el.innerHTML = LORD;
     document.body.appendChild(el);
     sound.cue('horn');
-    setTimeout(() => el.remove(), 1200);
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      if (el.classList.contains('hit')) return;
+      el.classList.add('hit');
+      if (!reduceMotion) fx.burst(el);
+      sound.jackpot();
+    });
+    if (reduceMotion) setTimeout(() => el.remove(), 2500);
+    else el.addEventListener('animationend', () => el.remove());
   }
   const PARTY_B = '<span class="party-b" aria-hidden="true">\u{1F388}</span>';
   const partyReactions = () => party.room && (party.seat || party.viewer) ? ['\u{1F388}', ...REACTIONS] : REACTIONS;

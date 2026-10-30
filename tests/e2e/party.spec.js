@@ -121,7 +121,7 @@ test.describe('in a room', () => {
     await expect(page.locator('.sheet-layer .reactbtn').first()).not.toHaveText('\u{1F388}');
   });
 
-  test("a friend's phone: a short banner over the header when the party player's turn starts, never over the game", async ({ page }) => {
+  test("a friend's phone: the trike rides across the screen when the party player's turn starts", async ({ page }) => {
     const r1 = play(begin(names), { type: 'roll' });
     const fake = await fakeRoom(page, { room: roomOf(names), state: r1.state, seat: 's3', log: [] });
     await inRoom(page);
@@ -129,22 +129,19 @@ test.describe('in a room', () => {
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
     fake.push(ALDO);
     await closeReveal(page);
-    await expect(page.locator('.scorechip .sc-p').nth(1)).toContainText('\u{1F388}');
     const r2 = play(r1.state, { type: 'stop' });
     fake.push({ t: 'room', rev: 2, room: roomOf(names), state: r2.state, events: r2.events });
-    const banner = page.locator('.party-banner');
-    await expect(banner).toBeVisible();
-    await expect(banner).toContainText('The birthday boy rolls.');
-    await expect(banner).toHaveAttribute('aria-hidden', 'true');
-    const b = await banner.boundingBox();
-    for (const sel of ['#app .mat', '#app .feed', '#app > .bar']) expect(meets(b, await box(page, sel)), `banner clear of ${sel}`).toBe(false);
-    expect(b.y + b.height).toBeLessThanOrEqual((await box(page, '#app .turnhead .who')).y + 0.5);
-    const under = await page.evaluate(([x, y]) => document.elementFromPoint(x, y).closest('.party-banner'), [b.x + b.width / 2, b.y + b.height / 2]);
-    expect(under, 'taps go through').toBe(null);
-    await expect.poll(() => banner.count(), { intervals: [100], timeout: 1500 }).toBe(0);
+    const trike = page.locator('.party-trike');
+    await expect(trike).toBeVisible();
+    await expect(trike.locator('svg.lord')).toHaveCount(1);
+    await expect(page.locator('.party-banner')).toHaveCount(0);
+    expect(await page.evaluate(() => window.SevensDebug.sounds)).toContain('horn:pub');
+    await trike.dispatchEvent('click');
+    await expect(trike).toHaveClass(/\bhit\b/);
+    await expect(trike).toHaveCount(0, { timeout: 4000 });
   });
 
-  test("the party player's own phone: no banner, the look, and the reveal after the throw", async ({ page }) => {
+  test("the party player's own phone: no trike, the look, and the reveal after the throw", async ({ page }) => {
     const r1 = play(begin(names), { type: 'roll' });
     const fake = await fakeRoom(page, { room: roomOf(names), state: r1.state, seat: 's2', log: [] });
     await inRoom(page);
@@ -162,7 +159,7 @@ test.describe('in a room', () => {
     fake.push({ t: 'room', rev: 2, room: roomOf(names), state: r2.state, events: r2.events });
     await expect(page.locator('#app .turnhead .who')).toHaveText(/you/i);
     await page.waitForTimeout(400);
-    await expect(page.locator('.party-banner')).toHaveCount(0);
+    await expect(page.locator('.party-trike')).toHaveCount(0);
     await page.reload();
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
     fake.push(ALDO);
@@ -421,4 +418,46 @@ test.describe('the party phone', () => {
     await expect(page.locator('.party-reveal .pr-tap')).toBeHidden();
     await browser.close();
   });
+});
+
+test("with motion: the trike crosses the whole screen, and a tap on it sets off the confetti", async ({ page }) => {
+  const names = ['Peter', 'Aldo', 'Zed'], r1 = play(begin(names), { type: 'roll' });
+  const fake = await fakeRoom(page, { room: roomOf(names), state: r1.state, seat: 's3', log: [] });
+  await inRoom(page);
+  await page.goto(url('/'));
+  await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+  fake.push(ALDO);
+  await closeReveal(page);
+  const r2 = play(r1.state, { type: 'stop' });
+  fake.push({ t: 'room', rev: 2, room: roomOf(names), state: r2.state, events: r2.events });
+  const trike = page.locator('.party-trike');
+  await expect(trike).toBeVisible();
+  const x0 = (await trike.boundingBox()).x;
+  await page.waitForTimeout(600);
+  const x1 = (await trike.boundingBox()).x;
+  expect(x1, 'it moves to the right').toBeGreaterThan(x0 + 20);
+  const canvases = await page.locator('canvas').count();
+  await trike.dispatchEvent('click');
+  await expect.poll(() => page.locator('canvas').count()).toBeGreaterThanOrEqual(Math.max(1, canvases));
+  await expect(trike).toHaveCount(0, { timeout: 5000 });
+});
+
+test('with motion: in the reveal he rides in from the left and, when it closes, drives off to the right', async ({ page }) => {
+  const names = ['Peter', 'Aldo', 'Zed'];
+  const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's2', log: [] });
+  await inRoom(page);
+  await page.goto(url('/'));
+  await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+  fake.push(ALDO);
+  const lord = page.locator('.party-reveal svg.lord');
+  await expect(lord).toBeVisible();
+  await page.waitForTimeout(1600); // he has arrived in the middle
+  const mid = await lord.boundingBox();
+  expect(Math.abs(mid.x + mid.width / 2 - 195)).toBeLessThan(30);
+  await page.keyboard.press('Escape');
+  await expect(lord).toHaveClass(/\baway\b/);
+  await page.waitForTimeout(300);
+  const off = await lord.boundingBox();
+  expect(off.x, 'driving off to the right').toBeGreaterThan(mid.x + 40);
+  await expect(page.locator('.party-reveal')).toHaveCount(0, { timeout: 3000 });
 });
