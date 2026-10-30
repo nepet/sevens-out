@@ -307,7 +307,7 @@ test('party switch: only the owner sees and flips it', async () => {
   assert.deepEqual([on.status, on.body], [200, { party: { owner: true, on: true, age: 48 } }]);
   assert.deepEqual((await me(chosen.token)).body.party, { on: true, age: 48 });
   assert.equal('party' in (await me(stranger.token)).body, false);
-  assert.equal(await partyFor(s.db), chosen.player.id);
+  assert.deepEqual(await partyFor(s.db), { id: chosen.player.id, age: 48 });
 
   assert.equal((await put(owner.token, 'yes')).status, 404);
   assert.equal((await s.call('PUT', '/auth/party', { body: { on: true } })).status, 401, 'no session');

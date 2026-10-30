@@ -6,7 +6,7 @@
  *     origins: allowed page origins, or null = any (development); passkeys belong to the origin's hostname
  *     limit(request) -> Promise<boolean>: false answers 429 (optional)
  *   resolveSession(db, token, now) -> { id, name } | null    for rooms (the `session` in hello)
- *   partyFor(db) -> player ID | null                          for rooms: whose phone the party is for, while it is on
+ *   partyFor(db) -> { id, age } | null                        for rooms: whose phone the party is for (and the age), while it is on
  *   originsFrom(ALLOWED_ORIGINS) -> string[] | null
  *
  * Routes (JSON; a session is `Authorization: Bearer <token>`):
@@ -52,7 +52,7 @@ export function originsFrom(list) {
 
 export async function partyFor(db) {
   const cfg = await store.partyConfig(db);
-  return cfg && cfg.on ? cfg.for : null;
+  return cfg && cfg.on ? { id: cfg.for, age: cfg.age } : null;
 }
 // what /auth/me tells this player about the party: the owner always, the player it is for only while it is on
 const partyOf = (cfg, id) => !cfg ? null

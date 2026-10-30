@@ -11,7 +11,7 @@
  *   stats:   { record(rec) } (optional): gets a stats record (server/core/stats.js summarize) whenever a game starts, ends or is abandoned
  *   accounts: { resolve(session) -> Promise<{ id, name } | null> } (optional): the signed-in player behind hello.session
  *            (server/core/accounts.js resolveSession); a seat taken by a player remembers their ID in seat.user;
- *            party() -> Promise<playerId | null> (optional): whose phone the owner's party is for, while it is on (partyFor)
+ *            party() -> Promise<{ id, age } | playerId | null> (optional): whose phone the owner's party is for, while it is on (partyFor)
  *   sessions: { track(row, events) } (optional): the admin page's view of the room (sessionRow) and its new timeline events,
  *            sent when seats, connections or the game change (at most once a minute for moves and chat alone);
  *            a failed call keeps the events for the next one
@@ -20,8 +20,8 @@
  * Table talk: a seated phone or a spectator sends {t:'chat', text}; everyone gets {t:'chat', msg:{id, at, from, seat, name, user, text}}
  * (seat is null for a spectator), and every phone that says hello gets {t:'chat', log:[msg..]} (the last CHAT_KEEP) right after
  * welcome. A spectator's welcome carries viewer, their own id. Chat never changes rev.
- * The party: every phone gets {t:'party', seat, viewer} naming the seat (or, without one, the spectator's viewer id) of the
- * player the party is for, after the room message on hello (only when there is one) and whenever it changes (also to none).
+ * The party: every phone gets {t:'party', seat, viewer, name, age} naming the seat (or, without one, the spectator's viewer id),
+ * the name and the age of the player the party is for, after the room message on hello (only when there is one) and whenever it changes (also to none).
  * Any phone may send {t:'party'} after hello: the room reads the switch again (at most once per PARTY_EVERY_MS). Never changes rev.
  */
 
@@ -63,7 +63,7 @@ export class Room {
   constructor({ engine, storage, net, stats = null, accounts = null, sessions = null, now = () => Date.now() }) {
     this.E = engine; this.storage = storage; this.net = net; this.stats = stats; this.accounts = accounts; this.sessions = sessions; this.now = now;
     this.data = undefined; // undefined = not loaded yet, null = no room
-    this.partyId = null; this.partyAt = -Infinity; this.partySent = 'null'; // whose party, when last read, what phones last got
+    this.partyId = null; this.partyAge = null; this.partyAt = -Infinity; this.partySent = 'null'; // whose party, when last read, what phones last got
     this.greeted = new WeakSet(); // connections that have said hello (each looks a session up at most once)
     this.loading = null;
     this.chatTimes = new Map(); // sender -> recent message times (not saved)
@@ -123,16 +123,21 @@ export class Room {
   async partyRead() {
     if (!this.accounts || !this.accounts.party || this.now() - this.partyAt < PARTY_EVERY_MS) return false;
     this.partyAt = this.now();
-    try { this.partyId = (await this.accounts.party()) || null; return true; } catch (err) { console.error('party', err); return false; } // unknown: keep the last
+    try {
+      const r = await this.accounts.party();
+      this.partyId = (typeof r === 'string' ? r : r && r.id) || null;
+      this.partyAge = (r && typeof r === 'object' && Number.isInteger(r.age)) ? r.age : null;
+      return true;
+    } catch (err) { console.error('party', err); return false; } // unknown: keep the last
   }
   partyTarget() {
     const id = this.partyId;
     if (!id || !this.data) return null;
     const seat = this.data.seats.find(s => s.user === id);
-    if (seat) return { seat: seat.id, viewer: null };
+    if (seat) return { seat: seat.id, viewer: null, name: seat.name, age: this.partyAge };
     for (const c of this.net.conns()) {
       const info = !this.net.seatOf(c) && this.net.infoOf(c);
-      if (info && info.user === id) return { seat: null, viewer: info.viewer };
+      if (info && info.user === id) return { seat: null, viewer: info.viewer, name: info.name || null, age: this.partyAge };
     }
     return null;
   }
@@ -141,7 +146,7 @@ export class Room {
     const t = this.partyTarget(), key = JSON.stringify(t);
     if (key === this.partySent) return false;
     this.partySent = key;
-    const msg = { t: 'party', seat: t ? t.seat : null, viewer: t ? t.viewer : null };
+    const msg = { t: 'party', seat: null, viewer: null, name: null, age: null, ...t };
     for (const c of this.net.conns()) this.net.send(c, msg);
     return true;
   }

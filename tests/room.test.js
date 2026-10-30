@@ -805,7 +805,7 @@ test('Schocken: the host picks it, flip and blind are the player\'s moves, a bli
 // the party: the accounts adapter says whose phone it is for (a player ID, or null), and the room tells every phone the seat
 function partyRoom() {
   const p = { id: null, calls: 0, fail: false, t: 1_000_000 };
-  const acc = { resolve: async s => PLAYERS[s] || null, party: async () => { p.calls++; if (p.fail) throw new Error('down'); return p.id; } };
+  const acc = { resolve: async s => PLAYERS[s] || null, party: async () => { p.calls++; if (p.fail) throw new Error('down'); return p.id && { id: p.id, age: 48 }; } };
   return { p, ...makeRoom(null, acc, () => p.t) };
 }
 const partyMsgs = c => c.inbox.filter(m => m.t === 'party');
@@ -826,13 +826,13 @@ test("party: the chosen player's seat, also for a phone that joins later", async
   p.t += 3000;
   await send(room, b, { t: 'hello', name: 'x', session: 'sess-anna' });
   const seat = last(b, 'welcome').seat;
-  assert.deepEqual(last(a, 'party'), { t: 'party', seat, viewer: null });
-  assert.deepEqual(last(b, 'party'), { t: 'party', seat, viewer: null });
+  assert.deepEqual(last(a, 'party'), { t: 'party', seat, viewer: null, name: 'Anna', age: 48 });
+  assert.deepEqual(last(b, 'party'), { t: 'party', seat, viewer: null, name: 'Anna', age: 48 });
   const rev = last(a, 'room').rev;
   await send(room, c, { t: 'hello', name: 'Cleo' });
   const order = c.inbox.map(m => m.t);
   assert.ok(order.indexOf('party') > order.indexOf('room'), 'after the room message');
-  assert.deepEqual(last(c, 'party'), { t: 'party', seat, viewer: null });
+  assert.deepEqual(last(c, 'party'), { t: 'party', seat, viewer: null, name: 'Anna', age: 48 });
   assert.equal(partyMsgs(a).length, 1, 'no repeat for the others');
   assert.equal(last(a, 'room').rev, rev + 1, 'only the join bumped rev');
 });
@@ -847,11 +847,11 @@ test('party: a chosen player who only watches', async () => {
   await send(r.room, w, { t: 'hello', name: 'x', session: 'sess-anna' });
   const viewer = last(w, 'welcome').viewer;
   assert.ok(viewer);
-  assert.deepEqual(last(x, 'party'), { t: 'party', seat: null, viewer });
-  assert.deepEqual(last(w, 'party'), { t: 'party', seat: null, viewer });
+  assert.deepEqual(last(x, 'party'), { t: 'party', seat: null, viewer, name: 'Anna', age: 48 });
+  assert.deepEqual(last(w, 'party'), { t: 'party', seat: null, viewer, name: 'Anna', age: 48 });
   r.p.t += 3000;
   await r.drop(w);
-  assert.deepEqual(last(x, 'party'), { t: 'party', seat: null, viewer: null }, 'gone when they leave');
+  assert.deepEqual(last(x, 'party'), { t: 'party', seat: null, viewer: null, name: null, age: null }, 'gone when they leave');
 });
 
 test('party: a poke after the switch is flipped, on and off, never touching the game', async () => {
@@ -861,10 +861,10 @@ test('party: a poke after the switch is flipped, on and off, never touching the 
   const seat = last(a, 'welcome').seat, rev = last(b, 'room').rev;
   p.id = 'aaaa000000000001'; p.t += 2001;
   await send(room, b, { t: 'party' });
-  assert.deepEqual(last(b, 'party'), { t: 'party', seat, viewer: null });
+  assert.deepEqual(last(b, 'party'), { t: 'party', seat, viewer: null, name: 'Anna', age: 48 });
   p.id = null; p.t += 2001;
   await send(room, a, { t: 'party' });
-  assert.deepEqual(last(a, 'party'), { t: 'party', seat: null, viewer: null });
+  assert.deepEqual(last(a, 'party'), { t: 'party', seat: null, viewer: null, name: null, age: null });
   assert.equal(last(b, 'room').rev, rev);
 });
 
@@ -902,7 +902,7 @@ test('party: a release or withdraw after the room object was evicted still reach
   const woken = fresh({ accounts: { party: async () => p.id }, now: () => p.t });
   p.id = null; p.t += 5000;
   await send(woken, a, { t: 'party' });
-  assert.deepEqual(last(b, 'party'), { t: 'party', seat: null, viewer: null });
+  assert.deepEqual(last(b, 'party'), { t: 'party', seat: null, viewer: null, name: null, age: null });
 });
 
 test('party: a release after eviction, from a phone the new room object never greeted', async () => {
@@ -912,5 +912,5 @@ test('party: a release after eviction, from a phone the new room object never gr
   const woken = fresh({ accounts: { party: async () => p.id }, now: () => p.t });
   p.id = 'aaaa000000000001'; p.t += 5000;
   await send(woken, b, { t: 'party' });
-  assert.deepEqual(last(a, 'party'), { t: 'party', seat: last(a, 'welcome').seat, viewer: null });
+  assert.deepEqual(last(a, 'party'), { t: 'party', seat: last(a, 'welcome').seat, viewer: null, name: 'Anna', age: null });
 });

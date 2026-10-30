@@ -164,7 +164,7 @@ test('player accounts: create and sign in with a passkey, kept across a restart'
   const p = client('PARTY');
   await p.send({ t: 'hello', name: 'x', session: back.body.token, create: true });
   const seat = (await p.next(m => m.t === 'welcome')).seat;
-  assert.deepEqual(await p.next(m => m.t === 'party'), { t: 'party', seat, viewer: null });
+  assert.deepEqual(await p.next(m => m.t === 'party'), { t: 'party', seat, viewer: null, name: 'Anna', age: null });
   p.ws.close();
   await p.closed;
 });
