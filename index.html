@@ -1000,10 +1000,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the party (the owner's switch, server/core/accounts.js): what /auth/me says (me), what the room says (seat or viewer),
   // and the owner's preview on this phone. It shows as its own look without touching the stored one
   const PARTY_KEY = 'sevens-out-party'; // 'seen': this phone has played the reveal for the current release
-  const party = { me:null, room:false, seat:null, viewer:null, preview:false, known:false, hint:null, busy:false, pokedAt:0, checkedAt:0, was:false };
+  const party = { me:null, room:false, seat:null, viewer:null, name:null, age:null, preview:false, known:false, hint:null, busy:false, pokedAt:0, checkedAt:0, was:false };
   // released for this phone: the room decides while it has spoken, else the account
   const partyReal = () => party.room ? !!((party.seat && party.seat === net.seat) || (party.viewer && party.viewer === net.viewer)) : !!(party.me && party.me.on);
   const partyOn = () => party.preview || partyReal();
+  // a party this phone takes part in: someone in its room (every phone there plays the reveal), or this player outside a room
+  const partyShown = () => party.room ? !!(party.seat || party.viewer) : !!(party.me && party.me.on);
   function applyLook(){
     const lk = partyOn() ? 'party' : look;
     if (lk !== 'pub') document.documentElement.setAttribute('data-look', lk);
@@ -2130,7 +2132,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     net.want = false; clearTimeout(net.timer);
     if (net.ws){ const w = net.ws; net.ws = null; try { w.onclose = null; setTimeout(() => w.close(), 50); } catch (e) {} }
     Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false, chat:noChat(), viewer:null });
-    party.room = false; party.seat = null; party.viewer = null; partyCheck();
+    party.room = false; party.seat = null; party.viewer = null; party.name = null; party.age = null; partyCheck();
     net.session++; ui.chatDraft = ''; ui.chatHint = null; feedReset();
     try { localStorage.removeItem(ONLINE_KEY); } catch (e) {}
     state = load() || blank(); resetUi(); ui.open = {}; ui.showLink = false;
@@ -2158,6 +2160,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'chat': receiveChat(m); break;
       case 'party': {
         party.room = true; party.seat = m.seat || null; party.viewer = m.viewer || null; party.known = true;
+        party.name = typeof m.name === 'string' ? m.name : null; party.age = Number.isInteger(m.age) ? m.age : null;
         if (party.me && !party.me.owner) party.me = partyReal() ? Object.assign({}, party.me, { on:true }) : null; // keeps a reconnect from flickering
         partyCheck();
         if (ui.busy || ui.race) return; // the look is on the root; the next redraw shows the rest
@@ -2325,7 +2328,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function feedLines(){
     const now = Date.now();
     return ui.feed.items.map((x, i) => `<div class="feed-line${i ? ' old' : ''}"${i && x.down !== null ? ` style="animation-delay:-${now - x.down}ms"` : ''}>`
-      + `<p class="feed-msg${emojiOnly(x.msg.text) ? ' big' : ''}" style="animation-delay:-${now - x.start}ms"><b><bdi>${esc(x.msg.name)}</bdi></b> · <bdi>${emo(esc(x.msg.text))}</bdi></p></div>`).join('');
+      + `<p class="feed-msg${emojiOnly(x.msg.text) ? ' big' : ''}" style="animation-delay:-${now - x.start}ms"><b><bdi>${esc(x.msg.name)}</bdi>${partyB(x.msg.seat, x.msg.from)}</b> · <bdi>${emo(esc(x.msg.text))}</bdi></p></div>`).join('');
   }
   // on the turns, under the name: online once the room speaks chat the area is always there, two lines high, so a message
   // coming or going never moves anything; empty during the race
@@ -2811,7 +2814,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function turnHead(g, cur, eyebrow){
     // the next player's name slides in after a turn that ended by itself (a redraw keeps its place in the slide)
     const since = ui.arrive ? Date.now() - ui.arrive : Infinity, arrive = since < 600 ? ` arrive" style="animation-delay:-${since}ms` : '';
-    return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who${arrive}">${nameOf(cur)}</h2>
+    return `<div class="turnhead c4"><p class="eyebrow">${eyebrow}</p><h2 class="who${arrive}">${nameOf(cur)}${partySeatIdx(g) === cur ? PARTY_B : ''}</h2>
         ${isFT(g) ? toBeatLine(g) : isSK(g) ? skStandLine(g) : ''}${endingAlert(g)}${feedArea()}</div>`;
   }
   // 42/18: the lowest throw of the round so far, the one the player must beat to stay clear of the coaster. The line is
@@ -3366,7 +3369,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const st = r.settings.starter, dis = host ? '' : ' disabled';
     const list = seats.map(s => `<li class="seat">
         <span class="dot${s.connected ? ' on' : ''}" role="img" aria-label="${s.connected ? 'Online' : 'Offline'}"></span>
-        <span class="nm">${esc(s.name)}${s.user ? ' ' + tagHtml(s.user) : ''}${s.id === net.seat ? ' <small class="you">you</small>' : ''}</span>
+        <span class="nm">${esc(s.name)}${partyB(s.id)}${s.user ? ' ' + tagHtml(s.user) : ''}${s.id === net.seat ? ' <small class="you">you</small>' : ''}</span>
         ${s.id === r.host ? '<span class="tag">Host</span>' : ''}
         ${host && s.id !== net.seat ? `<button class="iconbtn" data-act="okick" data-seat="${esc(s.id)}" aria-label="Remove ${esc(s.name)}">${ICON_X}</button>` : ''}
       </li>`).join('');
@@ -3500,12 +3503,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   // after anything that changes the party: the look, the reveal once per release, and forgetting it once withdrawn
   function partyCheck(){
-    const real = partyReal();
+    const shown = partyShown();
     applyLook();
-    if (party.known && !real){ try { localStorage.removeItem(PARTY_KEY); } catch (e) {} }
-    if (real && !party.was) partyRevealOnce();
-    party.was = real;
+    if (party.known && !shown){ try { localStorage.removeItem(PARTY_KEY); } catch (e) {} }
+    if (shown && !party.was) partyRevealOnce();
+    party.was = shown;
   }
+  // the 🎈 after the party player's name: a seat, or a spectator's id (chat messages)
+  const partyB = (seat, from = null) => party.room && ((party.seat && seat === party.seat) || (party.viewer && from === party.viewer)) ? PARTY_B : '';
   function partySeatIdx(g){
     if (!party.room || !party.seat || !g || !g.seats) return -1;
     return g.seats.indexOf(party.seat);
@@ -3513,11 +3518,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the reveal plays once per release on this phone, after whatever is playing (a throw, a hand-over, the race)
   function partyRevealOnce(){
     try { if (localStorage.getItem(PARTY_KEY) === 'seen') return; localStorage.setItem(PARTY_KEY, 'seen'); } catch (e) {}
-    const seat = net.room && net.seat ? net.room.seats.find(x => x.id === net.seat) : null;
-    const name = seat ? seat.name : account ? account.name : '';
+    const seat = net.room && party.seat ? net.room.seats.find(x => x.id === party.seat) : null;
+    const name = party.name || (seat ? seat.name : partyReal() && account ? account.name : '');
     enqueue(async () => {
-      // the room told this phone first: the account knows the age (but a slow connection never holds the game for long)
-      if (account && !(party.me && party.me.age)) {
+      // the room says the age; without it (an older room) the party player's account knows it, but a slow connection
+      // never holds the game for long
+      if (!party.age && partyReal() && account && !(party.me && party.me.age)) {
         const me = authFetch('/auth/me', { token:account.token }).then(d => { if (d && d.party) party.me = d.party; }, () => {});
         await Promise.race([me, new Promise(r => setTimeout(r, 2500))]);
       }
@@ -3527,7 +3533,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         const on = () => { if (document.visibilityState === 'visible'){ document.removeEventListener('visibilitychange', on); r(); } };
         document.addEventListener('visibilitychange', on);
       });
-      return partyReveal({ name, age:party.me ? party.me.age : null });
+      return partyReveal({ name, age:party.age || (party.me ? party.me.age : null) });
     });
   }
   // an original stout warrior with a big grey beard and a birthday crown, on his trike
@@ -3736,7 +3742,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const reacts = partyReactions().map((r, i) => `<button class="reactbtn${emojiOnly(r) ? ' emoji' : ''}" data-act="creact" data-id="${i}">${esc(r)}</button>`).join('');
     const items = net.chat.log.map(m => {
       const mine = chatMine(m);
-      return `<li class="chat-msg${mine ? ' mine' : ''}" data-id="${esc(m.id)}"><b class="chat-name"><bdi>${esc(m.name)}</bdi></b>`
+      return `<li class="chat-msg${mine ? ' mine' : ''}" data-id="${esc(m.id)}"><b class="chat-name"><bdi>${esc(m.name)}</bdi>${partyB(m.seat, m.from)}</b>`
         + (mine ? ' <small class="you">you</small>' : m.user ? ' ' + tagHtml(m.user) : '')
         + (m.seat == null ? ' <small class="watching">watching</small>' : '')
         + ` <span class="chat-text"><bdi>${esc(m.text)}</bdi></span></li>`;

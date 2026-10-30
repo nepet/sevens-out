@@ -81,9 +81,12 @@ test('preview changes only this phone; a release reaches the chosen phone when i
 
 // ----- a room the test stands in for (fakeRoom): exact party messages, no accounts -----
 const seatsOf = names => names.map((name, i) => ({ id: `s${i + 1}`, name, connected: true, user: null }));
-const roomOf = names => ({ code: 'ABCDE', phase: 'game', host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: seatsOf(names) });
+const roomOf = (names, phase = 'game') => ({ code: 'ABCDE', phase, host: 's1', settings: { mode: 'dice', pairing: 'manual', starter: 0 }, seats: seatsOf(names) });
 const play = (st, action) => { const r = E.apply(st, action, { rng: () => 3 }); if (r.error) throw new Error(`${action.type}: ${r.error}`); return r; };
-const begin = names => play(E.blank(), { type: 'start', names, seats: names.map((_, i) => `s${i + 1}`), starter: 0, mode: 'dice', pairing: 'manual' }).state;
+const begin = (names, starter = 0) => play(E.blank(), { type: 'start', names, seats: names.map((_, i) => `s${i + 1}`), starter, mode: 'dice', pairing: 'manual' }).state;
+const ALDO = { t: 'party', seat: 's2', viewer: null, name: 'Aldo', age: 48 };
+// every phone in the room plays the reveal when the party starts: close it to go on
+const closeReveal = async page => { await expect(page.locator('.party-reveal')).toBeVisible(); await page.keyboard.press('Escape'); await expect(page.locator('.party-reveal')).toHaveCount(0); };
 const inRoom = page => page.addInitScript(() => localStorage.setItem('sevens-out-online', JSON.stringify({ code: 'ABCDE', token: 't', name: 'Anna', server: '', seen: 0 })));
 const box = (page, sel) => page.locator(sel).first().boundingBox();
 const meets = (a, b) => !!a && !!b && a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
@@ -98,7 +101,8 @@ test.describe('in a room', () => {
     await page.goto(url('/'));
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
     await expect(page.locator('.scorechip')).not.toContainText('\u{1F388}');
-    fake.push({ t: 'party', seat: 's2', viewer: null });
+    fake.push(ALDO);
+    await closeReveal(page);
     await expect(page.locator('.scorechip .sc-p').nth(1)).toContainText('\u{1F388}');
     await expect(page.locator('.scorechip .sc-p').nth(0)).not.toContainText('\u{1F388}');
     expect(await page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe(null);
@@ -120,7 +124,8 @@ test.describe('in a room', () => {
     await inRoom(page);
     await page.goto(url('/'));
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
-    fake.push({ t: 'party', seat: 's2', viewer: null });
+    fake.push(ALDO);
+    await closeReveal(page);
     await expect(page.locator('.scorechip .sc-p').nth(1)).toContainText('\u{1F388}');
     const r2 = play(r1.state, { type: 'stop' });
     fake.push({ t: 'room', rev: 2, room: roomOf(names), state: r2.state, events: r2.events });
@@ -142,7 +147,7 @@ test.describe('in a room', () => {
     await inRoom(page);
     await page.goto(url('/'));
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
-    fake.push({ t: 'party', seat: 's2', viewer: null });
+    fake.push(ALDO);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe('party');
     const reveal = page.locator('.party-reveal');
     await expect(reveal).toBeVisible();
@@ -157,7 +162,7 @@ test.describe('in a room', () => {
     await expect(page.locator('.party-banner')).toHaveCount(0);
     await page.reload();
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
-    fake.push({ t: 'party', seat: 's2', viewer: null });
+    fake.push(ALDO);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe('party');
     await page.waitForTimeout(500);
     await expect(reveal, 'once per release').toHaveCount(0);
@@ -173,10 +178,9 @@ test.describe('in a room', () => {
       await inRoom(page);
       await page.goto(url('/'));
       await page.evaluate(() => document.fonts.ready);
-      fake.push({ t: 'party', seat: 's2', viewer: null });
+      fake.push(ALDO);
       await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe(lk);
-      if (lk) await page.locator('.party-reveal').click().catch(() => {});
-      await page.keyboard.press('Escape');
+      await closeReveal(page);
       await expect(page.locator('.party-reveal')).toHaveCount(0);
       await chipFits(page);
       const bar = await page.locator('#app > .bar').boundingBox();
@@ -194,7 +198,7 @@ test('the reveal waits for a throw that is still playing, and leaves the page id
   await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
   const r1 = play(st, { type: 'roll' });
   fake.push({ t: 'room', rev: 2, room: roomOf(names), state: r1.state, events: r1.events });
-  fake.push({ t: 'party', seat: 's2', viewer: null });
+  fake.push(ALDO);
   await expect(page.locator('#app .mat .die.tumble').first()).toBeVisible();
   await expect(page.locator('.party-reveal')).toBeVisible();
   expect(await page.locator('#app .mat .die.tumble').count(), 'the throw has landed').toBe(0);
@@ -214,7 +218,7 @@ test.describe('the reveal holds', () => {
     await page.goto(url('/'));
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
     await page.mouse.click(200, 300); // the phone has been tapped: its audio runs
-    fake.push({ t: 'party', seat: 's2', viewer: null });
+    fake.push(ALDO);
     const reveal = page.locator('.party-reveal');
     await expect(reveal).toBeVisible();
     for (let i = 0; i < 3; i++) await page.mouse.click(200, 400);
@@ -233,7 +237,7 @@ test.describe('the reveal holds', () => {
     await page.goto(url('/'));
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
     await page.evaluate(() => { window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); });
-    fake.push({ t: 'party', seat: 's2', viewer: null });
+    fake.push(ALDO);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe('party');
     await page.waitForTimeout(800);
     await expect(page.locator('.party-reveal')).toHaveCount(0);
@@ -251,7 +255,7 @@ test.describe('the reveal holds', () => {
     await page.goto(localUrl('/'));
     await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
     expect((await account(page)).signedIn).toBe(true);
-    fake.push({ t: 'party', seat: 's2', viewer: null });
+    fake.push(ALDO);
     await expect(page.locator('.party-reveal')).toBeVisible({ timeout: 4000 });
   });
 });
@@ -322,4 +326,61 @@ test('withdrawn in a room: the chosen phone gets its own look back; a chosen pla
   expect(await chosen.page.evaluate(() => localStorage.getItem('sevens-out-look'))).toBe('vegas');
   expect(await chosen.page.evaluate(() => localStorage.getItem('sevens-out-party')), 'a new release plays the reveal again').toBe(null);
   for (const p of [owner, chosen, friend]) await p.ctx.close();
+});
+
+test.describe('every phone in the room', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const names = ['Peter', 'Aldo', 'Zed'];
+
+  test("a friend's phone plays the reveal too, with the name and the age, once per release, and keeps its own look", async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's3', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+    fake.push(ALDO);
+    const reveal = page.locator('.party-reveal');
+    await expect(reveal).toBeVisible();
+    await expect(reveal).toContainText('Happy birthday, mighty Aldo');
+    await expect(reveal).toContainText('48');
+    await page.keyboard.press('Escape');
+    await expect(reveal).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe(null);
+    await page.reload();
+    await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+    fake.push(ALDO);
+    await page.waitForTimeout(600);
+    await expect(reveal, 'once per release').toHaveCount(0);
+    fake.push({ t: 'party', seat: null, viewer: null, name: null, age: null });
+    await expect(page.locator('.scorechip')).not.toContainText('\u{1F388}');
+    fake.push(ALDO);
+    await expect(reveal, 'a new release plays it again').toBeVisible();
+  });
+
+  test('the balloon by the name: the big name on his turn, his messages in the feed and the chat', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names, 1), seat: 's3', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('#app .turnhead .who')).toHaveText('Aldo');
+    fake.push(ALDO);
+    await closeReveal(page);
+    await expect(page.locator('#app .turnhead .who')).toContainText('Aldo\u{1F388}');
+    fake.push({ t: 'chat', msg: { id: 1, at: Date.now(), from: 's2', seat: 's2', name: 'Aldo', user: null, text: 'cheers' } });
+    await expect(page.locator('#app .feed-line').first()).toContainText('Aldo\u{1F388} · cheers');
+    fake.push({ t: 'chat', msg: { id: 2, at: Date.now(), from: 's1', seat: 's1', name: 'Peter', user: null, text: 'hi' } });
+    await expect(page.locator('#app .feed-line').first()).toContainText('Peter · hi');
+    await page.click('#app [data-act=chat]');
+    await expect(page.locator('.sheet-layer .chat-msg').nth(0).locator('.chat-name')).toContainText('Aldo\u{1F388}');
+    await expect(page.locator('.sheet-layer .chat-msg').nth(1).locator('.chat-name')).not.toContainText('\u{1F388}');
+  });
+
+  test('the balloon by the name in the lobby', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(names, 'lobby'), seat: 's3', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('li.seat')).toHaveCount(3);
+    fake.push(ALDO);
+    await closeReveal(page);
+    await expect(page.locator('li.seat').nth(1)).toContainText('Aldo\u{1F388}');
+    await expect(page.locator('li.seat').nth(0)).not.toContainText('\u{1F388}');
+  });
 });
