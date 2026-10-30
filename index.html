@@ -857,6 +857,42 @@ html:root[data-look="party"].felt #app{position:relative;z-index:1}
 }
 @keyframes party-float{to{transform:translateY(-10px)}}
 .partybox{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.scorechip.mini .party-b{display:none}
+/* the party's reveal on the party phone (outside #app, under the confetti) and the banner on friends' phones */
+.party-reveal{position:fixed;inset:0;z-index:49;display:grid;place-items:center;overflow:hidden;cursor:pointer;text-align:center;
+  padding:calc(24px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(24px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));
+  background:radial-gradient(120% 80% at 50% 30%,#4A1A66,#1A0726);color:#FFF4E3}
+.party-reveal .pr-stage{display:flex;flex-direction:column;align-items:center;gap:8px;max-width:22rem}
+.party-reveal svg.lord{width:min(72vw,280px);height:auto}
+.party-reveal .pr-candles{display:flex;gap:30px;margin-bottom:-6px}
+.party-reveal .pr-candles i{width:9px;height:26px;border-radius:3px;background:#3DDCB0;position:relative}
+.party-reveal .pr-candles i::before{content:"";position:absolute;left:50%;top:-14px;width:11px;height:14px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;transform:translateX(-50%);background:#FFD23F}
+.party-reveal .pr-age{font:400 5.5rem/1 "Bungee","Arial Black",Impact,sans-serif;color:#FFD23F;margin:0;text-shadow:0 5px 0 #A3134A}
+.party-reveal .pr-title{font:400 1.7rem/1.15 "Bungee","Arial Black",Impact,sans-serif;margin:4px 0 0;text-wrap:balance;overflow-wrap:anywhere}
+.party-reveal .pr-tap{margin:10px 0 0;font:700 .85rem/1 var(--font-body);letter-spacing:.14em;text-transform:uppercase;color:#D9BFE3}
+.party-reveal .pr-sky i{position:absolute;width:44px;height:56px;border-radius:50% 50% 48% 48%;opacity:.9}
+.party-reveal .pr-sky i::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:60px;background:rgba(255,244,227,.45)}
+.party-reveal .pr-sky i:nth-child(1){left:6%;top:14%;background:#FF4F8B}
+.party-reveal .pr-sky i:nth-child(2){right:8%;top:9%;background:#3DDCB0}
+.party-reveal .pr-sky i:nth-child(3){left:14%;bottom:18%;background:#FFD23F}
+.party-reveal .pr-sky i:nth-child(4){right:12%;bottom:24%;background:#FF4F8B;width:34px;height:44px}
+.party-reveal.out{opacity:0;transition:opacity .35s}
+@media (prefers-reduced-motion:no-preference){
+  .party-reveal{animation:pr-in .5s cubic-bezier(.2,.8,.3,1)}
+  .party-reveal .pr-sky i{animation:pr-rise 7s linear infinite}
+  .party-reveal .pr-sky i:nth-child(2){animation-delay:-2s}
+  .party-reveal .pr-sky i:nth-child(3){animation-delay:-4s}
+  .party-reveal .pr-sky i:nth-child(4){animation-delay:-5.5s}
+  .party-reveal svg.lord{animation:pr-ride 1.1s cubic-bezier(.2,.8,.3,1) .2s backwards}
+}
+@keyframes pr-in{from{transform:translateY(100%)}}
+@keyframes pr-rise{to{transform:translateY(-110vh)}}
+@keyframes pr-ride{from{transform:translateX(-120vw)}}
+.party-banner{position:fixed;left:max(8px,env(safe-area-inset-left,0px));right:max(8px,env(safe-area-inset-right,0px));top:env(safe-area-inset-top,0px);height:44px;z-index:46;
+  pointer-events:none;display:flex;align-items:center;gap:8px;padding:0 12px;border-radius:12px;background:#1A0726;border:1px solid #FFD23F;color:#FFF4E3;font:700 .9rem/1.2 var(--font-body)}
+.party-banner svg.lord{width:52px;height:auto;flex:none}
+@media (prefers-reduced-motion:no-preference){.party-banner{animation:pb-in .15s ease-out}}
+@keyframes pb-in{from{transform:translateY(-100%);opacity:0}}
 html:root[data-look="vegas"] body{background-color:var(--paper);background-image:radial-gradient(circle at 25% 25%,rgba(255,197,49,.08) 0 2px,transparent 2.5px),radial-gradient(circle at 75% 75%,rgba(215,19,46,.14) 0 3px,transparent 3.5px);background-size:30px 30px}
 /* marquee sign with chasing bulbs */
 html:root[data-look="vegas"] .marquee{position:relative;background:linear-gradient(180deg,var(--leather),var(--leather-deep));border-radius:16px;padding:18px 22px;box-shadow:inset 0 0 0 3px var(--chrome),0 0 26px rgba(255,60,90,.3)}
@@ -1428,6 +1464,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         }
       },
       // online: it's this phone's turn now
+      // the party's horn on friends' phones when the party player's turn starts
+      horn:{
+        pub(t0){ [[523.25, 0], [659.25, 0.16]].forEach(([f, d]) => { tone(t0 + d, f, 0.22, 'sawtooth', 0.07); tone(t0 + d, f * 1.5, 0.18, 'square', 0.025); }); },
+        vegas(t0){ [[523.25, 0], [659.25, 0.12], [783.99, 0.24]].forEach(([f, d]) => tone(t0 + d, f, 0.16, 'square', 0.07)); }
+      },
       yourturn:{
         pub(t0){ // the bar's bell, struck twice
           [0, 0.22].forEach(d => [[1, 0.09, 0.9], [2.76, 0.04, 0.5], [5.4, 0.015, 0.25]].forEach(([r, v, dur]) => tone(t0 + d, 1150 * r, dur, 'sine', v)));
@@ -1491,8 +1532,26 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         TABLE[name][look](c.currentTime + 0.02 + (opts.delay || 0), ...args);
       } catch (e) {}
     }
+    // "Happy Birthday" (a public-domain tune) for the party's reveal; it plays with the sound off too. The notes go through
+    // their own gain, so stop() silences them; running is false while the phone hasn't let the audio start (a tap resumes it)
+    function birthday(){
+      const c = get(); if (!c) return { running:false, stop(){} };
+      const out = c.createGain(); out.gain.value = 1; out.connect(master);
+      const was = master; master = out;
+      const N = { G4:392, A4:440, B4:493.88, C5:523.25, D5:587.33, E5:659.25, F5:698.46, G5:783.99 }, beat = 0.34;
+      const song = [['G4', .75], ['G4', .25], ['A4', 1], ['G4', 1], ['C5', 1], ['B4', 2],
+        ['G4', .75], ['G4', .25], ['A4', 1], ['G4', 1], ['D5', 1], ['C5', 2],
+        ['G4', .75], ['G4', .25], ['G5', 1], ['E5', 1], ['C5', 1], ['B4', 1], ['A4', 2],
+        ['F5', .75], ['F5', .25], ['E5', 1], ['C5', 1], ['D5', 1], ['C5', 3]];
+      let t = c.currentTime + 0.05;
+      try {
+        for (const [n, b] of song){ tone(t, N[n], b * beat * 0.9, 'square', 0.06); tone(t, N[n] / 2, b * beat * 0.9, 'triangle', 0.05); t += b * beat; }
+      } finally { master = was; }
+      return { running:c.state === 'running', length:t - c.currentTime, stop(){ try { out.gain.setValueAtTime(0, c.currentTime); out.disconnect(); } catch (e) {} } };
+    }
     return {
       cue,
+      birthday(){ try { return birthday(); } catch (e) { return { running:false, length:0, stop(){} }; } },
       get played(){ return played.slice(); },
       unlock(){ try { get(); } catch (e) {} },
       jackpot(){ try { jackpot(); } catch (e) {} },
@@ -2462,6 +2521,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           if (events.some(x => x.type === 'roundEnd')) break; // the race's curtain says who starts
           if (e.blind && !events.some(x => x.type === 'lift')) ui.hint = `${nm(e.player)} rolled blind: the cup stays down until the round ends.`;
           if (state.phase === 'play' && myTurn()) sound.cue('yourturn');
+          if (state.phase === 'play' && online() && partySeatIdx(g) === current(g) && net.seat !== party.seat && !E.isScore(g) && !isFT(g) && !isSK(g)) partyBanner();
           break;
         }
         case 'rolled': {
@@ -2608,7 +2668,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const sub = (away ? '<span class="pl-away">Offline</span>' : '') + (shotsN ? `<span class="pl-shots">Paid ${plural(shotsN, 'round')} of shots</span>` : '');
     return `<li class="pl${now ? ' now' : ''}${wait ? ' wait' : ''}${tot >= limitOf(g) ? ' over' : ''}${lost ? ' lost' : ''}${edit ? ' editable' : ''}" data-id="${i}"${attrs}>`
       + '<span class="mk" aria-hidden="true">▶</span>'
-      + `<span class="nm">${starter ? '<i class="sd" role="img" aria-label="Starter"></i>' : ''}<span class="nt">${esc(pl.name)}</span>${user ? tagHtml(user) : ''}${me ? '<small class="you">you</small>' : ''}</span>`
+      + `<span class="nm">${starter ? '<i class="sd" role="img" aria-label="Starter"></i>' : ''}<span class="nt">${esc(pl.name)}</span>${partySeatIdx(g) === i ? PARTY_B : ''}${user ? tagHtml(user) : ''}${me ? '<small class="you">you</small>' : ''}</span>`
       + `<span class="trk" aria-hidden="true"><span class="fill" style="width:${barWidth(tot, limitOf(g))}"></span></span>`
       + `<span class="num">${tot}</span><span class="dl${played && tag == null ? '' : ' off'}">${dl}</span>`
       + (sub ? `<span class="pl-sub">${sub}</span>` : '') + '</li>';
@@ -2726,12 +2786,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     // from 7 players: the current player, the leader (when that is someone else) and "+N more"; the names may end in "…"
     const lead = crowd ? g.order.find(i => g.players[i].score === Math.max(...g.players.map(p => p.score))) : null;
     const some = crowd ? (g.players[cur].score === g.players[lead].score ? [cur] : [cur, lead]) : null;
-    const parts = crowd ? some.map(i => `<span class="sc-p${i === cur ? ' now' : ''}"><span class="sc-n">${esc(g.players[i].name)}</span> <b>${g.players[i].score}</b></span>`).join('')
+    const pb = partySeatIdx(g);
+    const parts = crowd ? some.map(i => `<span class="sc-p${i === cur ? ' now' : ''}"><span class="sc-n">${esc(g.players[i].name)}</span>${i === pb ? PARTY_B : ''} <b>${g.players[i].score}</b></span>`).join('')
         + `<span class="sc-more">+${g.players.length - some.length} more</span>`
       : g.order.map(i => {
       // shortened, the rest of the name hides: to 3 letters (.sc-rest), on the narrowest chip to 1 (.sc-mid too)
       const nm = [...g.players[i].name], mid = nm.slice(1, 3).join(''), rest = nm.slice(3).join('');
-      return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm[0] || '')}${mid ? `<span class="sc-mid">${esc(mid)}</span>` : ''}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''} <b>${g.players[i].score}</b></span>`;
+      return `<span class="sc-p${i === cur ? ' now' : ''}">${esc(nm[0] || '')}${mid ? `<span class="sc-mid">${esc(mid)}</span>` : ''}${rest ? `<span class="sc-rest">${esc(rest)}</span>` : ''}${i === pb ? PARTY_B : ''} <b>${g.players[i].score}</b></span>`;
       }).join('');
     const label = `${isFT(g) || isSK(g) ? 'Coasters' : 'Scores'}: ${g.order.map(i => `${g.players[i].name} ${g.players[i].score}`).join(', ')}`;
     // online with chat, the chat button shows a lost connection (its red dot); an old server without chat keeps the dot in the chip
@@ -3447,8 +3508,81 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (!party.room || !party.seat || !g || !g.seats) return -1;
     return g.seats.indexOf(party.seat);
   }
-  function partyRevealOnce(){}
-  function partyReveal(){ return Promise.resolve(); }
+  // the reveal plays once per release on this phone, after whatever is playing (a throw, a hand-over, the race)
+  function partyRevealOnce(){
+    try { if (localStorage.getItem(PARTY_KEY) === 'seen') return; localStorage.setItem(PARTY_KEY, 'seen'); } catch (e) {}
+    const seat = net.room && net.seat ? net.room.seats.find(x => x.id === net.seat) : null;
+    const name = seat ? seat.name : account ? account.name : '';
+    enqueue(async () => {
+      // the room told this phone first: the account knows the age
+      if (account && !(party.me && party.me.age)) {
+        try { const d = await authFetch('/auth/me', { token:account.token }); if (d && d.party) party.me = d.party; } catch (e) {}
+      }
+      return partyReveal({ name, age:party.me ? party.me.age : null });
+    });
+  }
+  // an original stout warrior with a big grey beard and a birthday crown, on his trike
+  const LORD = `<svg class="lord" viewBox="0 0 200 140" aria-hidden="true">
+    <circle cx="52" cy="108" r="24" fill="#111" stroke="#D9BFE3" stroke-width="5"/><circle cx="52" cy="108" r="6" fill="#D9BFE3"/>
+    <circle cx="166" cy="114" r="18" fill="#111" stroke="#D9BFE3" stroke-width="4"/><circle cx="166" cy="114" r="5" fill="#D9BFE3"/>
+    <path d="M52 108 L96 92 L150 70 L166 114" fill="none" stroke="#D9BFE3" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M30 92 Q34 78 60 80 L104 84 Q112 98 96 100 L40 100 Q28 100 30 92Z" fill="#FF4F8B"/>
+    <path d="M110 74 Q124 62 146 66 L148 76 Q126 80 110 84Z" fill="#FF4F8B"/>
+    <path d="M146 60 L160 52" stroke="#D9BFE3" stroke-width="4" stroke-linecap="round"/>
+    <path d="M60 84 Q58 54 80 50 Q100 48 104 70 L104 86Z" fill="#3DDCB0"/>
+    <path d="M96 66 Q122 58 146 60" stroke="#3DDCB0" stroke-width="9" stroke-linecap="round" fill="none"/>
+    <circle cx="146" cy="60" r="5" fill="#6B4026"/><circle cx="84" cy="34" r="15" fill="#6B4026"/>
+    <path d="M69 34 Q68 60 84 76 Q100 60 99 34 Q92 46 84 44 Q76 46 69 34Z" fill="#B9B4AE"/>
+    <path d="M80 56 L84 80 L88 56" fill="#8E8983"/><circle cx="84" cy="74" r="2.6" fill="#FFD23F"/>
+    <path d="M68 30 Q70 12 84 12 Q98 12 100 30Z" fill="#C9CED6"/><rect x="82.5" y="26" width="3" height="11" rx="1.5" fill="#C9CED6"/>
+    <path d="M72 14 L76 2 L80 10 L84 0 L88 10 L92 2 L96 14Z" fill="#FFD23F"/>
+    <circle cx="78" cy="31" r="1.8" fill="#fff"/><circle cx="90" cy="31" r="1.8" fill="#fff"/></svg>`;
+  // the reveal: resolves when it closes (a tap once the tune plays, Escape, Enter or Space, or by itself after the tune)
+  function partyReveal({ name = '', age = null, test = false } = {}){
+    return new Promise(done => {
+      document.querySelectorAll('.party-reveal').forEach(n => n.remove());
+      const el = document.createElement('div');
+      el.className = 'party-reveal';
+      el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', 'Happy birthday'); el.tabIndex = -1;
+      el.innerHTML = `<div class="pr-sky" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="pr-stage">${LORD}
+        ${age ? `<div class="pr-candles" aria-hidden="true"><i></i><i></i></div><p class="pr-age">${esc(age)}</p>` : ''}
+        <h2 class="pr-title">Happy birthday,<br> mighty ${esc(name)}</h2><p class="pr-tap" hidden>Tap to play</p></div>`;
+      document.body.appendChild(el);
+      el.focus({ preventScroll:true });
+      if (!reduceMotion) setTimeout(() => fx.burst(null), 500);
+      const tune = sound.birthday(), tap = el.querySelector('.pr-tap');
+      let playing = tune.running, timer = null, over = false;
+      const close = () => {
+        if (over) return; over = true; clearTimeout(timer); tune.stop();
+        el.classList.add('out'); document.removeEventListener('keydown', key, true);
+        setTimeout(() => { el.remove(); done(); }, reduceMotion ? 0 : 350);
+      };
+      const ends = () => { timer = setTimeout(close, (tune.length || 8) * 1000 + 1000); };
+      if (playing) ends(); else tap.hidden = false;
+      // the first tap lets the phone start the audio (the notes are already scheduled); a later tap closes
+      el.addEventListener('pointerdown', () => {
+        if (playing) return close();
+        sound.unlock(); playing = true; tap.hidden = true; ends();
+      });
+      const key = e => { if (['Escape', 'Enter', ' '].includes(e.key)){ e.preventDefault(); e.stopPropagation(); close(); } };
+      document.addEventListener('keydown', key, true);
+      void test;
+    });
+  }
+  // a friend's phone: the party player's turn starts. Over the header only, for a moment, taking no taps
+  function partyBanner(){
+    document.querySelectorAll('.party-banner').forEach(n => n.remove());
+    const el = document.createElement('div');
+    el.className = 'party-banner'; el.setAttribute('aria-hidden', 'true');
+    el.innerHTML = `${LORD}<span>The birthday boy rolls.</span>`;
+    const head = $app.querySelector('header.chiprow'), r = head && head.getBoundingClientRect();
+    if (r && r.height) { el.style.top = Math.max(0, r.top) + 'px'; el.style.height = Math.min(r.height, 52) + 'px'; }
+    document.body.appendChild(el);
+    sound.cue('horn');
+    setTimeout(() => el.remove(), 1200);
+  }
+  const PARTY_B = '<span class="party-b" aria-hidden="true">\u{1F388}</span>';
+  const partyReactions = () => party.room && (party.seat || party.viewer) ? ['\u{1F388}', ...REACTIONS] : REACTIONS;
 
   // Sound, Look and Shake to roll: the same controls wherever settings show (home's Settings sheet, the game menu)
   function settingsBlock(){
@@ -3582,7 +3716,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the chat sheet: the quick reactions, the log (newest at the bottom; `you` for this phone, the #tag of signed-in players,
   // "watching" for spectators), and the text field with Send pinned at the bottom. Every string from the wire goes through esc()
   function chatBody(){
-    const reacts = REACTIONS.map((r, i) => `<button class="reactbtn${emojiOnly(r) ? ' emoji' : ''}" data-act="creact" data-id="${i}">${esc(r)}</button>`).join('');
+    const reacts = partyReactions().map((r, i) => `<button class="reactbtn${emojiOnly(r) ? ' emoji' : ''}" data-act="creact" data-id="${i}">${esc(r)}</button>`).join('');
     const items = net.chat.log.map(m => {
       const mine = chatMine(m);
       return `<li class="chat-msg${mine ? ' mine' : ''}" data-id="${esc(m.id)}"><b class="chat-name"><bdi>${esc(m.name)}</bdi></b>`
@@ -4150,7 +4284,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'menu': openSheet('menu', ['menu', null]); return;
       // ----- table talk: the chat sheet stays open after sending, so several reactions can go in a row -----
       case 'chat': chatRead(); openSheet('chat', ['chat']); return;
-      case 'creact': if (REACTIONS[id]) chatSend(REACTIONS[id]); break;
+      case 'creact': { const rs = partyReactions(); if (rs[id]) chatSend(rs[id]); break; }
       case 'csend': if (chatSend(ui.chatDraft, true)) ui.chatDraft = ''; if (sendFromField) focusNext = 'chattext'; sendFromField = false; break;
       case 'scores': ui.scoresOpen = !ui.scoresOpen; break; // the score chip opens and closes the full list
       // ----- home: the Play sheet, the Settings sheet, your player -----
