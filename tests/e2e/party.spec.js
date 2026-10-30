@@ -235,3 +235,40 @@ test('the reveal on the chosen phone in a real room: the name and the age, once'
   await expect(reveal, 'once per release').toHaveCount(0);
   for (const p of [owner, chosen]) await p.ctx.close();
 });
+
+test('withdrawn in a room: the chosen phone gets its own look back; a chosen player who only watches gets the look too', async ({ browser }) => {
+  const rm = { reducedMotion: 'reduce' };
+  const owner = await player(browser, 'Peter', rm), chosen = await player(browser, 'Aldo', rm), friend = await player(browser, 'Zed', rm);
+  await chosen.page.evaluate(() => localStorage.setItem('sevens-out-look', 'vegas'));
+  await setFlags({ party_owner: owner.id, party_for: chosen.id, party_age: 48, party_on: 0 });
+  await reread(owner.page); await reread(chosen.page);
+  await owner.page.click('[data-act=play]');
+  await owner.page.click('[data-act=where][data-id="1"]');
+  await owner.page.click('.sheet-layer [data-act=ocreate]');
+  const code = await owner.page.locator('.roomcode').innerText();
+  await friend.page.fill('#ocode', code);
+  await friend.page.click('[data-act=ojoin]');
+  await expect(owner.page.locator('[data-act=ostart]')).toBeEnabled();
+  await owner.page.click('[data-act=ostart]');
+  // the chosen player comes in after the start: a spectator
+  await chosen.page.fill('#ocode', code);
+  await chosen.page.click('[data-act=ojoin]');
+  await expect(chosen.page.locator('.scorechip')).toBeVisible();
+  expect(await chosen.page.evaluate(() => window.SevensDebug.net.seat)).toBe(null);
+
+  await openMenu(owner.page, 'dev');
+  await owner.page.click('.sheet-layer [data-act=partyon]');
+  await expect(chosen.page.locator('.party-reveal')).toBeVisible({ timeout: 4000 });
+  await chosen.page.keyboard.press('Escape');
+  await chosen.page.keyboard.press('Escape');
+  await expect(chosen.page.locator('.party-reveal')).toHaveCount(0);
+  expect(await look(chosen.page)).toBe('party');
+  expect(await look(friend.page), "a friend's phone keeps its look").toBe(null);
+
+  await owner.page.click('.sheet-layer [data-act=partyon]');
+  await expect(owner.page.locator('.sheet-layer .party-hint')).toHaveText('Withdrawn.');
+  await expect.poll(() => look(chosen.page), { timeout: 4000 }).toBe('vegas');
+  expect(await chosen.page.evaluate(() => localStorage.getItem('sevens-out-look'))).toBe('vegas');
+  expect(await chosen.page.evaluate(() => localStorage.getItem('sevens-out-party')), 'a new release plays the reveal again').toBe(null);
+  for (const p of [owner, chosen, friend]) await p.ctx.close();
+});
