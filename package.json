@@ -20,7 +20,8 @@
     "worker:dev": "wrangler dev -c server/cloudflare/wrangler.jsonc --persist-to .wrangler/dev",
     "worker:deploy": "wrangler deploy -c server/cloudflare/wrangler.jsonc",
     "admin:dev": "wrangler dev -c server/admin/wrangler.jsonc --port 8789 --persist-to .wrangler/dev --var ADMIN_DEV_NO_ACCESS:1",
-    "admin:deploy": "wrangler deploy -c server/admin/wrangler.jsonc"
+    "admin:deploy": "wrangler deploy -c server/admin/wrangler.jsonc",
+    "db:flags": "wrangler d1 execute sevens-out-stats --remote -c server/cloudflare/wrangler.jsonc --file server/d1/migrations/0004-flags.sql --yes"
   },
   "devDependencies": {
     "@playwright/test": "1.56.0",

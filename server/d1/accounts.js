@@ -5,6 +5,7 @@
  *   challenges putChallenge, takeChallenge (single use)
  *   sessions   createSession, sessionUser (sliding expiry), deleteSession, deleteSessions
  *   cleanup    purgeExpired
+ *   flags      partyConfig, setPartyOn (the owner's party switch)
  * Times are milliseconds and passed in as `now`. Sessions are looked up by the SHA-256 hex of the token.
  */
 export const SESSION_TTL_MS = 180 * 24 * 3600 * 1000;
@@ -120,4 +121,17 @@ export async function purgeExpired(db, now) {
     ['DELETE FROM auth_challenges WHERE expires_at <= ?', [now]],
     ['DELETE FROM sessions WHERE expires_at <= ?', [now]]
   ]);
+}
+
+// the party switch (flags table): who may flip it, whose phone it is for, the age shown, and whether it is on;
+// null until both IDs are there
+export async function partyConfig(db) {
+  const rows = await db.all("SELECT name, value FROM flags WHERE name IN ('party_owner', 'party_for', 'party_age', 'party_on')");
+  const f = Object.fromEntries(rows.map(r => [r.name, r.value]));
+  if (!f.party_owner || !f.party_for) return null;
+  const age = parseInt(f.party_age, 10);
+  return { owner: f.party_owner, for: f.party_for, age: Number.isFinite(age) ? age : null, on: f.party_on === '1' };
+}
+export async function setPartyOn(db, on, now) {
+  await db.batch([["INSERT INTO flags (name, value, updated_at) VALUES ('party_on', ?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", [on ? '1' : '0', now]]]);
 }

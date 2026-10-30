@@ -135,3 +135,11 @@ CREATE TABLE IF NOT EXISTS room_events (
   detail  TEXT, -- JSON
   PRIMARY KEY (room_id, seq)
 );
+
+-- Switches the owner can flip (server/d1/accounts.js partyConfig): party_owner and party_for (16-hex player IDs),
+-- party_age, party_on ('0' | '1'). Written by hand with wrangler d1 execute, never from the repo; no rows = off.
+CREATE TABLE IF NOT EXISTS flags (
+  name       TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
