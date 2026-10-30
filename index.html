@@ -70,7 +70,7 @@ button{cursor:pointer}
 .top.slim .top-l{flex:1 1 12rem}
 .rnd{margin:0;min-width:0;overflow-wrap:anywhere;font-size:.92rem;line-height:1.2;color:var(--ink-soft)}
 .rnd b{font:800 1.35rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.03em;color:var(--ink)}
-html:root[data-look="vegas"] .rnd b{font-size:1.05rem}
+html:root:is([data-look="vegas"],[data-look="party"]) .rnd b{font-size:1.05rem}
 .alert strong{color:var(--danger)}
 
 /* score list: one line per player in this round's playing order (sorted by total at game over);
@@ -189,7 +189,7 @@ html.felt #app{gap:10px}
 .entry-top .tlabels{display:flex;flex-direction:column;gap:4px;min-width:0}
 /* the entry sits in the mat's top row, so the keypad fits with three players on 390×844 */
 .entry-top .entry{flex:none;min-width:3ch;font-size:3rem;padding:0;text-align:right}
-html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
+html:root:is([data-look="vegas"],[data-look="party"]) .entry-top .entry{font-size:2.5rem}
 .keymat .pad{gap:6px}
 .keymat .key{min-height:46px}
 .rollpick{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -208,7 +208,7 @@ html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
   html.felt #app{padding-top:8px;gap:8px}
   .mat.keymat{gap:6px;padding-block:6px 8px}
   .entry-top .entry{font-size:2.6rem}
-  html:root[data-look="vegas"] .entry-top .entry{font-size:2.2rem}
+  html:root:is([data-look="vegas"],[data-look="party"]) .entry-top .entry{font-size:2.2rem}
   .keymat .key{min-height:44px}
   .bar .btn.two,.bar .waiting{min-height:52px}
 }
@@ -240,11 +240,11 @@ html:root[data-look="vegas"] .entry-top .entry{font-size:2.5rem}
 .scorechip[aria-expanded="true"] .sc-chev{transform:rotate(180deg)}
 .sc-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--ok)}
 .sc-dot.warn{background:var(--danger)}
-html:root[data-look="vegas"] .sc-p b{font-size:14px}
-html:root[data-look="vegas"] .scorechip.tight .sc-p b{font-size:12px}
-html:root[data-look="vegas"] .scorechip.tiny .sc-p b{font-size:10px}
-html:root[data-look="vegas"] .scorechip.micro{gap:2px;padding:0 5px;font-size:10px}
-html:root[data-look="vegas"] .scorechip.micro .sc-p b{font-size:9px}
+html:root:is([data-look="vegas"],[data-look="party"]) .sc-p b{font-size:14px}
+html:root:is([data-look="vegas"],[data-look="party"]) .scorechip.tight .sc-p b{font-size:12px}
+html:root:is([data-look="vegas"],[data-look="party"]) .scorechip.tiny .sc-p b{font-size:10px}
+html:root:is([data-look="vegas"],[data-look="party"]) .scorechip.micro{gap:2px;padding:0 5px;font-size:10px}
+html:root:is([data-look="vegas"],[data-look="party"]) .scorechip.micro .sc-p b{font-size:9px}
 .scores-pop{position:absolute;z-index:15;top:calc(100% + 8px);left:0;right:0;overflow-y:auto;overscroll-behavior:contain;border-radius:14px}
 html.felt .scores-pop{box-shadow:0 14px 30px var(--shade)}
 html.felt .scores-pop .board{background:var(--leather-deep)}
@@ -287,7 +287,7 @@ html:root[data-look="vegas"] .felt-turn .turnhead.c4 .who{font-size:2rem}
 .bar.c4bar .handoff{grid-column:1 / span 2;position:relative;overflow:hidden;min-width:0;min-height:64px;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:3px;padding:8px 40px 10px 16px;border:1.5px solid var(--stitch);border-radius:18px;background:transparent;color:var(--on-leather);text-align:left;animation:handoff-in .3s ease-out var(--gone,0ms) both}
 .handoff small{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--stitch)}
 .handoff b{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:800 26px/1 var(--font-display);text-transform:uppercase}
-html:root[data-look="vegas"] .handoff b{font-size:19px;line-height:26px}
+html:root:is([data-look="vegas"],[data-look="party"]) .handoff b{font-size:19px;line-height:26px}
 .handoff svg{position:absolute;right:12px;top:50%;width:22px;height:22px;margin-top:-11px;fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}
 .handoff-fill{position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--stitch);transform-origin:left;animation:handoff-fill var(--ms,1.6s) linear var(--gone,0ms) both}
 @keyframes handoff-in{from{opacity:0;transform:translateY(10px)}}
@@ -305,8 +305,8 @@ html:root[data-look="vegas"] .handoff b{font-size:19px;line-height:26px}
 .rollbtn b{font:800 30px/1 var(--font-display);text-transform:uppercase}
 .rollbtn small{font-size:13px;font-weight:600}
 .btn.rollbtn:disabled{opacity:.75}
-html:root[data-look="vegas"] .rollbtn b{font-size:20px}
-html:root[data-look="vegas"] .rollbtn small{text-transform:none;letter-spacing:0}
+html:root:is([data-look="vegas"],[data-look="party"]) .rollbtn b{font-size:20px}
+html:root:is([data-look="vegas"],[data-look="party"]) .rollbtn small{text-transform:none;letter-spacing:0}
 .rackcell{min-width:0;min-height:64px;padding:4px 2px;border-radius:18px;background:color-mix(in srgb,var(--on-leather) 8%,transparent);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
 .rackcell .rack{display:flex;flex-wrap:wrap;justify-content:center;gap:3px;min-height:0}
 .rackcell .pair{display:inline-flex;align-items:center;justify-content:center;gap:2px;padding:2px;border:0;border-radius:6px;background:none}
@@ -324,7 +324,7 @@ html:root[data-look="vegas"] .rollbtn small{text-transform:none;letter-spacing:0
 .tray button.die{box-shadow:0 3px 0 var(--bone-edge),0 0 0 2px var(--stitch)}
 .tray-empty{font-size:13px;opacity:.7}
 .throwcell b{font:800 24px/1 var(--font-display);font-variant-numeric:tabular-nums;white-space:nowrap}
-html:root[data-look="vegas"] .throwcell b{font-size:16px}
+html:root:is([data-look="vegas"],[data-look="party"]) .throwcell b{font-size:16px}
 .btn.rollbtn.keepfirst{opacity:.8}
 .throwcell.low b{color:var(--danger)}
 /* Schocken (viewPlaySK()): the tools "6 → 1" and Blind sit in the tray row next to the dice set aside; the throw cell
@@ -332,7 +332,7 @@ html:root[data-look="vegas"] .throwcell b{font-size:16px}
 .tray .sktool{flex:none;min-width:64px;padding:6px 12px}
 .tray .sktool.armed{background:var(--stitch);color:var(--leather-deep);border-color:var(--stitch)}
 .skturn .throwcell b{font-size:20px}
-html:root[data-look="vegas"] .skturn .throwcell b{font-size:14px}
+html:root:is([data-look="vegas"],[data-look="party"]) .skturn .throwcell b{font-size:14px}
 .entry .skdice{display:inline-flex;gap:8px;vertical-align:middle}
 .entry .skdice .die.mini{--die:40px}
 .skpad .key.wide{grid-column:span 2}
@@ -486,7 +486,7 @@ html:root[data-look="vegas"].felt-home,html:root[data-look="vegas"].felt-home bo
 .home-line{margin:0;max-width:19rem;font-size:1rem;line-height:1.45;opacity:.85}
 .home-go{display:flex;flex-direction:column;gap:14px;padding-block:24px calc(24px + env(safe-area-inset-bottom,0px))}
 .btn.play{width:100%;min-height:68px;border-radius:20px;font:800 2rem/1 var(--font-display);text-transform:uppercase;letter-spacing:.04em;box-shadow:0 6px 0 var(--shade)}
-html:root[data-look="vegas"] .btn.play{font-size:1.6rem}
+html:root:is([data-look="vegas"],[data-look="party"]) .btn.play{font-size:1.6rem}
 .code-row{display:flex;gap:8px}
 .code-row .text-in{flex:1 1 auto;min-width:0;height:52px;border-radius:16px;border:1px solid var(--line);background:color-mix(in srgb,var(--ink) 8%,transparent);padding:0 16px;font-weight:600;color:var(--ink);text-transform:uppercase}
 .code-row .text-in::placeholder{color:var(--ink-soft);text-transform:none}
@@ -762,8 +762,8 @@ html:root[data-look="vegas"] .prof-head{margin-left:0}
 .acct .btn[aria-disabled="true"],.rowbtn[aria-disabled="true"],.delbtn[aria-disabled="true"]{opacity:.5;cursor:default}
 .acct-hint{font-size:.88rem;margin:-12px 0 0}
 .acct-hint:empty{display:none}
-html:root[data-look="vegas"] .acct-name{font-size:1.6rem;line-height:1.15}
-html:root[data-look="vegas"] .acct-tag{font-size:1rem}
+html:root:is([data-look="vegas"],[data-look="party"]) .acct-name{font-size:1.6rem;line-height:1.15}
+html:root:is([data-look="vegas"],[data-look="party"]) .acct-tag{font-size:1rem}
 .foldcard{margin-top:12px;padding:0 14px 8px}
 .foldcard .fold{border-top:0;border-bottom:1px solid var(--line);padding:0}
 .foldcard .fold:last-child{border-bottom:0}
@@ -828,6 +828,35 @@ html:root[data-look="vegas"]{
   --font-display:"Bungee","Arial Black",Impact,sans-serif;
   color-scheme:dark;
 }
+/* the party look (the owner's switch, server/core/accounts.js): plum and candy, cream dice, Bungee; one dark palette */
+html:root[data-look="party"]{
+  --paper:#2A0E3A; --card:#3A1550; --ink:#FFF4E3; --ink-soft:#D9BFE3; --line:#5A3170;
+  --leather:#3A1550; --leather-deep:#1A0726; --on-leather:#FFF4E3; --stitch:#FFD23F;
+  --brass:#FF4F8B; --brass-ink:#2A0014; --brass-text:#FFD23F;
+  --bone:#FFF4E3; --bone-edge:#C9A98A; --pip:#2A0E3A; --die-hi:#FFFFFF; --shade:rgba(0,0,0,.5);
+  --danger:#FF6B8A; --danger-ink:#2A0014; --on-leather-danger:#FF8FA6; --ok:#3DDCB0; --ok-ink:#04170B;
+  --chrome:#D9BFE3; --bulb:#FFD23F; --led:#FFD23F; --meter:#1A0726;
+  --party-1:#FF4F8B; --party-2:#3DDCB0; --party-3:#FFD23F; --party-string:rgba(255,244,227,.45);
+  --font-display:"Bungee","Arial Black",Impact,sans-serif;
+  color-scheme:dark;
+}
+html:root[data-look="party"] .mat{background-image:radial-gradient(circle at 15% 20%,var(--party-1) 0 2px,transparent 2.5px),radial-gradient(circle at 70% 60%,var(--party-2) 0 2px,transparent 2.5px),radial-gradient(circle at 40% 80%,var(--party-3) 0 1.6px,transparent 2px);background-size:34px 30px,40px 36px,28px 26px}
+/* balloons drifting behind the leather screens: no taps, under the content */
+.party-sky{display:none}
+html:root[data-look="party"].felt .party-sky{display:block;position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+html:root[data-look="party"].felt #app{position:relative;z-index:1}
+.party-sky i{position:absolute;width:34px;height:42px;border-radius:50% 50% 48% 48%;opacity:.85}
+.party-sky i::after{content:"";position:absolute;left:50%;top:100%;width:1px;height:40px;background:var(--party-string)}
+.party-sky i:nth-child(1){left:3%;top:12%;background:var(--party-1)}
+.party-sky i:nth-child(2){right:4%;top:17%;background:var(--party-2)}
+.party-sky i:nth-child(3){left:10%;top:31%;width:26px;height:33px;background:var(--party-3)}
+@media (prefers-reduced-motion:no-preference){
+  .party-sky i{animation:party-float 5s ease-in-out infinite alternate}
+  .party-sky i:nth-child(2){animation-delay:-2s}
+  .party-sky i:nth-child(3){animation-delay:-1s}
+}
+@keyframes party-float{to{transform:translateY(-10px)}}
+.partybox{display:flex;flex-direction:column;gap:10px;margin-top:10px}
 html:root[data-look="vegas"] body{background-color:var(--paper);background-image:radial-gradient(circle at 25% 25%,rgba(255,197,49,.08) 0 2px,transparent 2.5px),radial-gradient(circle at 75% 75%,rgba(215,19,46,.14) 0 3px,transparent 3.5px);background-size:30px 30px}
 /* marquee sign with chasing bulbs */
 html:root[data-look="vegas"] .marquee{position:relative;background:linear-gradient(180deg,var(--leather),var(--leather-deep));border-radius:16px;padding:18px 22px;box-shadow:inset 0 0 0 3px var(--chrome),0 0 26px rgba(255,60,90,.3)}
@@ -908,6 +937,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const $acctLive = document.createElement('p');
   $acctLive.className = 'sr'; $acctLive.id = 'acct-live'; $acctLive.setAttribute('aria-live', 'polite');
   document.body.appendChild($acctLive);
+  const $sky = document.createElement('div'); // the party look's balloons (CSS shows them only on its leather screens)
+  $sky.className = 'party-sky'; $sky.setAttribute('aria-hidden', 'true'); $sky.innerHTML = '<i></i><i></i><i></i>';
+  document.body.appendChild($sky);
   // the chat feed is aria-hidden; this region reads each message out instead ("Cleo: 101 is calling you")
   const $chatLive = document.createElement('p');
   $chatLive.className = 'sr'; $chatLive.id = 'chat-live'; $chatLive.setAttribute('aria-live', 'polite');
@@ -929,8 +961,16 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const LOOK_KEY = 'sevens-out-look', LOOK_OPTS = [['pub', 'Pub table'], ['vegas', 'Vegas']];
   let look = 'pub';
   try { if (localStorage.getItem(LOOK_KEY) === 'vegas') look = 'vegas'; } catch (e) {}
+  // the party (the owner's switch, server/core/accounts.js): what /auth/me says (me), what the room says (seat or viewer),
+  // and the owner's preview on this phone. It shows as its own look without touching the stored one
+  const PARTY_KEY = 'sevens-out-party'; // 'seen': this phone has played the reveal for the current release
+  const party = { me:null, room:false, seat:null, viewer:null, preview:false, known:false, hint:null, busy:false, pokedAt:0, checkedAt:0, was:false };
+  // released for this phone: the room decides while it has spoken, else the account
+  const partyReal = () => party.room ? !!((party.seat && party.seat === net.seat) || (party.viewer && party.viewer === net.viewer)) : !!(party.me && party.me.on);
+  const partyOn = () => party.preview || partyReal();
   function applyLook(){
-    if (look === 'vegas') document.documentElement.setAttribute('data-look', 'vegas');
+    const lk = partyOn() ? 'party' : look;
+    if (lk !== 'pub') document.documentElement.setAttribute('data-look', lk);
     else document.documentElement.removeAttribute('data-look');
   }
   applyLook();
@@ -1713,6 +1753,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   function setAccount(a){
     const key = a ? a.server : account ? account.server : authBase();
+    if (!a || (account && a.id !== account.id)){ party.me = null; partyCheck(); }
     account = a;
     const all = readAccounts();
     if (a) all[key] = { token:a.token, id:a.id, name:a.name }; else delete all[key];
@@ -1761,14 +1802,23 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (!accountsSupported()) return;
     account = readAccount();
     probeAuth();
+    checkMe();
+  }
+  // the account's name and the party; again when the page comes back, so a phone outside a room sees a release
+  function checkMe(){
     const a = account;
-    if (a) authFetch('/auth/me', { token:a.token }).then(d => {
+    if (!a) return;
+    party.checkedAt = Date.now();
+    authFetch('/auth/me', { token:a.token }).then(d => {
       if (account !== a || !d || !d.player) return;
-      if (d.player.name !== a.name){ setAccount(Object.assign({}, a, { name:d.player.name })); refreshHome(); }
+      party.me = d.party || null; party.known = true; partyCheck();
+      if (d.player.name !== a.name) setAccount(Object.assign({}, a, { name:d.player.name }));
+      if (!ui.busy && !ui.race) render();
     }, err => {
       if (account === a && err.status === 401){ setAccount(null); refreshHome(); } // the session ended; network trouble keeps it
     });
   }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && account && Date.now() - party.checkedAt > 2000) checkMe(); });
   // Passkey options fetched ahead, so a tap can open the passkey prompt at once: Safari only allows the prompt within
   // a short time of the tap, which a fetch over mobile data can use up. 'signin' and 'create' while the signed-out Profile
   // screen shows, 'add' while the signed-in one shows. A set is used once; challenges live 5 minutes, so a set is fresh for 4.
@@ -2021,6 +2071,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     net.want = false; clearTimeout(net.timer);
     if (net.ws){ const w = net.ws; net.ws = null; try { w.onclose = null; setTimeout(() => w.close(), 50); } catch (e) {} }
     Object.assign(net, { code:null, token:null, seat:null, room:null, status:'off', rev:0, inGame:false, chat:noChat(), viewer:null });
+    party.room = false; party.seat = null; party.viewer = null; partyCheck();
     net.session++; ui.chatDraft = ''; ui.chatHint = null; feedReset();
     try { localStorage.removeItem(ONLINE_KEY); } catch (e) {}
     state = load() || blank(); resetUi(); ui.open = {}; ui.showLink = false;
@@ -2036,6 +2087,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           if (w.pairing !== 'manual') set.pairing = w.pairing;
           if (set.kind || set.mode || set.pairing) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
         }
+        party.room = false; party.seat = null; party.viewer = null; // the room says it again after its room message
         net.seat = m.seat || null; net.viewer = m.viewer || null; if (m.token) net.token = m.token; net.creating = false; net.createWith = null; saveOnline();
         if (net.seat) net.chat.mine.add(net.seat);
         if (net.viewer) net.chat.mine.add(net.viewer);
@@ -2045,6 +2097,13 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         break;
       case 'room': receiveRoom(m); return;
       case 'chat': receiveChat(m); break;
+      case 'party': {
+        party.room = true; party.seat = m.seat || null; party.viewer = m.viewer || null; party.known = true;
+        if (party.me && !party.me.owner) party.me = partyReal() ? Object.assign({}, party.me, { on:true }) : null; // keeps a reconnect from flickering
+        partyCheck();
+        if (ui.busy || ui.race) return; // the look is on the root; the next redraw shows the rest
+        break;
+      }
       case 'error': onNetError(m); break;
       default: return;
     }
@@ -2067,6 +2126,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       if (p && p.typed && !ui.chatDraft) ui.chatDraft = p.text;
       return;
     }
+    if (m.code === 'bad_message' && Date.now() - party.pokedAt < 3000) return; // an old server doesn't know {t:'party'}
     ui.rolling = false; stopTumble();
     if (m.code === 'room_taken' && net.creating){ net.code = newCode(); netConnect(); return; }
     if (m.code === 'no_room' || m.code === 'room_full' || m.code === 'kicked' || m.code === 'closed'){
@@ -3343,16 +3403,60 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       ? `<div class="confirm"><span>End the game now? ${isFT(state.game) || isSK(state.game) ? 'The most coasters lose' : 'The highest score loses'}${rolling ? ", and the turn in progress isn't counted" : ''}.</span><button class="btn small danger" data-act="endyes">End game now</button><button class="btn small" data-act="endno">Keep playing</button></div>`
       : '';
     return `<details class="fold" data-fold="dev"${ui.open.dev ? ' open' : ''}><summary>Developer</summary>
+      ${partyBlock()}
       <div class="row"><button class="btn ghost" data-act="devconfetti">Play confetti</button><button class="btn ghost" data-act="devdoom">Play shots alarm</button><button class="btn ghost" data-act="devmiss">Play missed 7</button><button class="btn ghost" data-act="devround">Play round change</button>${live && !ui.confirmEnd ? '<button class="btn ghost" data-act="endearly">End game now</button>' : ''}</div>
       ${confirm}
       <p class="note">Play confetti shows the celebration for setting aside all three pairs. Play shots alarm shows what happens when the third die hits the floor. Play missed 7 shows what everyone sees when a player rolls on or stops with a 7-pair still on the table. Play round change shows the race to ${LIMIT} that plays between rounds.${live ? ' End game now finishes the game with the current scores.' : ''}</p></details>`;
   }
 
+  // the owner's party controls: the release (on the server), a preview on this phone, the reveal; nobody else gets them
+  function partyBlock(){
+    if (!party.me || !party.me.owner) return '';
+    const sw = (act, label, sub, on) => `<div class="swrow"><span><b id="${act}-l">${label}</b><small id="${act}-d">${sub}</small></span>
+        <button class="switch" role="switch" data-act="${act}" aria-checked="${on}" aria-labelledby="${act}-l" aria-describedby="${act}-d"${party.busy ? ' disabled' : ''}><span></span></button></div>`;
+    return `<div class="partybox">
+      ${sw('partyon', 'Release party look', party.me.on ? 'On: the party phone shows it' : 'Off: nobody sees it', !!party.me.on)}
+      ${sw('partypreview', 'Preview on this phone', 'Only this phone, until a reload', party.preview)}
+      <div class="row"><button class="btn ghost" data-act="partyreveal">Play the reveal</button></div>
+      ${party.hint ? `<p class="note party-hint">${esc(party.hint)}</p>` : ''}</div>`;
+  }
+  async function partySwitch(){
+    if (!account || !party.me || !party.me.owner || party.busy) return;
+    const on = !party.me.on, a = account;
+    party.busy = true; party.hint = null; render();
+    try {
+      const d = await authFetch('/auth/party', { method:'PUT', body:{ on }, token:a.token });
+      party.me = d.party; party.hint = on ? 'Released.' : 'Withdrawn.';
+      // the room reads the switch again; once more after its 2 s window, in case it had just read it
+      const poke = () => { if (net.ws && net.ws.readyState === 1){ try { net.ws.send(JSON.stringify({ t:'party' })); party.pokedAt = Date.now(); } catch (e) {} } };
+      poke(); setTimeout(poke, 2100);
+    } catch (e){
+      party.hint = e.code === 'network' ? "Couldn't reach the server. Try again." : 'The server refused. Sign in again, then try again.';
+    }
+    party.busy = false; partyCheck(); render();
+  }
+  // after anything that changes the party: the look, the reveal once per release, and forgetting it once withdrawn
+  function partyCheck(){
+    const real = partyReal();
+    applyLook();
+    if (party.known && !real){ try { localStorage.removeItem(PARTY_KEY); } catch (e) {} }
+    if (real && !party.was) partyRevealOnce();
+    party.was = real;
+  }
+  function partySeatIdx(g){
+    if (!party.room || !party.seat || !g || !g.seats) return -1;
+    return g.seats.indexOf(party.seat);
+  }
+  function partyRevealOnce(){}
+  function partyReveal(){ return Promise.resolve(); }
+
   // Sound, Look and Shake to roll: the same controls wherever settings show (home's Settings sheet, the game menu)
   function settingsBlock(){
     const soundPick = `<div class="soundpick"><span class="h3" id="snd-h">Sound</span><div class="seg small" role="group" aria-labelledby="snd-h">${SOUND_OPTS.map(([v, label], i) =>
       `<button class="segbtn${soundMode === v ? ' on' : ''}" data-act="sound" data-id="${i}" aria-pressed="${soundMode === v}">${label}</button>`).join('')}</div></div>`;
-    const lookPick = `<div class="soundpick"><span class="h3" id="look-h">Look</span><div class="seg small" role="group" aria-labelledby="look-h">${LOOK_OPTS.map(([v, label], i) =>
+    const lookPick = partyReal()
+      ? `<div class="soundpick"><span class="h3" id="look-h">Look</span><div class="seg small" role="group" aria-labelledby="look-h"><button class="segbtn on" aria-pressed="true" disabled>Party \u{1F388}</button></div></div><p class="note">Today only.</p>`
+      : `<div class="soundpick"><span class="h3" id="look-h">Look</span><div class="seg small" role="group" aria-labelledby="look-h">${LOOK_OPTS.map(([v, label], i) =>
       `<button class="segbtn${look === v ? ' on' : ''}" data-act="look" data-id="${i}" aria-pressed="${look === v}">${label}</button>`).join('')}</div></div>`;
     const shakeOn = shakePref && (shakeListening || needsMotionPermission());
     const shakePick = canShake() ? `<div class="soundpick"><span class="h3" id="shake-h">Shake to roll</span><div class="seg small" role="group" aria-labelledby="shake-h">${['Off', 'On'].map((label, i) =>
@@ -3996,7 +4100,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (ACCOUNT_ACTS.includes(a) && ui.account.busy) return; // a passkey prompt or a request is running
     const g = state.game;
     // while pairs are flying out or the race between rounds plays, only settings, the chat and the developer buttons respond
-    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose', 'scores', 'chat', 'creact', 'csend', 'handoff'].includes(a)) return;
+    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'partyon', 'partypreview', 'partyreveal', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose', 'scores', 'chat', 'creact', 'csend', 'handoff'].includes(a)) return;
     if (a === 'sheetclose'){ closeSheet(); return; }
     if (a === 'handoff'){ if (ui.handoff && ui.handoff.skip) ui.handoff.skip(); return; }
     // these leave the game menu: the screen changes, or there is something to watch
@@ -4132,6 +4236,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         });
         return;
       }
+      case 'partyon': partySwitch(); return;
+      case 'partypreview': party.preview = !party.preview; partyCheck(); break;
+      case 'partyreveal': partyReveal({ name:account ? account.name : 'you', age:party.me ? party.me.age : null, test:true }); return;
       case 'look': {
         const opt = LOOK_OPTS[id]; if (!opt) return;
         look = opt[0];
@@ -4515,7 +4622,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     layout:layoutDice, // layoutDice(n, w, h, die, rng, opts): the dice's random spots on the mat (pure; tests seed rng)
     dieSize:matDie,    // matDie(w, h, bottom): the die size the page uses for a mat of w × h
     get account(){ return { available:accountsAvailable(), signedIn:!!account, id:account ? account.id : null, name:account ? account.name : null }; },
-    get chat(){ return { ready:net.chat.ready, unread:net.chat.unread, log:E.clone(net.chat.log) }; }
+    get chat(){ return { ready:net.chat.ready, unread:net.chat.unread, log:E.clone(net.chat.log) }; },
+    get party(){ return party.me || party.room || party.preview ? { on:partyOn(), seat:party.seat, viewer:party.viewer, owner:!!(party.me && party.me.owner) } : null; }
   });
   try { window.claude?.hot?.snapshot?.(() => ({ state })); } catch (e) {}
   if (window.claude?.hot?.ready) window.claude.hot.ready(start);

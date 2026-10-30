@@ -229,3 +229,14 @@ export const chipFits = async page => {
   });
   expect(cut, 'chip items inside the chip').toEqual([]);
 };
+
+// the party switch's rows in the Node server's database (playwright.config.js SEVENS_E2E_DATA): replaces every flag
+export async function setFlags(rows) {
+  const { DatabaseSync } = await import('node:sqlite');
+  const db = new DatabaseSync(`${process.env.SEVENS_E2E_DATA}/sevens-out.db`);
+  try {
+    db.exec('DELETE FROM flags');
+    const put = db.prepare('INSERT INTO flags (name, value, updated_at) VALUES (?, ?, 0)');
+    for (const [k, v] of Object.entries(rows)) put.run(k, String(v));
+  } finally { db.close(); }
+}

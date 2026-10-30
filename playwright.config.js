@@ -6,6 +6,8 @@ import path from 'node:path';
 
 const PORT = 8790;
 const WORKER = process.env.TARGET === 'worker';
+// the Node server's data directory, made once: the test workers inherit it, so tests can write rows into its database (helpers.js setFlags)
+process.env.SEVENS_E2E_DATA ||= mkdtempSync(path.join(tmpdir(), 'sevens-e2e-'));
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -26,7 +28,7 @@ export default defineConfig({
       command: 'node server/node/server.js',
       url: `http://127.0.0.1:${PORT}/health`,
       // every test phone comes from 127.0.0.1, so the per-IP limit on /auth is lifted (the page fetches passkey options ahead)
-      env: { PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: mkdtempSync(path.join(tmpdir(), 'sevens-e2e-')), AUTH_LIMIT: '100000' },
+      env: { PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: process.env.SEVENS_E2E_DATA, AUTH_LIMIT: '100000' },
       reuseExistingServer: false
     },
     ...(WORKER ? [{
