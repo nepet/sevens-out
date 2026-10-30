@@ -119,10 +119,11 @@ export class Room {
   }
 
   // ----- the party: which seat (or spectator) the owner's party is for -----
+  // true when it asked the switch (not throttled, no failure)
   async partyRead() {
-    if (!this.accounts || !this.accounts.party || this.now() - this.partyAt < PARTY_EVERY_MS) return;
+    if (!this.accounts || !this.accounts.party || this.now() - this.partyAt < PARTY_EVERY_MS) return false;
     this.partyAt = this.now();
-    try { this.partyId = (await this.accounts.party()) || null; } catch (err) { console.error('party', err); } // unknown: keep the last
+    try { this.partyId = (await this.accounts.party()) || null; return true; } catch (err) { console.error('party', err); return false; } // unknown: keep the last
   }
   partyTarget() {
     const id = this.partyId;
@@ -164,8 +165,10 @@ export class Room {
       case 'chat': return this.chat(conn, m.text);
       case 'ping': return this.net.send(conn, { t: 'pong' });
       case 'party':
-        if (!this.greeted.has(conn) || !this.data) return;
-        await this.partyRead();
+        // a seat or a spectator (both outlive hibernation, unlike greeted); after a real read every phone hears the answer,
+        // since a room object woken from hibernation no longer knows what the phones were told
+        if (!this.data || !(this.greeted.has(conn) || this.net.seatOf(conn) || this.net.infoOf(conn))) return;
+        if (await this.partyRead()) this.partySent = undefined;
         this.partyUpdate();
         return;
       default: return this.error(conn, 'bad_message', 'Unknown message type.');

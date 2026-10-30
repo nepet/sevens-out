@@ -147,8 +147,7 @@ test.describe('in a room', () => {
     const reveal = page.locator('.party-reveal');
     await expect(reveal).toBeVisible();
     await expect(reveal).toContainText('Happy birthday, mighty Aldo');
-    await page.locator('.party-reveal').click();
-    await page.locator('.party-reveal').click({ force: true }).catch(() => {});
+    await page.keyboard.press('Escape');
     await expect(reveal).toHaveCount(0);
     await idle(page);
     const r2 = play(r1.state, { type: 'stop' });
@@ -203,6 +202,58 @@ test('the reveal waits for a throw that is still playing, and leaves the page id
   await page.keyboard.press('Escape');
   await expect(page.locator('.party-reveal')).toHaveCount(0);
   await idle(page);
+});
+
+test.describe('the reveal holds', () => {
+  test.use({ contextOptions: { reducedMotion: 'reduce' } });
+  const names = ['Peter', 'Aldo', 'Zed'];
+
+  test('a reflex tap in the first moments does not close it', async ({ page }) => {
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's2', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+    await page.mouse.click(200, 300); // the phone has been tapped: its audio runs
+    fake.push({ t: 'party', seat: 's2', viewer: null });
+    const reveal = page.locator('.party-reveal');
+    await expect(reveal).toBeVisible();
+    for (let i = 0; i < 3; i++) await page.mouse.click(200, 400);
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(300);
+    await expect(reveal, 'still there').toBeVisible();
+    await page.waitForTimeout(1500);
+    await page.mouse.click(200, 400); await page.mouse.click(200, 400);
+    await expect(reveal).toHaveCount(0);
+  });
+
+  test('a hidden page waits: the reveal starts when the phone is looked at', async ({ page }) => {
+    await page.addInitScript(() => { window.__vis = 'visible'; Object.defineProperty(document, 'visibilityState', { get: () => window.__vis }); });
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's2', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+    await page.evaluate(() => { window.__vis = 'hidden'; document.dispatchEvent(new Event('visibilitychange')); });
+    fake.push({ t: 'party', seat: 's2', viewer: null });
+    await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe('party');
+    await page.waitForTimeout(800);
+    await expect(page.locator('.party-reveal')).toHaveCount(0);
+    await page.evaluate(() => { window.__vis = 'visible'; document.dispatchEvent(new Event('visibilitychange')); });
+    await expect(page.locator('.party-reveal')).toBeVisible();
+  });
+
+  test('a slow server does not hold the reveal (or the game) for long', async ({ page }) => {
+    // a signed-in phone on localhost whose /auth/me never answers
+    await page.addInitScript(() => localStorage.setItem('sevens-out-account', JSON.stringify({ [location.origin]: { token: 'ab'.repeat(32), id: 'c'.repeat(16), name: 'Aldo' } })));
+    await page.route('**/auth/me', () => {});
+    await page.route('**/auth/config', r => r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }));
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's2', log: [] });
+    await inRoom(page);
+    await page.goto(localUrl('/'));
+    await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+    expect((await account(page)).signedIn).toBe(true);
+    fake.push({ t: 'party', seat: 's2', viewer: null });
+    await expect(page.locator('.party-reveal')).toBeVisible({ timeout: 4000 });
+  });
 });
 
 test('the reveal on the chosen phone in a real room: the name and the age, once', async ({ browser }) => {

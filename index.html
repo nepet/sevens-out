@@ -1547,7 +1547,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       try {
         for (const [n, b] of song){ tone(t, N[n], b * beat * 0.9, 'square', 0.06); tone(t, N[n] / 2, b * beat * 0.9, 'triangle', 0.05); t += b * beat; }
       } finally { master = was; }
-      return { running:c.state === 'running', length:t - c.currentTime, stop(){ try { out.gain.setValueAtTime(0, c.currentTime); out.disconnect(); } catch (e) {} } };
+      return { running:c.state === 'running', ctx:c, length:t - c.currentTime, stop(){ try { out.gain.setValueAtTime(0, c.currentTime); out.disconnect(); } catch (e) {} } };
     }
     return {
       cue,
@@ -3514,10 +3514,17 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const seat = net.room && net.seat ? net.room.seats.find(x => x.id === net.seat) : null;
     const name = seat ? seat.name : account ? account.name : '';
     enqueue(async () => {
-      // the room told this phone first: the account knows the age
+      // the room told this phone first: the account knows the age (but a slow connection never holds the game for long)
       if (account && !(party.me && party.me.age)) {
-        try { const d = await authFetch('/auth/me', { token:account.token }); if (d && d.party) party.me = d.party; } catch (e) {}
+        const me = authFetch('/auth/me', { token:account.token }).then(d => { if (d && d.party) party.me = d.party; }, () => {});
+        await Promise.race([me, new Promise(r => setTimeout(r, 2500))]);
       }
+      // a phone in a pocket or with its screen off waits until it is looked at
+      await new Promise(r => {
+        if (document.visibilityState === 'visible') return r();
+        const on = () => { if (document.visibilityState === 'visible'){ document.removeEventListener('visibilitychange', on); r(); } };
+        document.addEventListener('visibilitychange', on);
+      });
       return partyReveal({ name, age:party.me ? party.me.age : null });
     });
   }
@@ -3550,21 +3557,29 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       document.body.appendChild(el);
       el.focus({ preventScroll:true });
       if (!reduceMotion) setTimeout(() => fx.burst(null), 500);
-      const tune = sound.birthday(), tap = el.querySelector('.pr-tap');
+      const tune = sound.birthday(), tap = el.querySelector('.pr-tap'), opened = performance.now();
       let playing = tune.running, timer = null, over = false;
+      // it shows when the player may be tapping the dice: taps and Enter or Space only close it after a moment
+      const settled = () => performance.now() - opened > 1500;
       const close = () => {
         if (over) return; over = true; clearTimeout(timer); tune.stop();
         el.classList.add('out'); document.removeEventListener('keydown', key, true);
         setTimeout(() => { el.remove(); done(); }, reduceMotion ? 0 : 350);
       };
       const ends = () => { timer = setTimeout(close, (tune.length || 8) * 1000 + 1000); };
+      const starts = () => { if (playing || over) return; playing = true; tap.hidden = true; ends(); };
       if (playing) ends(); else tap.hidden = false;
+      // the phone may start the audio by itself a moment later (it was allowed to): no tap needed then
+      if (!playing && tune.ctx) tune.ctx.addEventListener('statechange', () => { if (tune.ctx.state === 'running') starts(); });
       // the first tap lets the phone start the audio (the notes are already scheduled); a later tap closes
       el.addEventListener('pointerdown', () => {
-        if (playing) return close();
-        sound.unlock(); playing = true; tap.hidden = true; ends();
+        if (!playing){ sound.unlock(); return starts(); }
+        if (settled()) close();
       });
-      const key = e => { if (['Escape', 'Enter', ' '].includes(e.key)){ e.preventDefault(); e.stopPropagation(); close(); } };
+      const key = e => {
+        if (e.key === 'Escape' || (settled() && (e.key === 'Enter' || e.key === ' '))){ e.preventDefault(); e.stopPropagation(); close(); }
+        else if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); e.stopPropagation(); }
+      };
       document.addEventListener('keydown', key, true);
       void test;
     });

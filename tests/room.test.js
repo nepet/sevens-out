@@ -23,7 +23,7 @@ function makeRoom(stats = null, accounts = null, now = undefined, sessions = nul
   const room = new Room({ engine: E, storage, net, stats, accounts, sessions, ...(now ? { now } : {}) });
   const connect = () => { const c = { inbox: [], open: true, seat: null }; conns.add(c); return c; };
   const drop = async c => { c.open = false; conns.delete(c); await room.closed(c); };
-  return { room, connect, drop, setStored: d => { stored = JSON.stringify(d); }, stored: () => stored && JSON.parse(stored), fresh: () => new Room({ engine: E, storage, net, stats }) };
+  return { room, connect, drop, setStored: d => { stored = JSON.stringify(d); }, stored: () => stored && JSON.parse(stored), fresh: (more = {}) => new Room({ engine: E, storage, net, stats, ...more }) };
 }
 const send = (room, c, m) => room.message(c, JSON.stringify(m), 'K7QPM');
 const last = (c, t) => [...c.inbox].reverse().find(m => m.t === t);
@@ -890,4 +890,27 @@ test('party: a failing party() keeps the last value', async () => {
   await send(room, a, { t: 'party' });
   assert.equal(partyMsgs(a).length, 1, 'no broadcast');
   assert.equal(last(a, 'error'), undefined);
+});
+
+test('party: a release or withdraw after the room object was evicted still reaches every phone', async () => {
+  const { room, connect, fresh, p } = partyRoom(), a = connect(), b = connect();
+  p.id = 'aaaa000000000001';
+  await send(room, a, { t: 'hello', name: 'x', session: 'sess-anna', create: true });
+  await send(room, b, { t: 'hello', name: 'Ben' });
+  assert.equal(last(b, 'party').seat, last(a, 'welcome').seat);
+  // hibernation: a new Room object over the same storage and sockets, which says hello to nobody
+  const woken = fresh({ accounts: { party: async () => p.id }, now: () => p.t });
+  p.id = null; p.t += 5000;
+  await send(woken, a, { t: 'party' });
+  assert.deepEqual(last(b, 'party'), { t: 'party', seat: null, viewer: null });
+});
+
+test('party: a release after eviction, from a phone the new room object never greeted', async () => {
+  const { room, connect, fresh, p } = partyRoom(), a = connect(), b = connect();
+  await send(room, a, { t: 'hello', name: 'x', session: 'sess-anna', create: true });
+  await send(room, b, { t: 'hello', name: 'Ben' });
+  const woken = fresh({ accounts: { party: async () => p.id }, now: () => p.t });
+  p.id = 'aaaa000000000001'; p.t += 5000;
+  await send(woken, b, { t: 'party' });
+  assert.deepEqual(last(a, 'party'), { t: 'party', seat: last(a, 'welcome').seat, viewer: null });
 });
