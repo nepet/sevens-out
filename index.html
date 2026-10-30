@@ -2244,12 +2244,14 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }
   }
   // a message this phone hasn't seen: read at once while the chat is open, otherwise one more on the badge and a line in
-  // the feed (unless it's this phone's own). replay: it came with the log after a (re)connect rather than live; only a
+  // the feed; this phone's own always gets its line. replay: it came with the log after a (re)connect rather than live; only a
   // fresh one gets into the feed
   function chatArrived(msg, { replay = false } = {}){
     const c = net.chat;
-    if (ui.sheet === 'chat'){ c.seen = Math.max(c.seen || 0, msg.id); c.unread = 0; }
-    else if (!chatMine(msg)){
+    // this phone's own message shows in its feed too (live only, never from a reconnect's replay)
+    if (chatMine(msg)){ if (!replay && msg.id > ui.feed.last) feedAdd(msg); }
+    else if (ui.sheet === 'chat'){ c.seen = Math.max(c.seen || 0, msg.id); c.unread = 0; }
+    else {
       c.unread++;
       // once per message: a reconnect's replay never shows again what the feed already took
       if ((!replay || Date.now() - msg.at <= FEED_FRESH_MS) && msg.id > ui.feed.last) feedAdd(msg);

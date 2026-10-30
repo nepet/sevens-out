@@ -1222,8 +1222,8 @@ test.describe('chat feed', () => {
     const [who, line] = [await A.page.locator('#app .turnhead .who').boundingBox(), await t.boundingBox()];
     expect(line.y).toBeGreaterThanOrEqual(who.y + who.height - 0.5);
     await B.page.keyboard.press('Escape');
-    await expect(B.page.locator('#app .turnhead .feed')).toHaveCount(1);   // the sender's phone has the area, but
-    await expect(lines(B.page)).toHaveCount(0);                            // never its own message
+    await expect(B.page.locator('#app .turnhead .feed')).toHaveCount(1);   // the sender's phone shows its own message too
+    await expect(lines(B.page)).toHaveText(['Ben · nice roll']);
     await expect(t).toHaveCount(0, { timeout: 5000 });
     const log = await seen(A.page), on = log.find(x => x.lines.length), off = log[log.indexOf(on) + 1];
     expect(await shown(A.page)).toEqual(['Ben · nice roll']);
