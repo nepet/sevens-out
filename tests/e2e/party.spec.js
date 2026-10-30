@@ -388,11 +388,11 @@ test.describe('every phone in the room', () => {
   });
 });
 
-test.describe('only once on the party phone', () => {
+test.describe('the party phone', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } });
   const names = ['Peter', 'Aldo', 'Zed'];
 
-  test('a withdraw and a new release never play the reveal again on the party phone', async ({ page }) => {
+  test('a withdraw and a new release play the reveal again on the party phone', async ({ page }) => {
     const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's2', log: [] });
     await inRoom(page);
     await page.goto(url('/'));
@@ -402,8 +402,23 @@ test.describe('only once on the party phone', () => {
     fake.push({ t: 'party', seat: null, viewer: null, name: null, age: null });
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe(null);
     fake.push(ALDO);
-    await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute('data-look'))).toBe('party');
-    await page.waitForTimeout(800);
-    await expect(page.locator('.party-reveal')).toHaveCount(0);
+    await expect(page.locator('.party-reveal')).toBeVisible();
+  });
+
+  test('with the sound off, a tap earlier is enough: the tune starts with the reveal, no "Tap to play"', async ({ browser: _b, playwright }) => {
+    // a browser as strict as a phone: audio starts only from a tap
+    const browser = await playwright.chromium.launch({ args: ['--autoplay-policy=user-gesture-required'] });
+    const page = await (await browser.newContext({ reducedMotion: 'reduce', baseURL: 'http://127.0.0.1:8790' })).newPage();
+    await page.addInitScript(() => localStorage.setItem('sevens-out-sound', 'off'));
+    const fake = await fakeRoom(page, { room: roomOf(names), state: begin(names), seat: 's2', log: [] });
+    await inRoom(page);
+    await page.goto(url('/'));
+    await expect(page.locator('.scorechip .sc-p')).toHaveCount(3);
+    await page.mouse.click(200, 420); // somewhere on the mat, long before the release
+    fake.push(ALDO);
+    await expect(page.locator('.party-reveal')).toBeVisible();
+    await page.waitForTimeout(300);
+    await expect(page.locator('.party-reveal .pr-tap')).toBeHidden();
+    await browser.close();
   });
 });

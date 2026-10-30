@@ -1000,7 +1000,6 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // the party (the owner's switch, server/core/accounts.js): what /auth/me says (me), what the room says (seat or viewer),
   // and the owner's preview on this phone. It shows as its own look without touching the stored one
   const PARTY_KEY = 'sevens-out-party'; // 'seen': this phone has played the reveal for the current release
-  const PARTY_ME_KEY = 'sevens-out-party-me'; // the party phone: the player it played the reveal for, once ever (never cleared)
   const party = { me:null, room:false, seat:null, viewer:null, name:null, age:null, preview:false, known:false, hint:null, busy:false, pokedAt:0, checkedAt:0, was:false };
   // released for this phone: the room decides while it has spoken, else the account
   // (the owner's own `on` is the switch, not a party for them)
@@ -1566,7 +1565,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     };
   })();
   // browsers only allow audio after a tap; wake the audio engine on every interaction
-  ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => { if (soundMode !== 'off') sound.unlock(); }, true));
+  // every tap starts the audio, with the sound off too (nothing plays then): the party's tune may come later, over the network
+  ['pointerdown', 'keydown'].forEach(ev => document.addEventListener(ev, () => sound.unlock(), true));
 
   // ---------- shake to roll (only when the page runs on its own, e.g. GitHub Pages, on a phone) ----------
   const SHAKE_KEY = 'sevens-out-shake';
@@ -2546,6 +2546,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         case 'paired': {
           const d = g.turn.dice;
           if (reduceMotion) sound.cue('pair', g.turn.pairs.length - 1); // with motion, the fly-out plays it
+          if (ui.selected !== null) break; // the next pair is being picked: its hint stays
           ui.hint = e.pairs.length === 1 ? `${d[e.pairs[0][0]].value} + ${d[e.pairs[0][1]].value} set aside.` : `${plural(e.pairs.length, 'pair')} of 7 set aside.`;
           break;
         }
@@ -3519,9 +3520,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   }
   // the reveal plays once per release on this phone, after whatever is playing (a throw, a hand-over, the race)
   function partyRevealOnce(){
-    // other phones: once per release; the party phone: once for its player, however often the switch goes off and on
-    const [key, val] = partyReal() ? [PARTY_ME_KEY, account ? account.id : 'me'] : [PARTY_KEY, 'seen'];
-    try { if (localStorage.getItem(key) === val) return; localStorage.setItem(key, val); } catch (e) {}
+    // once per release on every phone: a reload or a reconnect doesn't play it again, a new release does
+    try { if (localStorage.getItem(PARTY_KEY) === 'seen') return; localStorage.setItem(PARTY_KEY, 'seen'); } catch (e) {}
     const seat = net.room && party.seat ? net.room.seats.find(x => x.id === party.seat) : null;
     const name = party.name || (seat ? seat.name : partyReal() && account ? account.name : '');
     enqueue(async () => {
@@ -4261,7 +4261,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (ACCOUNT_ACTS.includes(a) && ui.account.busy) return; // a passkey prompt or a request is running
     const g = state.game;
     // while pairs are flying out or the race between rounds plays, only settings, the chat and the developer buttons respond
-    if ((ui.busy || ui.rolling || ui.race) && !['sound', 'look', 'shake', 'partyon', 'partypreview', 'partyreveal', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose', 'scores', 'chat', 'creact', 'csend', 'handoff'].includes(a)) return;
+    // while a pair flies into the rack, the next one can already be picked (the pair action waits in the queue)
+    const flying = a === 'die' && ui.reveal && !ui.rolling && !ui.race && !ui.landed;
+    if ((ui.busy || ui.rolling || ui.race) && !flying && !['sound', 'look', 'shake', 'partyon', 'partypreview', 'partyreveal', 'devconfetti', 'devdoom', 'devmiss', 'oleave', 'oleaveyes', 'oleaveno', 'menu', 'sheetclose', 'scores', 'chat', 'creact', 'csend', 'handoff'].includes(a)) return;
     if (a === 'sheetclose'){ closeSheet(); return; }
     if (a === 'handoff'){ if (ui.handoff && ui.handoff.skip) ui.handoff.skip(); return; }
     // these leave the game menu: the screen changes, or there is something to watch

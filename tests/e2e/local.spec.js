@@ -2276,3 +2276,23 @@ test.describe('table sounds', () => {
     expect(await sounds(page)).toEqual(['roll:pub', 'pair:pub', 'pair:pub']);
   });
 });
+
+// with motion, a pair flies into the rack; meanwhile the player can already pick the next pair
+test('the next pair can be picked while the first one flies into the rack', async ({ page }) => {
+  const E = globalThis.SevensEngine, faces = [1, 6, 2, 5, 3, 3];
+  let k = 0;
+  const s0 = E.apply(E.blank(), { type: 'start', names: ['Anna', 'Ben'], starter: 0, mode: 'dice', pairing: 'manual' }).state;
+  const s1 = E.apply(s0, { type: 'roll' }, { rng: () => faces[k++] }).state;
+  await page.addInitScript(v => { try { if (!localStorage.getItem('sevens-out-v1')) localStorage.setItem('sevens-out-v1', v); } catch (e) {} }, JSON.stringify(s1));
+  await page.goto('/');
+  const die = i => page.locator(`#app .mat .die[data-id="${i}"]`);
+  await expect(die(0)).toBeVisible();
+  await die(0).click(); await die(1).click(); // 1 + 6: flies into the rack
+  await expect.poll(() => page.evaluate(() => window.SevensDebug.busy)).toBe(true);
+  await die(2).click();
+  await expect(die(2), 'picked while the first pair flies').toHaveClass(/\bsel\b/);
+  await die(3).click(); // 2 + 5
+  await idle(page);
+  expect((await live(page)).game.turn.pairs.map(p => [p.a, p.b])).toEqual([[0, 1], [2, 3]]);
+  await expect(page.locator('#app .rack .pair')).toHaveCount(2);
+});
