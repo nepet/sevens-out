@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { fakeD1 } from './fake-d1.js';
 import { fromD1 } from '../server/d1/db.js';
 import { softAuthenticator } from './authenticator.js';
-import { handleAuth, resolveSession, originsFrom } from '../server/core/accounts.js';
+import { handleAuth, resolveSession, originsFrom, partyFor } from '../server/core/accounts.js';
 import { b64url } from '../server/core/webauthn.js';
 
 const ORIGIN = 'https://me.github.io';
@@ -281,4 +281,40 @@ test('options fetched before the tap: a create challenge without a name, the nam
   const r = await s.call('POST', '/auth/create', { body: { challengeId: o.body.challengeId, credential, name: ' Cleo ' } });
   assert.equal(r.status, 200);
   assert.deepEqual([r.body.player.name, r.body.player.tag], ['Cleo', o.body.user.tag]);
+});
+
+test('party switch: only the owner sees and flips it', async () => {
+  const s = server();
+  const owner = await createPlayer(s, await softAuthenticator({ origin: ORIGIN }), 'Peter');
+  const chosen = await createPlayer(s, await softAuthenticator({ origin: ORIGIN }), 'Aldo');
+  const stranger = await createPlayer(s, await softAuthenticator({ origin: ORIGIN }), 'Zed');
+  const me = token => s.call('GET', '/auth/me', { token });
+  const put = (token, on) => s.call('PUT', '/auth/party', { token, body: { on } });
+
+  assert.equal((await put(owner.token, true)).status, 404, 'no rows: nothing there');
+  assert.equal((await me(owner.token)).body.party, undefined);
+  const row = (name, value) => s.d1.raw.prepare('INSERT INTO flags (name, value, updated_at) VALUES (?, ?, 0)').run(name, value);
+  row('party_owner', owner.player.id); row('party_for', chosen.player.id); row('party_age', '48');
+
+  assert.deepEqual((await me(owner.token)).body.party, { owner: true, on: false, age: 48 });
+  assert.equal('party' in (await me(chosen.token)).body, false, 'not before the release');
+  const refused = await put(stranger.token, true);
+  assert.deepEqual([refused.status, refused.body], [404, { error: 'not_found' }]);
+  assert.equal((await put(chosen.token, true)).status, 404, 'the chosen player can\'t flip it either');
+  assert.equal(await partyFor(s.db), null);
+
+  const on = await put(owner.token, true);
+  assert.deepEqual([on.status, on.body], [200, { party: { owner: true, on: true, age: 48 } }]);
+  assert.deepEqual((await me(chosen.token)).body.party, { on: true, age: 48 });
+  assert.equal('party' in (await me(stranger.token)).body, false);
+  assert.equal(await partyFor(s.db), chosen.player.id);
+
+  assert.equal((await put(owner.token, 'yes')).status, 404);
+  assert.equal((await s.call('PUT', '/auth/party', { body: { on: true } })).status, 401, 'no session');
+  assert.equal((await put(owner.token, false)).body.party.on, false);
+  assert.equal(await partyFor(s.db), null);
+  assert.equal('party' in (await me(chosen.token)).body, false, 'withdrawn');
+
+  const pre = await s.call('OPTIONS', '/auth/party', { headers: { 'Access-Control-Request-Method': 'PUT' } });
+  assert.match(pre.headers.get('access-control-allow-methods'), /\bPUT\b/);
 });

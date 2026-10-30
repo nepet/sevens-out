@@ -6,6 +6,7 @@
  *     origins: allowed page origins, or null = any (development); passkeys belong to the origin's hostname
  *     limit(request) -> Promise<boolean>: false answers 429 (optional)
  *   resolveSession(db, token, now) -> { id, name } | null    for rooms (the `session` in hello)
+ *   partyFor(db) -> player ID | null                          for rooms: whose phone the party is for, while it is on
  *   originsFrom(ALLOWED_ORIGINS) -> string[] | null
  *
  * Routes (JSON; a session is `Authorization: Bearer <token>`):
@@ -21,6 +22,9 @@
  *   PATCH  /auth/me                  { name }                       -> { player }
  *   DELETE /auth/me                                                 -> 204           (deletes the player)
  *   POST   /auth/signout[?everywhere=1]                             -> 204           (this phone, or every phone)
+ *   PUT    /auth/party               { on }                         -> { party }     (the owner's session only; anyone else 404)
+ * GET /auth/me adds party: { owner: true, on, age } for the owner, { on: true, age } for the player it is for while on,
+ * nothing for anyone else; without the flags rows (server/d1 partyConfig) there is no party anywhere.
  * player = { id, name, tag, handle }: id is 16 hex chars, tag its first 4, handle `${id}-${name}`.
  * Errors answer { error: code }.
  */
@@ -46,6 +50,15 @@ export function originsFrom(list) {
   return !all.length || all.includes('*') ? null : all;
 }
 
+export async function partyFor(db) {
+  const cfg = await store.partyConfig(db);
+  return cfg && cfg.on ? cfg.for : null;
+}
+// what /auth/me tells this player about the party: the owner always, the player it is for only while it is on
+const partyOf = (cfg, id) => !cfg ? null
+  : id === cfg.owner ? { owner: true, on: cfg.on, age: cfg.age }
+  : id === cfg.for && cfg.on ? { on: true, age: cfg.age } : null;
+
 export async function resolveSession(db, token, now = Date.now()) {
   if (typeof token !== 'string' || !TOKEN_RE.test(token)) return null;
   return store.sessionUser(db, await sha256Hex(token), now);
@@ -61,7 +74,7 @@ export async function handleAuth(request, { db, origins = null, now = Date.now, 
   const allowed = !!origin && (!origins || origins.includes(origin));
   const headers = { 'content-type': 'application/json', 'cache-control': 'no-store' };
   if (allowed) Object.assign(headers, {
-    'access-control-allow-origin': origin, 'access-control-allow-methods': 'GET, POST, PATCH, DELETE',
+    'access-control-allow-origin': origin, 'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE',
     'access-control-allow-headers': 'authorization, content-type', 'access-control-max-age': '86400', vary: 'Origin'
   });
   const reply = (status, body) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers });
@@ -211,7 +224,10 @@ async function route(request, { db, origins, now }) {
 
   if (path === '/auth/me') {
     const { user } = await signedIn(request, db, now);
-    if (method === 'GET') return { body: { player: playerOf(user), passkeys: (await store.listPasskeys(db, user.id)).map(passkeyView) } };
+    if (method === 'GET') {
+      const party = partyOf(await store.partyConfig(db), user.id);
+      return { body: { player: playerOf(user), passkeys: (await store.listPasskeys(db, user.id)).map(passkeyView), ...(party ? { party } : {}) } };
+    }
     if (method === 'PATCH') {
       const name = cleanName((await readJson(request)).name);
       if (!name) refuse(400, 'name');
@@ -219,6 +235,17 @@ async function route(request, { db, origins, now }) {
       return { body: { player: playerOf({ id: user.id, name }) } };
     }
     if (method === 'DELETE') { await store.deleteUser(db, user.id); return { status: 204 }; }
+  }
+
+  // the owner's party switch; to everyone else it isn't there
+  if (at('PUT', '/auth/party')) {
+    const { user } = await signedIn(request, db, now);
+    const cfg = await store.partyConfig(db);
+    if (!cfg || user.id !== cfg.owner) refuse(404, 'not_found');
+    const { on } = await readJson(request);
+    if (typeof on !== 'boolean') refuse(404, 'not_found');
+    await store.setPartyOn(db, on, now);
+    return { body: { party: partyOf({ ...cfg, on }, user.id) } };
   }
 
   if (at('POST', '/auth/signout')) {
