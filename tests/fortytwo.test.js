@@ -30,13 +30,17 @@ test('a throw counts the three dice besides a 4 and a 2', () => {
   assert.equal(E.throwPts([2, 6, 6, 6, 6]), 0);
 });
 
-test('the lowest throw loses the round; a tie goes against more rolls, then the later player', () => {
+test('the lowest throw loses the round; a tie goes against the later player, whatever the rolls', () => {
   const rd = (starter, results) => ({ starter, results });
   assert.equal(E.roundLoser(rd(0, { 0: { pts: 12, rolls: 1 }, 1: { pts: 0, rolls: 1 }, 2: { pts: 5, rolls: 3 } }), 3), 1);
-  assert.equal(E.roundLoser(rd(0, { 0: { pts: 7, rolls: 3 }, 1: { pts: 7, rolls: 1 }, 2: { pts: 9, rolls: 1 } }), 3), 0);
+  assert.equal(E.roundLoser(rd(0, { 0: { pts: 7, rolls: 3 }, 1: { pts: 7, rolls: 1 }, 2: { pts: 9, rolls: 1 } }), 3), 1);
   assert.equal(E.roundLoser(rd(0, { 0: { pts: 7, rolls: 2 }, 1: { pts: 7, rolls: 2 }, 2: { pts: 9, rolls: 1 } }), 3), 1);
+  // every no 42 is the same: 2-3-6-6-5 in three rolls and 1-1-1-3-4 in one, the later player loses
+  assert.equal(E.throwPts([2, 3, 6, 6, 5]), E.throwPts([1, 1, 1, 3, 4]));
+  assert.equal(E.roundLoser(rd(0, { 0: { pts: 0, rolls: 3 }, 1: { pts: 0, rolls: 1 }, 2: { pts: 9, rolls: 1 } }), 3), 1);
   // the order follows the round's starter: P3 started, so P1 played after P3
-  assert.equal(E.roundLoser(rd(2, { 0: { pts: 0, rolls: 3 }, 1: { pts: 4, rolls: 1 }, 2: { pts: 0, rolls: 3 } }), 3), 0);
+  assert.equal(E.roundLoser(rd(2, { 0: { pts: 0, rolls: 1 }, 1: { pts: 4, rolls: 1 }, 2: { pts: 0, rolls: 3 } }), 3), 0);
+  assert.equal(E.roundLoser(rd(0, { 0: { pts: 0, rolls: 1 }, 1: { pts: 4, rolls: 1 }, 2: { pts: 0, rolls: 3 } }), 3), 2);
 });
 
 test('a 42/18 game starts with five dice and no pairs; Sevens Out games stay as they were', () => {
@@ -129,11 +133,11 @@ test('the round loser takes a coaster and starts the next round; the first to 3 
   // round 2 (P2, P3, P1): P2 again, so P2 is one coaster from losing
   s = score(s, 3); s = score(s, 4); s = score(s, 9);
   assert.deepEqual(E.roundRecap(s.game).best, { kind: 'lastCoaster', player: 1, value: 2 });
-  // round 3: a tie on 6, P1 needed more rolls
-  s = score(s, 12); s = score(s, 6, 1); const end = scored(s, 6, 3);
+  // round 3 (P2, P3, P1): a tie on 6; P1 needed fewer rolls but played later
+  s = score(s, 12); s = score(s, 6, 3); const end = scored(s, 6, 1);
   assert.deepEqual(end.state.game.players.map(p => p.score), [1, 2, 0]);
   assert.equal(end.state.game.starter, 0);
-  assert.deepEqual(E.roundRecap(end.state.game).reason, { kind: 'rolls', score: 6 });
+  assert.deepEqual(E.roundRecap(end.state.game).reason, { kind: 'later', score: 6 });
   s = end.state;
   // round 4 (P1, P2, P3): P2 takes the third coaster
   s = score(s, 8); s = score(s, 7); const over = scored(s, 8);

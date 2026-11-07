@@ -135,7 +135,7 @@
   // (so at most five rolls, FT_ROLLS), or stop. A throw counts
   // when it holds a 4 and a 2 (the 42): the other three dice are its points, 3 to 18 (42/18, three 6s, is the best).
   // Without a 4 and a 2 it is "no 42" (0 points), the worst. The lowest throw loses the round and takes a coaster
-  // (a tie: more rolls lose, then the later player); the round's loser starts the next one. The first to COASTERS loses.
+  // (a tie: the later player, "mit ist Schiss"); the round's loser starts the next one. The first to COASTERS loses.
   // A player's `score` is their coasters, so higher is worse in both games.
   // Whoever throws 42/18 is out at once: safe for the rest of the game (`players[i].out`, the round it was thrown in);
   // the others play on without them, and the last player left loses.
@@ -159,14 +159,14 @@
   const ftLeft = g => g.players.map((_, i) => i).filter(i => g.players[i].out == null);
   // the dice show 42/18: the roll that shows it ends the turn (the player is out); a game saved before that can only end it
   const ftPerfect = t => t.rolls > 0 && throwPts(t.dice.map(d => d.value)) === FT_MAX;
-  // the round's loser: the lowest throw; on a tie the one who needed more rolls, then the later player in the round's order
+  // the round's loser: the lowest throw; on a tie the later player in the round's order ("mit ist Schiss": the rolls
+  // don't count, and every throw without a 4 and a 2 is the same no 42)
   function roundLoser(rd, n) {
     let L = null;
     for (const p of orderFrom(rd.starter, n)) {
       const r = rd.results[p];
       if (!r) continue;
-      const l = L === null ? null : rd.results[L];
-      if (!l || r.pts < l.pts || (r.pts === l.pts && (r.rolls || 0) >= (l.rolls || 0))) L = p;
+      if (L === null || r.pts <= rd.results[L].pts) L = p;
     }
     return L;
   }
@@ -196,8 +196,7 @@
     (after[L] === COASTERS - 1 && pick('lastCoaster', L, after[L])) ||
     (low.pts === 0 && pick('no42', L));
     const tied = order.filter(i => res[i] && res[i].pts === low.pts);
-    const others = tied.filter(i => i !== L);
-    const reason = { kind: !others.length ? 'low' : others.every(i => (res[i].rolls || 0) < (low.rolls || 0)) ? 'rolls' : 'later', score: low.pts };
+    const reason = { kind: tied.length > 1 ? 'later' : 'low', score: low.pts };
     return { round: rd.no, next: g.rounds[fin + 1].starter, order, pts, before, after, best, reason, results: res, kind: FT };
   }
 

@@ -2828,12 +2828,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const rd = g.rounds[g.rounds.length - 1], L = E.roundLoser(rd, g.players.length);
     return L == null ? null : { player:L, pts:rd.results[L].pts, rolls:rd.results[L].rolls || 0 };
   }
-  // does a throw (pts, rolls) beat the lowest so far? The current player plays after everyone in it, so a tie on
-  // points and rolls goes against them; with rolls unknown yet (real dice), a tie on points is undecided (null)
-  function beats(low, pts, rolls){
-    if (pts !== low.pts) return pts > low.pts;
-    return rolls ? rolls < low.rolls : null;
-  }
+  // does a throw beat the lowest so far? The current player plays after everyone in it, so a tie goes against them
+  // ("mit ist Schiss": the rolls don't count)
+  const beats = (low, pts) => pts > low.pts;
   // Schocken: the round's highest and lowest throws so far (blind ones are still under their cups). The line is always
   // there, so the mat doesn't move between turns
   function skStand(g){
@@ -2985,7 +2982,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     else if (done) mid = `<button class="btn primary rollbtn" data-act="end"><b>End<span class="sr"> turn</span></b> <small>${val}</small></button>`;
     else mid = `<button class="btn primary rollbtn${mustKeep ? ' keepfirst' : ''}" data-act="roll"><b>Roll</b> <small>${mustKeep ? 'keep one' : diceWord(nAct)}</small></button>`;
     // with a throw to beat, the cell says whether this one beats it (stopping now) or is the lowest now
-    const low = toBeat(g), win = rolled && low ? beats(low, pts, t.rolls) : null;
+    const low = toBeat(g), win = rolled && low ? beats(low, pts) : null;
     const tag = !rolled ? 'need 4 + 2' : !low ? 'your throw' : win ? 'beats it' : 'lowest now';
     const throwCell = `<div class="rackcell throwcell${rolled && low && !win ? ' low' : ''}" role="img" aria-label="${rolled ? `Throw so far: ${throwLabel(pts)}${low ? `, ${win ? 'beats' : 'lower than'} ${pname(low.player)}'s` : ''}` : 'No throw yet'}"><b aria-hidden="true">${val}</b><small class="racklabel" aria-hidden="true">${tag}</small></div>`;
     const actions = ui.handoff ? handoffBar() + throwCell : act ? `<div class="c4cell c4left">${left}</div>${mid}${throwCell}` : waiting(pname(p), rolled ? 'finish their turn' : 'roll') + throwCell;
@@ -3000,7 +2997,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </section>` + `<div class="bar leather c4bar${act && !ui.handoff ? '' : ' wait'}">${actions}</div>`;
   }
   // 42/18 with real dice: the points besides the 4 and the 2 (3–18) on the keypad, or No 42, and the rolls used
-  // (everyone gives them: on a tie for the lowest throw, more rolls lose)
+  // (everyone gives them, for the score sheet; they don't break a tie)
   function viewScoreFT(){
     const g = state.game, p = current(g), act = canAct();
     const eyebrow = `Round ${g.round} · Up to ${plural(FT_ROLLS, 'roll')}`;
@@ -3013,9 +3010,9 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     else if (!ok) label = 'Points are 3 to 18';
     else if (!ui.rolls) label = 'Choose the rolls used';
     else { label = `Save · ${pname(p)} ${throwShort(val)}`; ready = true; }
-    const low = toBeat(g), win = ok && low ? beats(low, val, ui.rolls) : null;
+    const low = toBeat(g), win = ok && low ? beats(low, val) : null;
     const last = g.pos === g.order.length - 1;
-    const versus = !ok || !low ? '' : win ? `Beats ${pname(low.player)}.` : win === false ? (last ? 'The lowest: that takes the coaster.' : 'The lowest so far.') : `Tied with ${pname(low.player)}: fewer rolls beat it.`;
+    const versus = !ok || !low ? '' : win ? `Beats ${pname(low.player)}.` : val === low.pts ? `Tied with ${pname(low.player)}: a tie goes against you.` : last ? 'The lowest: that takes the coaster.' : 'The lowest so far.';
     let hint = ui.hint != null ? ui.hint : val === FT_MAX ? '42/18, three 6s: out and safe for the rest of the game.'
       : versus || (val === 0 ? 'No 42: there was no 4 and 2 among the five dice.' : '');
     if (!ui.hint && coveringFor()) hint = `${pname(p)} is offline. As the host you can enter the throw for them.`;
@@ -3446,7 +3443,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play 42/18</summary><ol>
       <li>On your turn you roll five dice. After each roll keep at least one die and roll the rest again, as long as dice are left, so at most five rolls. You can stop after any roll.</li>
       <li>Your throw needs a 4 and a 2: that's the 42. The other three dice are your points, 3 to 18. With three 6s it's 42/18, the best throw. Without a 4 and a 2 it's "no 42", the worst.</li>
-      <li>Everyone plays one turn a round. The lowest throw loses the round and takes a coaster. On a tie, whoever needed more rolls loses; still tied, whoever played later.</li>
+      <li>Everyone plays one turn a round. The lowest throw loses the round and takes a coaster. On a tie, whoever played later loses, however many rolls they needed. Every throw without a 4 and a 2 is the same: no 42.</li>
       <li>The players choose who starts the first round. After that, the round's loser starts the next one.</li>
       <li>Throw 42/18 and you're out at once: safe for the rest of the game. The others play on without you.</li>
       <li>The first to take ${COASTERS} coasters loses the game, and so does the last player left when everyone else is out.</li>

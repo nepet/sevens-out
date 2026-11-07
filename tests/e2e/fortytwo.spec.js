@@ -137,11 +137,13 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   await page.click('[data-act=commit]');
   await expect(page.locator('#app .tobeat')).toHaveText('To beat: Anna · 42 + 15 in 2 rolls');
   for (const k of ['1', '5']) await page.click(`[data-act=key][data-id="${k}"]`);
-  await expect(page.locator('#app .mat .hint')).toHaveText('Tied with Anna: fewer rolls beat it.');
+  await expect(page.locator('#app .mat .hint')).toHaveText('Tied with Anna: a tie goes against you.');
   await page.click('[data-act=rolls][data-id="1"]');
-  await expect(page.locator('#app .mat .hint')).toHaveText('Beats Anna.');
-  await page.click('[data-act=rolls][data-id="2"]');
+  await expect(page.locator('#app .mat .hint')).toHaveText('Tied with Anna: a tie goes against you.');
+  await page.click('[data-act=back]'); await page.click('[data-act=key][data-id="4"]');
   await expect(page.locator('#app .mat .hint')).toHaveText('The lowest: that takes the coaster.');
+  await page.click('[data-act=back]'); await page.click('[data-act=key][data-id="6"]');
+  await expect(page.locator('#app .mat .hint')).toHaveText('Beats Anna.');
   await enterThrow(page, 0);                 // Ben: no 42, takes a coaster and starts round 2
   await skipRace(page);
   let s = await live(page);
@@ -160,7 +162,7 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   expect(s.game.starter).toBe(1);
   await expect(page.locator('#app .who')).toContainText('Ben');
   // round 3: Ben takes the third coaster
-  await enterThrow(page, 3, 2); await enterThrow(page, 3, 1);
+  await enterThrow(page, 3, 2); await enterThrow(page, 4, 1);
   await idle(page);
   await expect(page.locator('.verdict')).toContainText('Ben loses');
   await expect(page.locator('#app .panel .sub')).toHaveText('Ben took coaster number 3 with 42 + 3, the lowest throw of round 3.');
