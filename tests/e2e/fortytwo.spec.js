@@ -8,7 +8,7 @@ import { url, live, idle, skipRace, fixDice, noSideScroll, openMenu, closeMenu, 
 test.use({ contextOptions: { reducedMotion: 'reduce' } });
 
 // home → Play sheet (42/18, at this table, the dice) → Who's playing → Start
-async function start42(page, { names = ['Anna', 'Ben'], mode = 'dice' } = {}) {
+async function start42(page, { names = ['Anna', 'Ben'], mode = 'dice', coasters } = {}) {
   await page.goto(url('/'));
   await page.click('[data-act=play]');
   await page.click('[data-act=kind][data-id="1"]');
@@ -16,8 +16,9 @@ async function start42(page, { names = ['Anna', 'Ben'], mode = 'dice' } = {}) {
   if (await page.locator('[data-act=where][data-id="0"]').count()) await page.click('[data-act=where][data-id="0"]');
   await page.click(`[data-act=mode][data-id="${mode === 'score' ? 1 : 0}"]`);
   await expect(page.locator('.sheet-layer [data-act=pairing]')).toHaveCount(0); // no 7s in 42/18
+  if (coasters) await page.click(`.sheet-layer [data-act=coasters][data-id="${coasters}"]`);
   await page.click('[data-act=players]');
-  await expect(page.locator('.moderow')).toContainText(`42/18 · ${mode === 'score' ? 'Real dice' : 'Dice in the app'}`);
+  await expect(page.locator('.moderow')).toContainText(`42/18 · ${mode === 'score' ? 'Real dice' : 'Dice in the app'} · ${coasters || 3} coasters`);
   for (let i = 2; i < names.length; i++) await page.click('[data-act=add]');
   for (let i = 0; i < names.length; i++) await page.fill(`#name-${i}`, names[i]);
   await page.click('[data-act=start]');
@@ -28,7 +29,8 @@ async function enterThrow(page, pts, rolls = 1) {
   await page.click('[data-act=clear]');
   if (pts === 0) await page.click('[data-act=no42]');
   else for (const ch of String(pts)) await page.click(`[data-act=key][data-id="${ch}"]`);
-  await page.click(`[data-act=rolls][data-id="${rolls}"]`);
+  // only the round's starter enters the rolls
+  if (await page.locator('#app [data-act=rolls]').count()) await page.click(`[data-act=rolls][data-id="${rolls}"]`);
   await page.click('[data-act=commit]');
 }
 const mat = page => page.locator('#app .mat .dice');
@@ -138,8 +140,10 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   await expect(page.locator('#app .tobeat')).toHaveText('To beat: Anna · 42 + 15 in 2 rolls');
   for (const k of ['1', '5']) await page.click(`[data-act=key][data-id="${k}"]`);
   await expect(page.locator('#app .mat .hint')).toHaveText('Tied with Anna: a tie goes against you.');
-  await page.click('[data-act=rolls][data-id="1"]');
-  await expect(page.locator('#app .mat .hint')).toHaveText('Tied with Anna: a tie goes against you.');
+  // Ben doesn't start the round: no rolls to enter
+  await expect(page.locator('#app [data-act=rolls]')).toHaveCount(0);
+  await expect(page.locator('#app [data-act=commit]')).toHaveText('Save · Ben 42+15');
+  await expect(page.locator('#app .eyebrow')).toHaveText('Round 1 · Up to 5 rolls');
   await page.click('[data-act=back]'); await page.click('[data-act=key][data-id="4"]');
   await expect(page.locator('#app .mat .hint')).toHaveText('The lowest: that takes the coaster.');
   await page.click('[data-act=back]'); await page.click('[data-act=key][data-id="6"]');
@@ -173,6 +177,40 @@ test('real dice: throws, No 42, a correction, and game over at three coasters', 
   const r = checkReport(reports[0], globalThis.SevensEngine);
   expect(r.error).toBeUndefined();
   expect(r.state.game.loser).toBe((await live(page)).game.loser);
+});
+
+test('the Play sheet picks the coasters that lose: 3 by default, 5 or 7; only 42/18 shows the choice', async ({ page }) => {
+  await page.goto(url('/'));
+  await page.click('[data-act=play]');
+  await expect(page.locator('.sheet-layer [data-act=coasters]')).toHaveCount(0); // Sevens Out
+  await page.click('[data-act=kind][data-id="1"]');
+  await expect(page.locator('.sheet-layer [data-act=coasters]')).toHaveText(['3', '5', '7']);
+  await expect(page.locator('.sheet-layer [data-act=coasters][data-id="3"]')).toHaveAttribute('aria-pressed', 'true');
+  for (const box of await page.locator('.sheet-layer [data-act=coasters]').evaluateAll(bs => bs.map(b => b.getBoundingClientRect().height))) expect(box).toBeGreaterThanOrEqual(44);
+  await page.keyboard.press('Escape');
+  const reports = [];
+  await page.route('**/report', async route => { reports.push(route.request().postDataJSON()); await route.fulfill({ status: 204 }); });
+  await start42(page, { mode: 'score', coasters: 5 });
+  let s = await live(page);
+  expect(s.game.coasters).toBe(5);
+  expect(s.setup.coasters).toBe(5);
+  await openScores(page);
+  await expect(page.locator('#app .board .bhead')).toContainText('5 coasters lose');
+  await closeScores(page);
+  // Ben throws lowest every round: four coasters and he plays on, the fifth ends it
+  for (let i = 0; i < 5; i++) {
+    for (let k = 0; k < 2; k++) { const g = (await live(page)).game; await enterThrow(page, g.order[g.pos] === 1 ? 4 : 9); }
+    if (i < 4) await skipRace(page);
+  }
+  await idle(page);
+  await expect(page.locator('.verdict')).toContainText('Ben loses');
+  expect((await live(page)).game.players.map(p => p.score)).toEqual([0, 5]);
+  // the report carries the limit, and the server's check rebuilds the same result
+  await expect.poll(() => reports.length).toBe(1);
+  expect(reports[0].coasters).toBe(5);
+  const r = checkReport(reports[0], globalThis.SevensEngine, Date.now());
+  expect(r.error).toBeUndefined();
+  expect(r.state.game.loser).toBe(1);
 });
 
 test('real dice: a 42/18 puts the player out, it can only be undone, and the last player left loses', async ({ page }) => {
@@ -238,6 +276,10 @@ test.describe('online', () => {
     await expect(b.locator('[data-act=okind][data-id="0"]')).toHaveAttribute('aria-pressed', 'true');
     await a.click('[data-act=okind][data-id="1"]');
     await expect(b.locator('[data-act=okind][data-id="1"]')).toHaveAttribute('aria-pressed', 'true');
+    // the host picks 7 coasters; the guest sees it and can't change it
+    await a.click('[data-act=ocoasters][data-id="7"]');
+    await expect(b.locator('[data-act=ocoasters][data-id="7"]')).toHaveAttribute('aria-pressed', 'true');
+    await expect(b.locator('[data-act=ocoasters][data-id="7"]')).toBeDisabled();
     await a.click('[data-act=ostart]');
     await expect(a.locator('[data-act=roll]')).toBeVisible();
     await expect(b.locator('#app .bar .waiting')).toContainText('Waiting for Anna to roll');
@@ -251,6 +293,7 @@ test.describe('online', () => {
     await expect.poll(async () => (await live(a)).game.pos).toBe(1);
     const sa = await live(a), sb = await live(b);
     expect(sa.game.kind).toBe('4218');
+    expect(sa.game.coasters).toBe(7);
     expect(sb.game.rounds).toEqual(sa.game.rounds);
     expect(sb.game.rounds[0].results[0].rolls).toBe(1);
     await A.close(); await B.close();

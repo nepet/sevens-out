@@ -43,6 +43,27 @@ test('the lowest throw loses the round; a tie goes against the later player, wha
   assert.equal(E.roundLoser(rd(0, { 0: { pts: 0, rolls: 1 }, 1: { pts: 4, rolls: 1 }, 2: { pts: 0, rolls: 3 } }), 3), 2);
 });
 
+test('the coasters that lose: 3 by default (and in games saved before the choice), 5 or 7 when chosen', () => {
+  const names = ['A', 'B'];
+  const of = coasters => must(E.blank(), { type: 'start', names, starter: 0, mode: 'score', kind: '4218', coasters }).state;
+  assert.equal(of(undefined).game.coasters, 3);
+  assert.equal(of(4).game.coasters, 3);
+  assert.equal(of(7).game.coasters, 7);
+  const old = of(5); delete old.game.coasters;
+  assert.equal(E.ftLimit(old.game), 3, 'an old save loses at 3');
+  // first to 5: B's fourth coaster doesn't end it, the fifth does
+  let s = of(5);
+  const round = st => { for (let k = 0; k < 2; k++) st = score(st, st.game.order[st.game.pos] === 1 ? 4 : 9); return st; }; // B throws lowest
+  for (let i = 0; i < 4; i++) s = round(s);
+  assert.equal(s.phase, 'play');
+  assert.deepEqual(s.game.players.map(p => p.score), [0, 4]);
+  assert.deepEqual(E.roundRecap(s.game).best, { kind: 'lastCoaster', player: 1, value: 4 });
+  assert.equal(E.roundRecap(s.game).limit, 5);
+  s = round(s);
+  assert.equal(s.phase, 'over');
+  assert.equal(s.game.loser, 1);
+});
+
 test('a 42/18 game starts with five dice and no pairs; Sevens Out games stay as they were', () => {
   const s = start(3, 1);
   assert.equal(s.game.kind, '4218');
@@ -146,14 +167,18 @@ test('the round loser takes a coaster and starts the next round; the first to 3 
   assert.deepEqual(over.events.map(e => e.type), ['turn', 'gameOver']);
 });
 
-test('real dice: points are 0 (no 42) or 3 to 18, and everyone gives the rolls used (1 to 5)', () => {
+test('real dice: points are 0 (no 42) or 3 to 18, and only the starter gives the rolls used (1 to 5)', () => {
   const s = start(2, 0, 'score');
   for (const pts of [1, 2, 19, -1, 4.5]) assert.equal(E.apply(s, { type: 'score', pts, rolls: 1 }).error, 'pts');
   assert.equal(E.apply(s, { type: 'score', pts: 9 }).error, 'rolls');
   assert.equal(E.apply(s, { type: 'score', pts: 9, rolls: 6 }).error, 'rolls');
   assert.ok(!E.apply(s, { type: 'score', pts: 9, rolls: 5 }).error, 'up to five rolls');
   const next = score(s, 9, 2);
-  assert.equal(E.apply(next, { type: 'score', pts: 9 }).error, 'rolls'); // not only the starter
+  assert.equal(E.apply(next, { type: 'score', pts: 9, rolls: 6 }).error, 'rolls');
+  const other = must(next, { type: 'score', pts: 7 }).state; // the others give no rolls
+  assert.deepEqual(other.game.rounds[0].results[1], { pts: 7, rolls: null });
+  const old = must(next, { type: 'score', pts: 7, rolls: 3 }).state; // an older page sends them: dropped
+  assert.deepEqual(old.game.rounds[0].results[1], { pts: 7, rolls: null });
   const u = must(next, { type: 'undo' });
   assert.deepEqual(u.state.game.rounds[0].results, {});
 });
@@ -257,8 +282,9 @@ test('random 42/18 games follow every rule', () => {
         return;
       }
       assert.equal(Object.keys(rd.results).length, plays.length, `round ${rd.no} complete`);
-      for (const r of Object.values(rd.results)) {
-        assert.ok(r.rolls >= 1 && r.rolls <= 5, 'rolls within 5');
+      for (const [i, r] of Object.entries(rd.results)) {
+        if (real && +i !== rd.starter) assert.equal(r.rolls, null, 'only the starter enters the rolls');
+        else assert.ok(r.rolls >= 1 && r.rolls <= 5, 'rolls within 5');
         assert.ok(r.pts === 0 || (r.pts >= 3 && r.pts <= 18), 'points of a throw');
       }
       const low = Math.min(...Object.values(rd.results).map(r => r.pts));

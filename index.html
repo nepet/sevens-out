@@ -1727,7 +1727,11 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   const kindsShown = () => KINDS.map((k, i) => [k, i]).filter(([k]) => kindOn(k[0]));
   const throwLabel = pts => pts ? `42 + ${pts}` : 'No 42';   // a throw in words
   const throwShort = pts => pts ? `42+${pts}` : 'no 42';     // in the score list
-  const limitOf = g => isFT(g) ? COASTERS : isSK(g) ? SK_POT : LIMIT;
+  // 42/18: the coasters that lose (3, 5 or 7, chosen in the Play sheet or the lobby); an old cached engine.js knows only 3
+  const FT_LIMITS = Array.isArray(E.FT_LIMITS) ? E.FT_LIMITS : [COASTERS];
+  const ftLim = g => (typeof E.ftLimit === 'function' ? E.ftLimit(g) : COASTERS);
+  const setLim = s => (FT_LIMITS.includes(s && s.coasters) ? s.coasters : COASTERS);
+  const limitOf = g => isFT(g) ? ftLim(g) : isSK(g) ? SK_POT : LIMIT;
   // Schocken: a throw (a result {dice, hand, blind}) in words and short, and the half
   function skLabel(r){
     if (!r) return '';
@@ -2150,7 +2154,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           if (w.kind && w.kind !== 'sevens') set.kind = w.kind;
           if (w.mode !== 'dice') set.mode = w.mode;
           if (w.pairing !== 'manual') set.pairing = w.pairing;
-          if (set.kind || set.mode || set.pairing) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
+          if (w.kind === FT && w.coasters !== COASTERS) set.coasters = w.coasters;
+          if (set.kind || set.mode || set.pairing || set.coasters) try { net.ws.send(JSON.stringify(set)); } catch (e) {}
         }
         party.room = false; party.seat = null; party.viewer = null; // the room says it again after its room message
         net.seat = m.seat || null; net.viewer = m.viewer || null; if (m.token) net.token = m.token; net.creating = false; net.createWith = null; saveOnline();
@@ -2628,7 +2633,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function endingAlert(g){
     if (!g.ending) return '';
     if (isFT(g)){
-      const i = g.order.find(k => g.players[k].score >= COASTERS);
+      const i = g.order.find(k => g.players[k].score >= ftLim(g));
       return i == null ? '' : `<p class="alert"><strong>${esc(pname(i))} has ${coasterWord(g.players[i].score)}.</strong> Last round: then the most coasters lose.</p>`;
     }
     return `<p class="alert"><strong>${esc(pname(g.crosser))} is at ${g.players[g.crosser].score}.</strong> Last round: the highest score loses.</p>`;
@@ -2659,7 +2664,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     }).join('');
     const head = over ? 'Final scores' : `Round ${g.round} · <b>${esc(g.players[g.starter].name)}</b> starts`;
     const cls = listClass(g) + (isFT(g) ? ' ft' : isSK(g) ? ' sk' : '');
-    const right = isFT(g) ? `${COASTERS} coasters lose` : isSK(g) ? (over ? 'coasters' : `${halfWord(g.half)} · ${potWord(g).toLowerCase()}`) : `to ${LIMIT}`;
+    const right = isFT(g) ? `${ftLim(g)} coasters lose` : isSK(g) ? (over ? 'coasters' : `${halfWord(g.half)} · ${potWord(g).toLowerCase()}`) : `to ${LIMIT}`;
     return `<section class="board${cls.trim() ? ` ${cls.trim()}` : ''}" aria-label="Scores"><div class="bhead"><span>${head}</span><span>${right}</span></div>
       <ol class="lines"${edit ? ' role="none"' : ''}>${lines}</ol>${edit ? '<p class="bfoot">Tap a name to correct a score</p>' : ''}</section>`;
   }
@@ -2826,7 +2831,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   // always there in 42/18 (the first player sees that nobody has thrown yet), so the mat doesn't move between turns
   function toBeat(g){
     const rd = g.rounds[g.rounds.length - 1], L = E.roundLoser(rd, g.players.length);
-    return L == null ? null : { player:L, pts:rd.results[L].pts, rolls:rd.results[L].rolls || 0 };
+    return L == null ? null : { player:L, pts:rd.results[L].pts, rolls:rd.results[L].rolls || null };
   }
   // does a throw beat the lowest so far? The current player plays after everyone in it, so a tie goes against them
   // ("mit ist Schiss": the rolls don't count)
@@ -2854,7 +2859,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function toBeatLine(g){
     const low = toBeat(g);
     if (!low) return '<p class="tobeat">First throw of the round: nothing to beat yet.</p>';
-    return `<p class="tobeat">To beat: <b>${esc(pname(low.player))}</b> · ${throwLabel(low.pts)} in ${plural(low.rolls, 'roll')}</p>`;
+    return `<p class="tobeat">To beat: <b>${esc(pname(low.player))}</b> · ${throwLabel(low.pts)}${low.rolls ? ` in ${plural(low.rolls, 'roll')}` : ''}</p>`;
   }
   // the chip keeps to one line: the names shorten to their first 3 letters when they don't fit, then the chip tightens
   // in two steps (the second drops the chevron), then the names shorten to their first letter (six 3-digit totals on
@@ -2997,10 +3002,10 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       </section>` + `<div class="bar leather c4bar${act && !ui.handoff ? '' : ' wait'}">${actions}</div>`;
   }
   // 42/18 with real dice: the points besides the 4 and the 2 (3–18) on the keypad, or No 42, and the rolls used
-  // (everyone gives them, for the score sheet; they don't break a tie)
+  // (only the round's starter gives them, as in Sevens Out; they don't break a tie)
   function viewScoreFT(){
-    const g = state.game, p = current(g), act = canAct();
-    const eyebrow = `Round ${g.round} · Up to ${plural(FT_ROLLS, 'roll')}`;
+    const g = state.game, p = current(g), act = canAct(), isStarter = g.pos === 0;
+    const eyebrow = `Round ${g.round} · ${isStarter ? 'Starts the round · up' : 'Up'} to ${plural(FT_ROLLS, 'roll')}`;
     const val = ui.entry === '' ? null : +ui.entry, ok = val !== null && okPts(g, val);
     const keys = [1,2,3,4,5,6,7,8,9].map(k => `<button class="key" data-act="key" data-id="${k}">${k}</button>`).join('')
       + `<button class="key fn" data-act="clear">Clear</button><button class="key" data-act="key" data-id="0">0</button><button class="key fn" data-act="back" aria-label="Delete last digit">⌫</button>`;
@@ -3008,7 +3013,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     let label, ready = false;
     if (val === null) label = 'Enter the points';
     else if (!ok) label = 'Points are 3 to 18';
-    else if (!ui.rolls) label = 'Choose the rolls used';
+    else if (isStarter && !ui.rolls) label = 'Choose the rolls used';
     else { label = `Save · ${pname(p)} ${throwShort(val)}`; ready = true; }
     const low = toBeat(g), win = ok && low ? beats(low, val) : null;
     const last = g.pos === g.order.length - 1;
@@ -3023,7 +3028,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
             <div class="entry" aria-live="polite">${shown}</div></div>
           <div class="pad">${keys}</div>
           <div class="ftrow"><button class="btn small no42${val === 0 ? ' on' : ''}" data-act="no42" aria-pressed="${val === 0}">No 42</button></div>
-          ${rollPick}`
+          ${isStarter ? rollPick : ''}`
       : '';
     const actions = act ? `<button class="btn primary save" data-act="commit"${ready ? '' : ' disabled'}>${esc(label)}</button>` : waiting(pname(p), 'enter their throw');
     return chipHeader(g, p) + `
@@ -3263,6 +3268,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     const diceSet = `<fieldset class="choice"><legend class="h3">Dice</legend><div class="cards">
         ${opt('mode', 0, mode === 'dice', 'play', 'In the app', 'Tap to roll')}${opt('mode', 1, mode === 'score', 'real', 'Real dice', 'Enter scores here')}</div></fieldset>`;
     const sw = mode === 'dice' && kind === 'sevens' ? pairSwitch(auto, 'pairing', 'autopair') : '';
+    const lose = kind === FT ? coastersPick(setLim(s), 'coasters') : '';
     let next;
     if (where === 'table') next = `<button class="btn primary" data-act="players">${homeScreen() === 'players' ? 'Done' : 'Next: who\'s playing'}</button>`;
     else {
@@ -3272,12 +3278,21 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
           <input type="text" id="oname" class="text-in" data-online="name" value="${esc(name)}" placeholder="Your name" maxlength="16" autocomplete="nickname" enterkeyhint="go"></label>` : '';
       next = field + '<button class="btn primary" data-act="ocreate">Create room</button>';
     }
-    return gameSet + whereSet + diceSet + sw + `<div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${next}</div>`;
+    return gameSet + lose + whereSet + diceSet + sw + `<div class="sheet-foot"><p class="hint" aria-live="polite">${esc(ui.hint || '')}</p>${next}</div>`;
+  }
+  // 42/18: how many coasters lose the game, 3, 5 or 7 (only when the engine knows the choice); act: coasters | ocoasters
+  function coastersPick(lim, act, dis = ''){
+    if (FT_LIMITS.length < 2) return '';
+    const id = `${act}-h`;
+    const seg = `<div class="seg small" role="group" aria-labelledby="${id}">${FT_LIMITS.map(n =>
+      `<button class="segbtn${lim === n ? ' on' : ''}" data-act="${act}" data-id="${n}" aria-pressed="${lim === n}"${dis}>${n}</button>`).join('')}</div>`;
+    return act === 'ocoasters' ? `<div class="setrow"><span class="setlbl" id="${id}">Coasters to lose</span>${seg}</div>`
+      : `<div class="soundpick coastpick"><span class="h3" id="${id}">Coasters to lose</span>${seg}</div>`;
   }
   // Who's playing (one phone): the players card (a starter die, the name, You / This is me, remove), who starts
   // round 1, a compact row for the dice choices (it opens the Play sheet), and Start game pinned to the bottom
   function modeLine(s){
-    if (kindOf(s) === FT) return `42/18 · ${s.mode === 'score' ? 'Real dice' : 'Dice in the app'}`;
+    if (kindOf(s) === FT) return `42/18 · ${s.mode === 'score' ? 'Real dice' : 'Dice in the app'}${FT_LIMITS.length > 1 ? ` · ${setLim(s)} coasters` : ''}`;
     if (kindOf(s) === SK) return `Schocken · ${s.mode === 'score' ? 'Real dice' : 'Dice in the app'}`;
     return (kindsShown().length > 1 ? 'Sevens Out · ' : '') + (s.mode === 'score' ? 'Real dice' : `Dice in the app · ${s.pairing === 'auto' ? 'The app finds the 7s' : 'You find the 7s'}`);
   }
@@ -3401,6 +3416,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         <h2 class="h3" id="set-h">Settings${host ? '' : ' · the host picks'}</h2>
         <div class="pcard setcard">
           ${kindsShown().length > 1 ? `<div class="setrow"><span class="setlbl" id="okind-h">Game</span>${kindSeg}</div>` : ''}
+          ${kind === FT && r.settings.coasters != null ? coastersPick(setLim(r.settings), 'ocoasters', dis) : ''}
           <div class="setrow"><span class="setlbl" id="omode-h">Dice</span>${modeSeg}</div>
           ${mode === 'dice' && kind === 'sevens' ? pairSwitch(r.settings.pairing === 'auto', 'opairing', 'opair', host) : ''}
           <div class="setrow col"><span class="setlbl" id="ostart-h">Who starts</span>${starterSeg}</div>
@@ -3427,7 +3443,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
   function rules(){
     const set = online() && net.room ? net.room.settings : state.setup;
     const mode = state.game ? state.game.mode : set.mode;
-    if (state.game ? isFT(state.game) : kindOf(set) === FT) return rulesFT(mode);
+    if (state.game ? isFT(state.game) : kindOf(set) === FT) return rulesFT(mode, state.game ? ftLim(state.game) : setLim(set));
     if (state.game ? isSK(state.game) : kindOf(set) === SK) return rulesSK(mode);
     const hand = state.game ? E.byHand(state.game) : mode !== 'score' && set.pairing !== 'auto';
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play</summary><ol>
@@ -3439,15 +3455,15 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     </ol>${mode === 'score' ? '' : `<p class="note">${hand ? 'Find the 7s yourself: tap two dice that add up to 7 to set them aside.' : 'The app sets pairs aside for you after each roll.'} Tap a pair from the current roll to put it back before rolling again.</p>`}</details>`;
   }
 
-  function rulesFT(mode){
+  function rulesFT(mode, lim){
     return `<details class="fold" data-fold="rules"${ui.open.rules ? ' open' : ''}><summary>How to play 42/18</summary><ol>
       <li>On your turn you roll five dice. After each roll keep at least one die and roll the rest again, as long as dice are left, so at most five rolls. You can stop after any roll.</li>
       <li>Your throw needs a 4 and a 2: that's the 42. The other three dice are your points, 3 to 18. With three 6s it's 42/18, the best throw. Without a 4 and a 2 it's "no 42", the worst.</li>
       <li>Everyone plays one turn a round. The lowest throw loses the round and takes a coaster. On a tie, whoever played later loses, however many rolls they needed. Every throw without a 4 and a 2 is the same: no 42.</li>
       <li>The players choose who starts the first round. After that, the round's loser starts the next one.</li>
       <li>Throw 42/18 and you're out at once: safe for the rest of the game. The others play on without you.</li>
-      <li>The first to take ${COASTERS} coasters loses the game, and so does the last player left when everyone else is out.</li>
-    </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the points of their throw (or No 42) and the rolls they used.' : 'Tap a die to keep it. Tap a kept die from this roll to put it back before rolling again.'}</p></details>`;
+      <li>The first to take ${lim} coasters loses the game, and so does the last player left when everyone else is out.</li>
+    </ol><p class="note">${mode === 'score' ? 'With real dice, each player enters the points of their throw (or No 42). The round\'s starter also enters the rolls used.' : 'Tap a die to keep it. Tap a kept die from this roll to put it back before rolling again.'}</p></details>`;
   }
 
   function rulesSK(mode){
@@ -4077,7 +4093,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     await listInView();
     return new Promise(resolve => {
       const nm = i => g.players[i].name, timers = [];
-      const ft = recap.kind === FT, sk = recap.kind === SK, lim = ft ? COASTERS : sk ? SK_POT : LIMIT; // 42/18, Schocken: the totals are coasters and each line shows its throw
+      const ft = recap.kind === FT, sk = recap.kind === SK, lim = ft ? recap.limit || COASTERS : sk ? SK_POT : LIMIT; // 42/18, Schocken: the totals are coasters and each line shows its throw
       let raf = 0, swapped = false, done = false, el = null, card = null;
       const doSwap = () => {
         if (swapped) return;
@@ -4112,7 +4128,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         // from the chip or the list over the mat, the card is solid like that list (it passes over the menu button and the dice)
         const solid = chip || list && list.closest('.scores-pop');
         el.innerHTML = `<div class="race-card${best ? ' badged' : ''}${cls ? ` ${cls}` : ''}${ft ? ' ft' : sk ? ' sk' : ''}${recap.order.length > CHIP_ALL ? ' crowd' : ''}${chip ? ' from-chip' : ''}${solid ? ' solid' : ''}" aria-hidden="true">
-            <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>${ft ? `${COASTERS} coasters lose` : sk ? `${SK_POT} coasters lose` : `to ${LIMIT}`}</span></div>
+            <div class="bhead"><span>Round ${recap.round} · <b>${esc(nm(recap.order[0]))}</b> starts</span><span>${ft ? `${lim} coasters lose` : sk ? `${SK_POT} coasters lose` : `to ${LIMIT}`}</span></div>
             <ol class="lines">${recap.order.map(i => lineHtml(g, i, { played:true, pts:ft ? recap.results[i].pts : recap.pts[i], res:sk ? recap.results[i] : null, total:recap.before[i], starter:i === recap.order[0] })).join('')}</ol>
             ${foot ? `<p class="bfoot">${esc(foot.textContent)}</p>` : ''}
             ${best ? `<p class="race-badge"><b>${esc(best[0])}</b> <span>${esc(best[1])}</span></p>` : ''}</div>
@@ -4310,7 +4326,8 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         state.stats = { id:randomId(), startedAt:Date.now() }; // for the owner's statistics (see queueReport)
         const mine = myLine(names);
         if (mine >= 0){ state.stats.owner = mine; state.stats.ownerId = account.id; } // the signed-in player's line; the report credits it to them
-        dispatch({ type:'start', names, starter:Math.min(s.starter, names.length - 1), kind:kindOf(s), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' });
+        dispatch(Object.assign({ type:'start', names, starter:Math.min(s.starter, names.length - 1), kind:kindOf(s), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' },
+          kindOf(s) === FT ? { coasters:setLim(s) } : {}));
         return;
       }
       case 'me': {
@@ -4429,6 +4446,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       }
       case 'mode': state.setup.mode = id === 1 ? 'score' : 'dice'; break;
       case 'kind': state.setup.kind = KINDS[id] && kindOn(KINDS[id][0]) ? KINDS[id][0] : 'sevens'; break;
+      case 'coasters': if (FT_LIMITS.includes(id)) state.setup.coasters = id; break;
       // the sheet's switch toggles; data-id 0/1 sets manual/auto
       case 'pairing': state.setup.pairing = (id == null ? state.setup.pairing !== 'auto' : id === 1) ? 'auto' : 'manual'; break;
       case 'key': {
@@ -4451,7 +4469,12 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
       case 'no42': if (state.phase === 'play' && isFT(g) && E.isScore(g) && canAct()){ ui.hint = null; ui.entry = ui.entry === '0' ? '' : '0'; } break;
       case 'commit': {
         if (state.phase !== 'play' || !E.isScore(g) || !canAct() || (ui.entry === '' && !(isSK(g) && ui.skBlind && !g.lifting))) break;
-        if (isFT(g)){ if (okPts(g, +ui.entry) && ui.rolls) dispatch({ type:'score', pts:+ui.entry, rolls:ui.rolls }); break; }
+        if (isFT(g)){
+          if (!okPts(g, +ui.entry)) break;
+          if (g.pos === 0){ if (ui.rolls) dispatch({ type:'score', pts:+ui.entry, rolls:ui.rolls }); }
+          else dispatch({ type:'score', pts:+ui.entry });
+          break;
+        }
         if (isSK(g)){
           const e = skEntry(g), hand = e.rolls === 1 || ui.skHand !== false;
           if (e.lift){ if (e.full) dispatch({ type:'score', dice:e.vals, hand }); }
@@ -4491,7 +4514,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         storeName(name);
         ui.hint = null;
         // a new room starts with the server's defaults; the remembered dice and 7s follow right after welcome
-        const s = state.setup, settings = { kind:kindOf(s), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual' };
+        const s = state.setup, settings = { kind:kindOf(s), mode:s.mode === 'score' ? 'score' : 'dice', pairing:s.pairing === 'auto' ? 'auto' : 'manual', coasters:setLim(s) };
         netStart({ create:true, name, settings });
         return;
       }
@@ -4509,6 +4532,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
         return;
       }
       case 'omode': if (amHost()) netSend({ t:'lobby', op:'settings', mode:id === 1 ? 'score' : 'dice' }); break;
+      case 'ocoasters': if (amHost() && FT_LIMITS.includes(id)) netSend({ t:'lobby', op:'settings', coasters:id }); break;
       case 'okind': if (amHost() && KINDS[id] && kindOn(KINDS[id][0])) netSend({ t:'lobby', op:'settings', kind:KINDS[id][0] }); break;
       case 'opairing': { // the switch toggles; data-id 0/1 sets
         if (!amHost()) break;
@@ -4662,6 +4686,7 @@ html:root[data-look="vegas"] .key:not(.fn){color:var(--ink)}
     if (r.sent[id] === sig || r.queue.some(q => q.id === id && q.sig === sig)) return;
     const body = { id, mode:g.mode, startedAt:state.stats.startedAt, finishedAt:Date.now(), sheet };
     if (g.kind) body.kind = g.kind; // 42/18 or Schocken; none = Sevens Out
+    if (isFT(g) && ftLim(g) !== COASTERS) body.coasters = ftLim(g); // 42/18: 5 or 7 coasters lose (none = 3)
     if (Number.isInteger(state.stats.owner)) body.owner = state.stats.owner;
     // ownerId: whose session may go with it (a report can wait while another player signs in on this phone)
     const ownerId = Number.isInteger(state.stats.owner) && typeof state.stats.ownerId === 'string' ? state.stats.ownerId : null;

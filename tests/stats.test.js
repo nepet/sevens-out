@@ -252,7 +252,7 @@ test('42/18 and Schocken games ended early are accepted, between rounds and in t
       const turns = s.game.rounds.flatMap(rd => E.orderFrom(rd.starter, s.game.players.length).filter(p => rd.results[p]).map(p => rd.results[p]));
       for (const x of turns.slice(0, steps)) {
         if (t.phase !== 'play') break;
-        const action = s.game.kind === '4218' ? { type: 'score', pts: x.pts === 18 ? 17 : x.pts, rolls: x.rolls }
+        const action = s.game.kind === '4218' ? { type: 'score', pts: x.pts === 18 ? 17 : x.pts, rolls: x.rolls || 1 }
           : t.game.lifting ? { type: 'score', dice: [2, 3, 5] } : { type: 'score', dice: x.dice || [6, 4, 1], rolls: Math.min(x.rolls, t.game.pos === 0 ? 3 : t.game.mark), hand: x.hand };
         t = must(t, action);
       }
@@ -277,6 +277,7 @@ test('a corrected 42/18 scoreboard game is accepted even though a round\'s start
   assert.ok(r.ok, r.error);
   assert.equal(r.state.game.loser, s.game.loser);
   const dice = reportOf(s, { mode: 'dice' });
+  for (const rd of dice.sheet.rounds) for (const x of Object.values(rd.results)) x.rolls = x.rolls || 1; // dice games count everyone's rolls
   assert.equal(checkReport(dice, E, NOW).error, 'round 2: wrong starter', 'dice games follow every rule');
 });
 
@@ -289,6 +290,29 @@ test('a long Schocken game of 12 fits in one report', () => {
     assert.ok(checkReport(rep, E, NOW).ok);
   }
   assert.ok(biggest < MAX_REPORT_BYTES / 2, `${biggest} bytes`);
+});
+
+test('42/18 games to 5 or 7 coasters carry the limit in the report, and the server checks it', () => {
+  let longer = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    for (const coasters of [5, 7]) {
+      const s = ftGame(seed, undefined, undefined, coasters);
+      assert.equal(s.game.coasters, coasters);
+      const r = checkReport(reportOf(s, { coasters }), E, NOW);
+      assert.ok(r.ok, `seed ${seed} to ${coasters}: ${r.error}`);
+      assert.equal(r.state.game.loser, s.game.loser);
+      assert.deepEqual(r.state.game.players.map(p => p.score), s.game.players.map(p => p.score));
+      // without the limit the server reads it as a game to 3
+      if (!s.game.left && Math.max(...s.game.players.map(p => p.score)) > 3 && s.game.mode === 'dice') {
+        assert.ok(checkReport(reportOf(s), E, NOW).error, 'a dice game past 3 coasters needs its limit'); longer++;
+      }
+    }
+  }
+  assert.ok(longer, 'some dice games went past 3 coasters');
+  const three = ftGame(3, 4, 'dice');
+  refused(reportOf(three, { coasters: 4 }), 'no game to 4');
+  refused(reportOf(three, { coasters: 5 }), 'nobody has 5 coasters');
+  refused(reportOf(diceGame(3), { coasters: 5 }), 'only 42/18 has coasters');
 });
 
 test('broken or made-up 42/18 and Schocken reports are refused', () => {

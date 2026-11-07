@@ -104,7 +104,7 @@ export class Room {
   publicRoom() {
     const d = this.data, on = this.connectedSeats();
     return {
-      code: d.code, phase: d.phase, host: this.effectiveHost(on), settings: d.settings,
+      code: d.code, phase: d.phase, host: this.effectiveHost(on), settings: { coasters: 3, ...d.settings }, // a room saved before the coasters choice: 3
       seats: d.seats.map(s => ({ id: s.id, name: s.name, connected: on.has(s.id), user: s.user || null }))
     };
   }
@@ -225,7 +225,7 @@ export class Room {
       if (!CODE_RE.test(code || '')) return this.error(conn, 'bad_message', 'Bad room code.');
       d = this.data = {
         v: 1, rid: hex(8), code, created: this.now(), updated: this.now(), rev: 1,
-        phase: 'lobby', host: null, settings: { kind: 'sevens', mode: 'dice', pairing: 'manual', starter: 0 }, seats: [], state: null
+        phase: 'lobby', host: null, settings: { kind: 'sevens', mode: 'dice', pairing: 'manual', starter: 0, coasters: 3 }, seats: [], state: null
       };
       const seat = this.addSeat(m.name, user);
       d.host = seat.id;
@@ -347,6 +347,7 @@ export class Room {
         if (m.kind === 'sevens' || m.kind === '4218' || m.kind === 'schocken') d.settings.kind = m.kind;
         if (m.mode === 'dice' || m.mode === 'score') d.settings.mode = m.mode;
         if (m.pairing === 'manual' || m.pairing === 'auto') d.settings.pairing = m.pairing;
+        if ((this.E.FT_LIMITS || []).includes(m.coasters)) d.settings.coasters = m.coasters; // 42/18: the coasters that lose
         if (m.starter === 'random' || (Number.isInteger(m.starter) && m.starter >= 0 && m.starter < MAX_SEATS)) d.settings.starter = m.starter;
         break;
       }
@@ -358,7 +359,7 @@ export class Room {
         let starter = d.settings.starter;
         if (starter === 'random') { const b = new Uint8Array(1); do crypto.getRandomValues(b); while (b[0] >= 256 - (256 % n)); starter = b[0] % n; } // no modulo bias
         if (!(starter >= 0 && starter < n)) starter = 0;
-        const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, kind: d.settings.kind || 'sevens', mode: d.settings.mode, pairing: d.settings.pairing });
+        const r = this.E.apply(this.E.blank(), { type: 'start', names: d.seats.map(s => s.name), seats: d.seats.map(s => s.id), starter, kind: d.settings.kind || 'sevens', mode: d.settings.mode, pairing: d.settings.pairing, coasters: d.settings.coasters || 3 });
         if (r.error) return this.error(conn, r.error, 'Could not start.');
         d.state = r.state; d.phase = 'game'; d.rev++;
         d.stats = { id: hex(8), startedAt: this.now() };

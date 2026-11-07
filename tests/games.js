@@ -56,9 +56,9 @@ export function quickGame(names, others = 5) {
 
 // a finished 42/18 game: dice games keep the 4s and 2s first; real dice now and then throw a 42/18, so players go out
 // and some games end with one player left
-export function ftGame(seed, n = 2 + (seed % 5), mode = seed % 2 ? 'dice' : 'score') {
+export function ftGame(seed, n = 2 + (seed % 5), mode = seed % 2 ? 'dice' : 'score', coasters) {
   const rng = seeded(seed);
-  let s = must(E.blank(), { type: 'start', kind: E.FT, names: Array.from({ length: n }, (_, i) => `P${i + 1}`), starter: seed % n, mode });
+  let s = must(E.blank(), { type: 'start', kind: E.FT, names: Array.from({ length: n }, (_, i) => `P${i + 1}`), starter: seed % n, mode, coasters });
   while (s.phase !== 'over') {
     if (mode === 'score') {
       if (rng() === 6 && rng() === 6) s = must(s, { type: 'drop' });

@@ -87,6 +87,8 @@ export function checkReport(r, E, now = Date.now()) {
   const kind = r.kind === undefined ? 'sevens' : r.kind;
   if (!KINDS.includes(kind)) return bad('kind');
   if (r.mode !== 'dice' && r.mode !== 'score') return bad('mode');
+  // 42/18: the coasters that lose (3, 5 or 7; missing = 3, reports from before the choice)
+  if (r.coasters !== undefined && !(kind === '4218' && (E.FT_LIMITS || [3]).includes(r.coasters))) return bad('coasters');
   if (!isInt(r.finishedAt, 1, now + CLOCK_SLACK_MS)) return bad('finishedAt');
   if (r.startedAt !== null && !isInt(r.startedAt, r.finishedAt - MAX_GAME_MS, r.finishedAt)) return bad('startedAt');
   const sh = r.sheet;
@@ -99,7 +101,7 @@ export function checkReport(r, E, now = Date.now()) {
   if (sh.rounds.length < 1 || sh.rounds.length > MAX_ROUNDS) return bad('rounds');
   if (sh.shots.length > MAX_SHOTS) return bad('shots');
   const rebuild = kind === '4218' ? rebuildFT : kind === 'schocken' ? rebuildSK : rebuildSevens;
-  const g = rebuild(E, sh.rounds, { mode: r.mode, players: names.map(name => ({ name, score: 0 })), rounds: [], starter: 0, order: [], shots: [], early: sh.early === true, loser: null });
+  const g = rebuild(E, sh.rounds, { mode: r.mode, ...(r.coasters !== undefined ? { coasters: r.coasters } : {}), players: names.map(name => ({ name, score: 0 })), rounds: [], starter: 0, order: [], shots: [], early: sh.early === true, loser: null });
   if (g.error) return g;
   for (const s of sh.shots) {
     if (!isObj(s) || !isInt(s.player, 0, n - 1) || !isInt(s.round, 1, g.rounds.length)) return bad('shots');
@@ -152,7 +154,7 @@ function rebuildSevens(E, rounds, g) {
 // loser afterwards) and go on past 3 coasters (a correction mid-round); who is out can't be corrected.
 function rebuildFT(E, rounds, g) {
   const bad = error => ({ error }), n = g.players.length, dice = g.mode === 'dice', early = g.early;
-  g.kind = E.FT;
+  g.kind = E.FT; g.coasters = E.ftLimit(g);
   let over = false, lastLoser = null;
   for (let ri = 0; ri < rounds.length; ri++) {
     const rd = rounds[ri], no = ri + 1, last = ri === rounds.length - 1;
@@ -168,8 +170,10 @@ function rebuildFT(E, rounds, g) {
     for (let k = 0; k < count; k++) {
       const p = order[k], t = rd.results[p];
       if (!isObj(t) || !(t.pts === 0 || isInt(t.pts, E.FT_MIN, E.FT_MAX))) return bad(`round ${no}: points`);
-      if (!isInt(t.rolls, 1, E.FT_ROLLS)) return bad(`round ${no}: rolls`);
-      results[p] = { pts: t.pts, rolls: t.rolls };
+      // real dice: only the starter enters the rolls (reports from an older page carry everyone's: dropped)
+      const own = dice || k === 0;
+      if (own ? !isInt(t.rolls, 1, E.FT_ROLLS) : t.rolls != null && !isInt(t.rolls, 1, E.FT_ROLLS)) return bad(`round ${no}: rolls`);
+      results[p] = { pts: t.pts, rolls: own ? t.rolls : null };
       if (t.pts === E.FT_MAX) g.players[p].out = no;
       const left = E.ftLeft(g);
       if (left.length === 1) { // everyone else is out: the game ends with this turn
@@ -184,11 +188,11 @@ function rebuildFT(E, rounds, g) {
     }
     lastLoser = round.loser = E.roundLoser(round, n);
     g.players[lastLoser].score++;
-    if (dice && !early && !last && highest(g) >= E.COASTERS) return bad(`round ${no}: the game should have ended`);
+    if (dice && !early && !last && highest(g) >= E.ftLimit(g)) return bad(`round ${no}: the game should have ended`);
   }
   if (g.left) return g;
   if (early) g.loser = E.highestLater(g, E.ftLeft(g));
-  else if (highest(g) < E.COASTERS) return bad('nobody has 3 coasters');
+  else if (highest(g) < E.ftLimit(g)) return bad(`nobody has ${E.ftLimit(g)} coasters`);
   else g.loser = E.ftGameLoser(g, lastLoser);
   return g;
 }

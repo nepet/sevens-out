@@ -141,6 +141,9 @@
   // the others play on without them, and the last player left loses.
   const FT = '4218', FT_DICE = 5, FT_ROLLS = FT_DICE, COASTERS = 3, FT_MIN = 3, FT_MAX = 18;
   const isFT = g => !!g && g.kind === FT;
+  // the coasters that lose the game: 3 (the default, and every game saved before the choice), 5 or 7 (`game.coasters`)
+  const FT_LIMITS = [3, 5, 7];
+  const ftLimit = g => (FT_LIMITS.includes(g && g.coasters) ? g.coasters : COASTERS);
   const ftPts = v => v === 0 || intIn(v, FT_MIN, FT_MAX);
   // the points of a throw: the three dice besides a 4 and a 2, or 0 without them
   function throwPts(values) {
@@ -193,11 +196,11 @@
     const pick = (kind, player, value = null) => { if (player !== undefined) best = { kind, player, value }; return player !== undefined; };
     pick('perfect', first(i => res[i] && res[i].pts === FT_MAX)) ||
     pick('shots', first(i => (g.shots || []).some(x => x.player === i && x.round === rd.no))) ||
-    (after[L] === COASTERS - 1 && pick('lastCoaster', L, after[L])) ||
+    (after[L] === ftLimit(g) - 1 && pick('lastCoaster', L, after[L])) ||
     (low.pts === 0 && pick('no42', L));
     const tied = order.filter(i => res[i] && res[i].pts === low.pts);
     const reason = { kind: tied.length > 1 ? 'later' : 'low', score: low.pts };
-    return { round: rd.no, next: g.rounds[fin + 1].starter, order, pts, before, after, best, reason, results: res, kind: FT };
+    return { round: rd.no, next: g.rounds[fin + 1].starter, order, pts, before, after, best, reason, results: res, kind: FT, limit: ftLimit(g) };
   }
 
   // ---------- Schocken, the third game ----------
@@ -301,9 +304,9 @@
   function ftTurn() {
     return { dice: Array.from({ length: FT_DICE }, (_, id) => ({ id, value: null, held: null })), rolls: 0, maxRolls: FT_ROLLS, pairs: [] };
   }
-  function newFTGame(names, starter, mode) {
+  function newFTGame(names, starter, mode, coasters) {
     return {
-      kind: FT, mode: mode === 'score' ? 'score' : 'dice', history: [],
+      kind: FT, mode: mode === 'score' ? 'score' : 'dice', coasters: FT_LIMITS.includes(coasters) ? coasters : COASTERS, history: [],
       players: names.map(name => ({ name, score: 0 })),
       round: 1, starter, order: orderFrom(starter, names.length), pos: 0,
       mark: null, ending: false, crosser: null, next: null, loser: null, last: null,
@@ -433,7 +436,7 @@
     if (g.pos < g.order.length) { g.turn = ftTurn(); return; }
     const L = roundLoser(rd, g.players.length);
     rd.loser = L; g.players[L].score++;
-    if (g.players.some(pl => pl.score >= COASTERS)) {
+    if (g.players.some(pl => pl.score >= ftLimit(g))) {
       g.ending = true; g.loser = ftGameLoser(g, L); s.phase = 'over';
       ev.push({ type: 'gameOver', loser: g.loser });
     } else ftNextRound(s, L, ev);
@@ -458,7 +461,7 @@
       else delete rd.loser;
     }
     g.last = null;
-    const full = g.players.some(pl => pl.score >= COASTERS);
+    const full = g.players.some(pl => pl.score >= ftLimit(g));
     if (s.phase === 'play' && !between) { g.ending = full; return; }
     if (s.phase === 'over' && g.early) { g.loser = highestLater(g, ftLeft(g)); return; }
     if (s.phase === 'over' && g.left) return; // the last player left still loses (a 42/18 can't be corrected)
@@ -510,9 +513,12 @@
       case 'score': {
         if (!inPlay || !isScore(g)) return fail('phase');
         if (!ftPts(action.pts)) return fail('pts');
-        if (!intIn(action.rolls, 1, FT_ROLLS)) return fail('rolls');
+        // only the round's starter enters the rolls, as in Sevens Out (they don't break a tie); an older page sends
+        // them for everyone, so another player's are checked and dropped
+        const isStarter = g.pos === 0;
+        if (isStarter ? !intIn(action.rolls, 1, FT_ROLLS) : action.rolls != null && !intIn(action.rolls, 1, FT_ROLLS)) return fail('rolls');
         snapshot(s, `${g.players[current(g)].name}'s entry was removed. Enter it again.`);
-        ftRecord(s, action.pts, action.rolls, ev);
+        ftRecord(s, action.pts, isStarter ? action.rolls : null, ev);
         break;
       }
       case 'edit': {
@@ -763,7 +769,7 @@
         const names = Array.isArray(action.names) ? action.names : [];
         if (names.length < 2 || names.length > MAX_PLAYERS) return fail('players');
         const starter = intIn(action.starter, 0, names.length - 1) ? action.starter : 0;
-        s.game = action.kind === FT ? newFTGame(names.map(cleanName), starter, action.mode)
+        s.game = action.kind === FT ? newFTGame(names.map(cleanName), starter, action.mode, action.coasters)
           : action.kind === SK ? newSKGame(names.map(cleanName), starter, action.mode)
           : newGame(names.map(cleanName), starter, action.mode, action.pairing);
         if (Array.isArray(action.seats)) s.game.seats = action.seats.slice(0, names.length);
@@ -899,7 +905,7 @@
     apply, blank, newGame, newTurn, rnd6, clone, orderFrom, isScore, byHand,
     active, sumActive, maxPairs, finalPenalty, pairable, canRoll, spent, ftSpent, matchPairs, current,
     reachedAt, tiedForStart, nextStarter, highestLater, roundRecap,
-    FT, FT_DICE, FT_ROLLS, COASTERS, FT_MIN, FT_MAX, isFT, throwPts, roundLoser, ftPlays, ftLeft, ftPerfect, ftGameLoser,
+    FT, FT_DICE, FT_ROLLS, COASTERS, FT_LIMITS, ftLimit, FT_MIN, FT_MAX, isFT, throwPts, roundLoser, ftPlays, ftLeft, ftPerfect, ftGameLoser,
     SK, SK_DICE, SK_POT, isSK, skThrow, skBetter, skExtremes, skInPlay, skHand, canFlip
   });
 })(typeof globalThis !== 'undefined' ? globalThis : this);

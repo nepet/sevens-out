@@ -756,9 +756,18 @@ test('42/18: the host picks the game, keep and unkeep are the player\'s moves, a
   assert.equal(last(b, 'room').room.settings.kind, 'sevens');
   await send(room, a, { t: 'lobby', op: 'settings', kind: '4218' });
   assert.equal(last(b, 'room').room.settings.kind, '4218');
+  // the coasters that lose: 3 by default, 5 or 7 by the host
+  assert.equal(last(b, 'room').room.settings.coasters, 3);
+  await send(room, b, { t: 'lobby', op: 'settings', coasters: 5 });
+  assert.equal(last(b, 'error').code, 'host_only');
+  await send(room, a, { t: 'lobby', op: 'settings', coasters: 4 });
+  assert.equal(last(b, 'room').room.settings.coasters, 3);
+  await send(room, a, { t: 'lobby', op: 'settings', coasters: 5 });
+  assert.equal(last(b, 'room').room.settings.coasters, 5);
   await send(room, a, { t: 'lobby', op: 'start' });
   const g = last(b, 'room').state.game;
   assert.equal(g.kind, '4218');
+  assert.equal(g.coasters, 5);
   assert.equal(g.turn.dice.length, 5);
   assert.deepEqual(stats.records.map(r => [r.game.kind, r.game.status]), [['4218', 'playing']]);
   await send(room, a, { t: 'act', action: { type: 'roll' } });

@@ -575,7 +575,7 @@ test('Play sheet, Create room: the remembered dice and 7s go to the new room; th
   await createRoom(p2, 'Cleo');
   await p2.waitForTimeout(300);
   expect(await p2.evaluate(() => window.__sent.filter(m => m.t === 'lobby').length)).toBe(0);
-  expect((await net(p2)).room.settings).toEqual({ kind: 'sevens', mode: 'dice', pairing: 'manual', starter: 0 });
+  expect((await net(p2)).room.settings).toEqual({ kind: 'sevens', mode: 'dice', pairing: 'manual', starter: 0, coasters: 3 });
   await ctx2.close();
 });
 
